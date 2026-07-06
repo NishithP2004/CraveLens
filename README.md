@@ -5,12 +5,14 @@
 ## What it does
 
 1. Samples frames from the active YouTube video without uploading them.
-2. Runs a lightweight LiteRT FoodNet classifier to decide whether food is visible.
+2. Runs the bundled `best_dynamic.onnx` YOLO food detector in an ONNX Runtime Web Worker. Only detector-positive frames proceed to the more expensive VLM stage.
 3. Selects a representative, sharp keyframe from a short frame burst.
-4. Runs Gemma 3n locally with MediaPipe Tasks GenAI to identify the dish, cuisine, ingredients, confidence, and context.
-5. Sends only the structured dish description, selected saved-address ID, and video metadata to the Node.js backend.
-6. Runs a LangChain `createAgent()` ReAct loop with authenticated Swiggy MCP tools to inspect order history, search orderable menu items, respect observed dietary constraints, build the cart, and apply the best valid coupon.
-7. Shows an itemized receipt and requires explicit confirmation before calling Swiggy's order tool.
+4. Runs Gemma 3n locally with MediaPipe Tasks GenAI to return an `isFood` verdict plus the dish, cuisine, ingredients, confidence, and context.
+5. Continues only when Gemma returns valid structured JSON, `isFood: true`, and confidence of at least 0.65. Failed, malformed, non-food, and low-confidence responses do not show a craving prompt or create a cart.
+6. Records the confirmed dish, frame timestamp, and visual signature in per-video `localStorage` history to suppress repeated scenes, duplicate dishes, unnecessary VLM work, and duplicate carts.
+7. Sends only the structured dish description, selected saved-address ID, and video metadata to the Node.js backend.
+8. Runs a LangChain `createAgent()` ReAct loop with authenticated Swiggy MCP tools to inspect order history, search orderable menu items, respect observed dietary constraints, build the cart, and apply the best valid coupon.
+9. Saves prepared carts in a collapsible per-video cart shelf and shows an itemized receipt with an explicit confirmation step before calling Swiggy's order tool.
 
 ## Architecture
 
@@ -21,20 +23,28 @@ flowchart TB
   subgraph Chrome["Chrome MV3 extension — on-device boundary"]
     direction TB
     Popup["Popup UI<br/>Swiggy connection, saved-address picker,<br/>sensitivity and debug controls"]
-    Content["YouTube content script<br/>sampling scheduler and cart overlay"]
-    Worker["Web Worker<br/>LiteRT FoodNet classifier"]
+    Content["YouTube content script<br/>sampling scheduler, detector canvas,<br/>craving prompt and cart shelf"]
+    Worker["Module Web Worker<br/>best_dynamic.onnx via ONNX Runtime WASM<br/>YOLO decode + NMS"]
     Burst["Frame burst and keyframe selector<br/>RGB histogram clustering + sharpness"]
     Offscreen["Offscreen document<br/>Gemma 3n VLM via MediaPipe / LiteRT WebGPU"]
-    Debug["Debug overlay<br/>FoodNet scores, VLM result, latency and errors"]
-    LocalPrefs[("Chrome storage / localStorage<br/>session ID, selected address, preferences")]
+    Gate{"Valid JSON?<br/>isFood = true?<br/>confidence ≥ 0.65?"}
+    History[("Per-video localStorage<br/>confirmed dishes + timestamps + signatures<br/>prepared carts + shelf state")]
+    Debug["Debug UI<br/>ONNX boxes and confidence,<br/>Gemma isFood verdict, latency and errors"]
+    LocalPrefs[("Chrome storage<br/>session ID, selected address,<br/>preferences and debug setting")]
 
     Content -->|"sample frame"| Worker
-    Worker -->|"food probability"| Content
-    Content -->|"food gate passed"| Burst
+    Worker -->|"food boxes + confidence"| Content
+    Content -->|"debug mode: draw temporary boxes"| Debug
+    Content -->|"detector-positive: check timestamp / signature"| History
+    History -->|"new scene"| Burst
+    History -->|"known scene: skip verification"| Content
     Burst -->|"selected frame stays local"| Offscreen
-    Offscreen -->|"structured dish JSON"| Content
+    Offscreen -->|"structured verification JSON"| Gate
+    Gate -->|"confirmed food only"| Content
+    Gate -->|"failed / invalid / rejected: stop silently"| Debug
+    Content -->|"deduplicate dish and persist confirmation"| History
+    Content -->|"persist prepared cart"| History
     Content --> Debug
-    Worker --> Debug
     Offscreen --> Debug
     Popup <--> LocalPrefs
     Content <--> LocalPrefs
@@ -82,12 +92,13 @@ flowchart TB
   User --> Content
   Popup -->|"open authorization URL"| Consent
   Popup <-->|"auth status and saved addresses"| Routes
-  Content -->|"dish JSON + addressId + video metadata<br/>no video frame"| Routes
+  Content -->|"VLM-confirmed dish JSON + addressId + video metadata<br/>no video frame"| Routes
   Events -->|"WebSocket: sanitized lifecycle and tool events"| Content
   Agent <-->|"reasoning and tool calls"| AgentModel
   ToolPolicy <-->|"get addresses/history, search menu,<br/>update/verify cart, coupons"| MCP
   Orchestrator -->|"normalized receipt + rationale"| Content
-  Content -->|"render final amount and Confirm button"| User
+  Content -->|"persist cart and render shelf / full prompt"| History
+  Content -->|"render final amount, Why this cart? and Confirm button"| User
   User -->|"approve"| Decision
   Decision -->|"server-only, non-retried call"| Order
   User -->|"reject"| Decision
@@ -152,7 +163,15 @@ During extension development, `npm run dev` watches and rebuilds the extension. 
 
 ## Local model setup
 
-FoodNet and its LiteRT WASM runtime are bundled with the extension. Gemma 3n is served by the local backend and loaded into the extension for on-device inference.
+The YOLO food detector and ONNX Runtime WASM are bundled with the extension. The detector model is located at:
+
+```text
+apps/extension/public/models/food-detector/best_dynamic.onnx
+```
+
+It accepts a dynamic `[1, 3, 640, 640]` tensor and produces `[1, 5, 8400]` detections. Frames are letterboxed before inference; decoded boxes are mapped back onto the YouTube video when debug mode is enabled.
+
+Gemma 3n is served by the local backend and loaded into the extension for on-device verification.
 
 1. Accept the Gemma model license.
 2. Place the model at:
@@ -247,17 +266,27 @@ With `MONGODB_URI` configured, CraveLens stores:
 - one cache document per YouTube video, with five-second fuzzy detection deduplication;
 - orchestration threads with a 24-hour TTL index.
 
-Without MongoDB, both stores fall back to process memory and are cleared when the server restarts. The selected address and extension preferences are cached locally in the browser.
+Without MongoDB, both server stores fall back to process memory and are cleared when the server restarts.
+
+The browser additionally stores the following per YouTube video in `localStorage`:
+
+- VLM-confirmed dish names, normalized deduplication keys, confidence, and frame timestamps;
+- compact frame histogram signatures used to avoid repeated VLM verification of the same scene;
+- prepared cart suggestions and their ready/ordered state;
+- whether the **Carts for this video** shelf is hidden or visible.
+
+The selected address, extension preferences, detector sensitivity, and debug setting remain in Chrome extension storage.
 
 ## Debugging
 
 Enable **Debug overlay** in the popup. The YouTube overlay reports:
 
 - active video ID and timestamp;
-- FoodNet scheduling, latency, and class probabilities;
-- food-gate result;
-- Gemma 3n dish, confidence, context, and inference time;
-- cached detection windows;
+- ONNX detector scheduling and inference latency;
+- detector boxes, labels, and confidence scores;
+- temporary bounding boxes drawn over the video and removed when stale, paused, seeking, ended, or disabled;
+- Gemma 3n `isFood` verdict, dish, confidence, context, and inference time;
+- confirmed-food history and prepared-cart counts;
 - worker, model, messaging, and orchestration errors.
 
 Useful checks:
@@ -287,6 +316,8 @@ While orchestration is running, the extension also opens a Socket.IO WebSocket a
 ## Current constraints
 
 - Food recognition quality depends on the visible frame and local model confidence.
+- The ONNX detector is a preliminary gate; only Gemma-confirmed food at confidence 0.65 or higher can create a craving prompt or cart.
+- Per-video history is local to the current YouTube browser origin/profile and can be cleared with browser site data.
 - Gemma inference requires a capable WebGPU device and sufficient memory.
 - Swiggy MCP client availability and account eligibility are controlled by Swiggy.
 - Checkout currently follows the payment methods returned by the verified Swiggy cart and the Builders Club ordering constraints.

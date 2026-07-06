@@ -2,7 +2,10 @@
   "name": "cravelens",
   "private": true,
   "version": "0.1.0",
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "concurrently -n server,extension -c cyan,magenta \"npm run dev -w @cravelens/server\" \"npm run dev -w @cravelens/extension\"",
     "dev:web": "npm run dev -w @cravelens/web",
@@ -12,7 +15,6 @@
     "typecheck": "npm run typecheck -ws --if-present"
   },
   "devDependencies": {
-    "concurrently": "^9.2.0",
-    "typescript": "^5.8.3"
+    "concurrently": "^9.2.0"
   }
 }
