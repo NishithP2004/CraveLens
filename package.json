@@ -1,0 +1,18 @@
+{
+  "name": "cravelens",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev": "concurrently -n server,extension -c cyan,magenta \"npm run dev -w @cravelens/server\" \"npm run dev -w @cravelens/extension\"",
+    "dev:web": "npm run dev -w @cravelens/web",
+    "build:web": "npm run build -w @cravelens/web",
+    "build": "npm run build -w @cravelens/shared && npm run build -w @cravelens/server && npm run build -w @cravelens/extension",
+    "test": "npm run test -w @cravelens/server",
+    "typecheck": "npm run typecheck -ws --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.0",
+    "typescript": "^5.8.3"
+  }
+}

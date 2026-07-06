@@ -1,0 +1,20 @@
+{
+  "name": "@cravelens/extension",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build",
+    "typecheck": "node --check src/content.js && node --check src/background.js"
+  },
+  "devDependencies": {
+    "vite": "^6.3.5"
+  },
+  "dependencies": {
+    "@litertjs/core": "^2.5.2",
+    "@mediapipe/tasks-genai": "^0.10.28",
+    "dompurify": "^3.4.11",
+    "marked": "^15.0.12",
+    "socket.io-client": "^4.8.3"
+  }
+}

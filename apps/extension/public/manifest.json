@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "CraveLens",
+  "version": "0.1.0",
+  "description": "See it. Crave it. Get a personalized Swiggy cart.",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "permissions": ["storage", "notifications", "tabs", "scripting", "geolocation", "offscreen"],
+  "host_permissions": ["https://www.youtube.com/*", "https://mcp.swiggy.com/*", "http://localhost:8787/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_popup": "src/popup.html", "default_title": "CraveLens" },
+  "content_scripts": [{ "matches": ["https://www.youtube.com/*"], "js": ["content.js"], "run_at": "document_idle" }],
+  "web_accessible_resources": [{ "resources": ["food-worker.js", "chunks/*", "*.wasm", "litert-wasm/*", "genai-wasm/*", "models/food-classifier/*"], "matches": ["https://www.youtube.com/*"] }]
+}

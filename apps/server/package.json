@@ -1,0 +1,35 @@
+{
+  "name": "@cravelens/server",
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "build": "node --check src/index.js && node --check src/app.js",
+    "start": "node src/index.js",
+    "test": "vitest run",
+    "typecheck": "node --check src/index.js && node --check src/app.js"
+  },
+  "dependencies": {
+    "@cravelens/shared": "*",
+    "@langchain/core": "^1.2.1",
+    "@langchain/google": "^0.2.1",
+    "@langchain/langgraph": "^1.4.7",
+    "@langchain/openai": "^1.2.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "langchain": "^1.2.24",
+    "mongodb": "^6.17.0",
+    "socket.io": "^4.8.3",
+    "zod": "^3.25.67"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "vitest": "^3.2.4"
+  }
+}
