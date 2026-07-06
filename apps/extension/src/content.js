@@ -3,7 +3,9 @@ import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { io } from "socket.io-client";
 
-const state = { running: false, lastTrigger: -120, cache: [], videoId: "", modelStatus: "idle", lastResult: null, vlmStatus: "idle", vlmResult: null, error: "", agentSocket: null, agentEvents: [] };
+const state = { running: false, lastTrigger: -120, cache: [], videoId: "", modelStatus: "idle", lastResult: null, vlmStatus: "idle", vlmResult: null, error: "", agentSocket: null, agentEvents: [], foodHistory: [], carts: [], cartsHidden: false };
+const VIDEO_STORE_PREFIX = "cravelens:video:";
+let detectorOverlayTimer;
 const api = (path, options = {}) => chrome.runtime.sendMessage({ type: "CRAVELENS_API", path, ...options }).then((r) => { if (!r.ok) throw new Error(r.error); return r.data; });
 const settings = () => chrome.storage.local.get({ enabled: true, debug: false, apiUrl: "http://localhost:8787", addressId: "", addressLabel: "", sensitivity: .58 });
 
@@ -26,11 +28,12 @@ async function burst(video) {
   return selectKeyframe(frames).dataUrl;
 }
 
-async function trigger(video, confidence) {
+async function trigger(video, confidence, signature) {
   state.lastTrigger = video.currentTime;
+  if (state.foodHistory.some((entry) => Math.abs(Number(entry.timestamp) - video.currentTime) < 8)) return;
+  if (signature && state.foodHistory.some((entry) => histogramDistance(signature, entry.signature) < .11)) return;
   closeAgentStream();
-  state.agentEvents = [{ message: "Analyzing the frame locally…", state: "active" }];
-  showToast({ loading: true });
+  let vlmConfirmed = false;
   try {
     const cfg = await settings();
     const keyframeDataUrl = await burst(video);
@@ -38,14 +41,45 @@ async function trigger(video, confidence) {
     const local = await chrome.runtime.sendMessage({ type: "CRAVELENS_VLM_VERIFY", imageDataUrl: keyframeDataUrl, videoTitle: document.title.replace(" - YouTube", "") });
     if (!local?.ok) { state.vlmStatus = "failed"; renderDebug(); throw new Error(local?.error || "Local Gemma 3n verification failed"); }
     state.vlmStatus = "ready"; state.vlmResult = { ...local.verification, inferenceMs: local.vlmInferenceMs, timestamp: video.currentTime }; renderDebug();
-    state.agentEvents = [{ message: `${local.verification.dish} identified locally`, state: "done" }, { message: "Connecting to the cart agent…", state: "active" }];
+    if (!local.verification.isFood || local.verification.confidence < .65) return;
+    vlmConfirmed = true;
+    const dishKey = normalizeDish(local.verification.dish);
+    const existing = state.foodHistory.find((entry) => entry.dishKey === dishKey);
+    if (existing) return;
+    state.foodHistory.push({ dish: local.verification.dish, dishKey, timestamp: video.currentTime, confidence: local.verification.confidence, signature: signature || null, confirmedAt: Date.now() });
+    persistVideoState();
+    state.agentEvents = [{ message: `${local.verification.dish} confirmed by Gemma 3n`, state: "done" }, { message: "Connecting to the cart agent…", state: "active" }];
+    showToast({ loading: true, dish: local.verification.dish });
     renderAgentEvents();
     const streamId = crypto.randomUUID();
     await connectAgentStream(cfg.apiUrl, streamId);
     const result = await api("/api/orchestrate", { method: "POST", body: { videoId: state.videoId, timestamp: video.currentTime, triggerConfidence: confidence, verification: local.verification, videoTitle: document.title.replace(" - YouTube", ""), addressId: cfg.addressId || undefined, streamId } });
     closeAgentStream();
-    if (result.detected) showToast({ suggestion: result.suggestion }); else removeToast();
-  } catch (error) { closeAgentStream(); showToast({ error: error.message }); }
+    if (result.detected) {
+      const cart = { ...result.suggestion, detectedDish: local.verification.dish, frameTimestamp: video.currentTime, addedAt: Date.now(), status: "ready" };
+      state.carts.push(cart); persistVideoState(); renderCartHistory(); showToast({ suggestion: cart });
+    } else removeToast();
+  } catch (error) {
+    closeAgentStream();
+    state.error = error.message; renderDebug();
+    if (vlmConfirmed) showToast({ error: error.message });
+  }
+}
+
+function normalizeDish(value) { return String(value || "food").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
+function histogramDistance(a, b) { return !a || !b ? Infinity : a.reduce((sum, value, index) => sum + Math.abs(value - (b[index] || 0)), 0); }
+function storageKey() { return `${VIDEO_STORE_PREFIX}${state.videoId}`; }
+function persistVideoState() {
+  if (!state.videoId) return;
+  localStorage.setItem(storageKey(), JSON.stringify({ foodHistory: state.foodHistory, carts: state.carts, cartsHidden: state.cartsHidden }));
+}
+function loadVideoState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey()) || "{}");
+    state.foodHistory = Array.isArray(saved.foodHistory) ? saved.foodHistory : [];
+    state.carts = Array.isArray(saved.carts) ? saved.carts : [];
+    state.cartsHidden = Boolean(saved.cartsHidden);
+  } catch { state.foodHistory = []; state.carts = []; state.cartsHidden = false; }
 }
 
 function connectAgentStream(apiUrl, streamId) {
@@ -128,7 +162,7 @@ async function tick() {
       const shot = capture(video, 640);
       const result = await detectFood(shot.canvas, cfg.sensitivity);
       state.lastResult = { ...result, timestamp: video.currentTime, source: "scheduled" }; state.error = ""; renderDebug();
-      if (result.detections.length) await trigger(video, result.detections[0].score);
+      if (result.detections.length) await trigger(video, result.detections[0].score, frameFeatures(shot.imageData).histogram);
     }
   } catch (error) { state.error = error.message; renderDebug(); }
   finally { state.running = false; }
@@ -139,7 +173,39 @@ async function detectFood(canvas, threshold) {
   const response = await chrome.runtime.sendMessage({ type: "CRAVELENS_YOLO_DETECT", imageDataUrl: canvas.toDataURL("image/jpeg", .82), threshold });
   if (!response?.ok) throw new Error(response?.error || "YOLO inference failed");
   state.modelStatus = "ready";
+  const { debug } = await settings();
+  if (debug) renderDetectorOverlay(response.detections); else removeDetectorOverlay();
   return response;
+}
+
+function removeDetectorOverlay() {
+  clearTimeout(detectorOverlayTimer); detectorOverlayTimer = undefined;
+  document.getElementById("cravelens-detection-overlay")?.remove();
+}
+function renderDetectorOverlay(detections) {
+  const video = document.querySelector("video");
+  if (!video?.parentElement) return;
+  if (!detections.length) { removeDetectorOverlay(); return; }
+  let canvas = document.getElementById("cravelens-detection-overlay");
+  if (!canvas) {
+    canvas = document.createElement("canvas"); canvas.id = "cravelens-detection-overlay";
+    canvas.style.cssText = "position:absolute;pointer-events:none;z-index:2147483645;background:transparent";
+    video.parentElement.append(canvas);
+  }
+  const dpr = devicePixelRatio || 1; const width = video.clientWidth; const height = video.clientHeight;
+  canvas.style.left = `${video.offsetLeft}px`; canvas.style.top = `${video.offsetTop}px`; canvas.style.width = `${width}px`; canvas.style.height = `${height}px`;
+  canvas.width = Math.round(width * dpr); canvas.height = Math.round(height * dpr);
+  const context = canvas.getContext("2d"); context.setTransform(dpr, 0, 0, dpr, 0, 0); context.clearRect(0, 0, width, height);
+  for (const box of detections) {
+    const x = box.x1 * width; const y = box.y1 * height; const w = (box.x2 - box.x1) * width; const h = (box.y2 - box.y1) * height;
+    const label = `${box.label} ${(box.score * 100).toFixed(0)}%`;
+    context.strokeStyle = "#65e887"; context.lineWidth = 3; context.strokeRect(x, y, w, h);
+    context.font = "700 13px Inter,Arial,sans-serif"; const labelWidth = context.measureText(label).width + 16;
+    context.fillStyle = "#176b36"; context.fillRect(x, Math.max(0, y - 25), labelWidth, 25);
+    context.fillStyle = "white"; context.fillText(label, x + 8, Math.max(17, y - 8));
+  }
+  clearTimeout(detectorOverlayTimer);
+  detectorOverlayTimer = setTimeout(removeDetectorOverlay, 4500);
 }
 
 async function debugScan() {
@@ -163,8 +229,8 @@ async function renderDebug() {
   const panel = document.createElement("div"); panel.id = "cravelens-debug";
   const top = state.lastResult?.allDetections?.map((item) => `${item.label} ${(item.score * 100).toFixed(0)}%`).join(" · ") || "No detections yet";
   const food = state.lastResult?.detections?.map((item) => `${item.label} ${(item.score * 100).toFixed(0)}%`).join(", ") || "none";
-  const vlm = state.vlmResult ? `${state.vlmResult.dish} · ${(state.vlmResult.confidence * 100).toFixed(0)}% · ${state.vlmResult.context}` : state.vlmStatus;
-  panel.innerHTML = `<b>CRAVELENS DEBUG</b><span class="${state.error ? "bad" : ""}">${state.error || `LiteRT FoodNet ${state.modelStatus}${state.running ? " · scanning" : ""}`}</span><dl><dt>Video</dt><dd>${escapeHtml(state.videoId || "—")} @ ${Math.floor(video?.currentTime || 0)}s</dd><dt>FoodNet</dt><dd>${state.lastResult ? `${state.lastResult.source} · ${state.lastResult.inferenceMs}ms` : "—"}</dd><dt>Food gate</dt><dd>${escapeHtml(food)}</dd><dt>Classes</dt><dd>${escapeHtml(top)}</dd><dt class="vlm-label">Gemma 3n</dt><dd class="vlm-value">${escapeHtml(vlm)}</dd><dt>VLM time</dt><dd>${state.vlmResult ? `${state.vlmResult.inferenceMs}ms @ ${Math.floor(state.vlmResult.timestamp)}s` : "—"}</dd><dt>Cache</dt><dd>${state.cache.length} detection windows</dd></dl>`;
+  const vlm = state.vlmResult ? `isFood=${state.vlmResult.isFood} · ${state.vlmResult.dish} · ${(state.vlmResult.confidence * 100).toFixed(0)}% · ${state.vlmResult.context}` : state.vlmStatus;
+  panel.innerHTML = `<b>CRAVELENS DEBUG</b><span class="${state.error ? "bad" : ""}">${state.error || `ONNX detector ${state.modelStatus}${state.running ? " · scanning" : ""}`}</span><dl><dt>Video</dt><dd>${escapeHtml(state.videoId || "—")} @ ${Math.floor(video?.currentTime || 0)}s</dd><dt>Detector</dt><dd>${state.lastResult ? `${state.lastResult.source} · ${state.lastResult.inferenceMs}ms` : "—"}</dd><dt>Food gate</dt><dd>${escapeHtml(food)}</dd><dt>Boxes</dt><dd>${escapeHtml(top)}</dd><dt class="vlm-label">Gemma 3n</dt><dd class="vlm-value">${escapeHtml(vlm)}</dd><dt>VLM time</dt><dd>${state.vlmResult ? `${state.vlmResult.inferenceMs}ms @ ${Math.floor(state.vlmResult.timestamp)}s` : "—"}</dd><dt>History</dt><dd>${state.foodHistory.length} foods · ${state.carts.length} carts</dd></dl>`;
   panel.style.cssText = "position:fixed;left:18px;bottom:18px;width:360px;z-index:2147483647;background:#0d0f0eeF;color:#dce5dc;border:1px solid #ffffff24;border-radius:14px;padding:14px;font:12px/1.45 ui-monospace,SFMono-Regular,monospace;box-shadow:0 18px 60px #0008;pointer-events:none";
   panel.querySelector("b").style.cssText = "display:block;color:#ff7043;letter-spacing:1.3px;margin-bottom:7px";
   panel.querySelector("span").style.cssText = `display:block;color:${state.error ? "#ff796b" : "#78db87"};margin-bottom:8px`;
@@ -181,23 +247,53 @@ chrome.runtime.onMessage.addListener((message, _sender, respond) => {
   if (message.type === "CRAVELENS_DEBUG_SCAN") { debugScan().then((result) => respond({ ok: true, result })).catch((error) => respond({ ok: false, error: error.message })); return true; }
   if (message.type === "CRAVELENS_DEBUG_CHANGED") { renderDebug(); respond({ ok: true }); }
 });
-chrome.storage.onChanged.addListener((changes) => { if (changes.debug) renderDebug(); });
+chrome.storage.onChanged.addListener((changes) => { if (changes.debug) { renderDebug(); if (!changes.debug.newValue) removeDetectorOverlay(); } });
 
 async function initialize() {
   const id = getVideoId(); if (!id || id === state.videoId) return;
+  removeDetectorOverlay();
   state.videoId = id; state.cache = []; state.lastTrigger = -120; state.vlmStatus = "idle"; state.vlmResult = null;
+  loadVideoState(); renderCartHistory();
   try { state.cache = (await api(`/api/videos/${id}/detections`)).detections; } catch { /* local detection remains available */ }
 }
 
+document.addEventListener("pause", (event) => { if (event.target instanceof HTMLVideoElement) removeDetectorOverlay(); }, true);
+document.addEventListener("seeking", (event) => { if (event.target instanceof HTMLVideoElement) removeDetectorOverlay(); }, true);
+document.addEventListener("ended", (event) => { if (event.target instanceof HTMLVideoElement) removeDetectorOverlay(); }, true);
+
 function removeToast() { document.getElementById("cravelens-root")?.remove(); }
+function renderCartHistory() {
+  document.getElementById("cravelens-cart-history")?.remove();
+  if (!state.videoId || !state.carts.length) return;
+  const root = document.createElement("div"); root.id = "cravelens-cart-history";
+  const shadow = root.attachShadow({ mode: "open" });
+  const carts = [...state.carts].reverse().map((cart) => `<details data-thread="${escapeHtml(cart.threadId)}"><summary><span>${escapeHtml(cart.detectedDish || cart.item)}</span><small>${formatTimestamp(cart.frameTimestamp)} · ${escapeHtml(cart.status === "ordered" ? "Ordered" : cart.restaurant)}</small></summary><div class="cart"><b>${escapeHtml(cart.item)}</b><span>${escapeHtml(cart.restaurant)}</span><div><strong>${currency(cart.finalAmount ?? cart.price)}</strong><button class="history-order" data-thread="${escapeHtml(cart.threadId)}" ${cart.status === "ordered" ? "disabled" : ""}>${cart.status === "ordered" ? "Ordered" : "Place order"}</button></div></div></details>`).join("");
+  shadow.innerHTML = `<style>:host{all:initial}.panel,.reveal{position:fixed;left:20px;top:92px;z-index:2147483646;border-radius:18px;background:#12120ff2;color:#f6f2e8;border:1px solid #ffffff18;box-shadow:0 18px 60px #0008;font:13px/1.4 Inter,Arial,sans-serif}.panel{width:310px;max-height:calc(100vh - 130px);overflow:auto}.reveal{padding:11px 15px;color:#ff7043;font-size:10px;font-weight:900;letter-spacing:1.2px;cursor:pointer}.head{position:sticky;top:0;padding:14px 16px;background:#191915;color:#ff7043;font-size:10px;font-weight:900;letter-spacing:1.5px}.head b{float:right;color:#f6f2e8}.head button{float:right;display:grid;place-items:center;width:26px;height:26px;margin:-6px 0 -6px 10px;border:0;border-radius:8px;padding:0;background:#ffffff10;color:#bbb6aa;cursor:pointer}.head button:hover{background:#ffffff1c;color:white}.head svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}details{border-top:1px solid #ffffff10}summary{padding:13px 16px;cursor:pointer;list-style:none}summary span,summary small{display:block}summary span{font-weight:750}summary small{color:#969288;margin-top:2px;font-size:10px}.cart{display:grid;gap:4px;padding:0 16px 15px;color:#aaa69c}.cart>b{color:#f6f2e8}.cart>div{display:flex;align-items:center;justify-content:space-between;margin-top:7px}.cart button{border:0;border-radius:9px;padding:8px 11px;background:#ff603d;color:white;font-weight:750;cursor:pointer}.cart button:disabled{background:#315b3d;color:#bde7c7;cursor:default}</style>${state.cartsHidden ? `<button class="reveal">SHOW VIDEO CARTS · ${state.carts.length}</button>` : `<section class="panel"><div class="head">CARTS FOR THIS VIDEO <button class="hide" aria-label="Hide video carts" title="Hide video carts"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button><b>${state.carts.length}</b></div>${carts}</section>`}`;
+  document.body.append(root);
+  shadow.querySelectorAll(".history-order").forEach((button) => button.addEventListener("click", () => orderStoredCart(button.dataset.thread, button)));
+  shadow.querySelectorAll("details[data-thread]").forEach((details) => details.addEventListener("toggle", () => { if (details.open) { const cart = state.carts.find((item) => item.threadId === details.dataset.thread); if (cart) showToast({ suggestion: cart }); } }));
+  shadow.querySelector(".hide")?.addEventListener("click", () => { state.cartsHidden = true; persistVideoState(); renderCartHistory(); });
+  shadow.querySelector(".reveal")?.addEventListener("click", () => { state.cartsHidden = false; persistVideoState(); renderCartHistory(); });
+}
+function formatTimestamp(seconds) { const value = Math.max(0, Math.floor(Number(seconds) || 0)); return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, "0")}`; }
+async function orderStoredCart(threadId, button) {
+  button.disabled = true; button.textContent = "Ordering…";
+  try {
+    const data = await api(`/api/orchestrate/${threadId}/decision`, { method: "POST", body: { decision: "approve" } });
+    const cart = state.carts.find((item) => item.threadId === threadId);
+    if (cart) { cart.status = "ordered"; cart.order = data.order; persistVideoState(); }
+    button.textContent = `On its way · ${data.order.etaMinutes} min`;
+    renderCartHistory();
+  } catch (error) { button.disabled = false; button.textContent = error.message || "Try again"; }
+}
 function showToast(view) {
   removeToast(); const root = document.createElement("div"); root.id = "cravelens-root";
   const shadow = root.attachShadow({ mode: "open" });
-  shadow.innerHTML = `<style>${toastCss}${productCss}${agentEventCss}</style><aside><div class="brand"><span>◉</span> CRAVELENS</div>${view.loading ? `<div class="scan"><i></i></div><br/><h3>That looked delicious.</h3><p class="loading-copy">Building a cart around your taste…</p><ol id="agent-events" class="agent-events"></ol>` : view.error ? `<h3>Couldn’t build your cart</h3><p>${escapeHtml(view.error)}</p><button class="quiet">Dismiss</button>` : suggestionHtml(view.suggestion)}</aside>`;
+  shadow.innerHTML = `<style>${toastCss}${productCss}${agentEventCss}</style><aside><div class="brand"><span>◉</span> CRAVELENS</div>${view.loading ? `<div class="scan"><i></i></div><br/><h3>That looked delicious.</h3><p class="loading-copy">${escapeHtml(view.dish)} was confirmed as food. Building a cart…</p><ol id="agent-events" class="agent-events"></ol>` : view.error ? `<h3>Couldn’t build your cart</h3><p>${escapeHtml(view.error)}</p><button class="quiet">Dismiss</button>` : suggestionHtml(view.suggestion)}</aside>`;
   document.body.append(root);
   if (view.loading) renderAgentEvents();
   shadow.querySelector(".quiet")?.addEventListener("click", () => { if (view.suggestion) decide(view.suggestion.threadId, "reject"); removeToast(); });
-  shadow.querySelector(".order")?.addEventListener("click", async (event) => { event.target.textContent = "Ordering…"; const data = await api(`/api/orchestrate/${view.suggestion.threadId}/decision`, { method: "POST", body: { decision: "approve" } }); event.target.textContent = `On its way · ${data.order.etaMinutes} min`; });
+  shadow.querySelector(".order")?.addEventListener("click", async (event) => { await orderStoredCart(view.suggestion.threadId, event.target); });
 }
 function suggestionHtml(s) {
   const receipt = s.receipt || { items: [], charges: [], subtotal: s.price || 0, discount: s.savings || 0, finalAmount: s.finalAmount ?? (s.price || 0) - (s.savings || 0) };

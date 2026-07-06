@@ -75,30 +75,47 @@ function parseVerification(text) {
 async function runDetection({ imageDataUrl, threshold }) {
   const yolo = getWorker();
   const bitmap = await createImageBitmap(await (await fetch(imageDataUrl)).blob());
-  const canvas = new OffscreenCanvas(224, 224);
+  const sourceWidth = bitmap.width; const sourceHeight = bitmap.height;
+  const inputSize = 640;
+  const canvas = new OffscreenCanvas(inputSize, inputSize);
   const context = canvas.getContext("2d", { willReadFrequently: true });
-  context.drawImage(bitmap, 0, 0, 224, 224); bitmap.close();
+  const scale = Math.min(inputSize / bitmap.width, inputSize / bitmap.height);
+  const width = Math.round(bitmap.width * scale); const height = Math.round(bitmap.height * scale);
+  const x = Math.floor((inputSize - width) / 2); const y = Math.floor((inputSize - height) / 2);
+  context.fillStyle = "rgb(114,114,114)"; context.fillRect(0, 0, inputSize, inputSize);
+  context.drawImage(bitmap, x, y, width, height); bitmap.close();
   const image = context.getImageData(0, 0, canvas.width, canvas.height);
-  const pixels = new Float32Array(224 * 224 * 3);
-  for (let source = 0, target = 0; source < image.data.length; source += 4) {
-    pixels[target++] = image.data[source]; pixels[target++] = image.data[source + 1]; pixels[target++] = image.data[source + 2];
+  const plane = inputSize * inputSize; const pixels = new Float32Array(plane * 3);
+  for (let pixel = 0; pixel < plane; pixel += 1) {
+    pixels[pixel] = image.data[pixel * 4] / 255;
+    pixels[plane + pixel] = image.data[pixel * 4 + 1] / 255;
+    pixels[plane * 2 + pixel] = image.data[pixel * 4 + 2] / 255;
   }
   const id = ++nextId;
   return new Promise((resolve, reject) => {
-    pending.set(id, { resolve, reject });
+    pending.set(id, { resolve, reject, transform: { scale, x, y, sourceWidth, sourceHeight } });
     yolo.postMessage({ type: "detect", id, pixels: pixels.buffer, threshold }, [pixels.buffer]);
   });
 }
 
 function getWorker() {
   if (worker) return worker;
-  // LiteRT's generated WASM bootstrap loads its companion script with
-  // importScripts(), which is only available to classic workers.
-  worker = new Worker(chrome.runtime.getURL("food-worker.js"));
+  worker = new Worker(chrome.runtime.getURL("food-worker.js"), { type: "module" });
   worker.onmessage = ({ data }) => {
     if (data.type === "status") return;
     const request = pending.get(data.id); if (!request) return;
-    pending.delete(data.id); data.ok ? request.resolve(data) : request.reject(new Error(data.error));
+    pending.delete(data.id);
+    if (!data.ok) { request.reject(new Error(data.error)); return; }
+    const { scale, x, y, sourceWidth, sourceHeight } = request.transform;
+    const clamp = (value, maximum) => Math.max(0, Math.min(maximum, value));
+    const normalize = (box) => ({
+      ...box,
+      x1: clamp((box.x1 - x) / scale, sourceWidth) / sourceWidth,
+      y1: clamp((box.y1 - y) / scale, sourceHeight) / sourceHeight,
+      x2: clamp((box.x2 - x) / scale, sourceWidth) / sourceWidth,
+      y2: clamp((box.y2 - y) / scale, sourceHeight) / sourceHeight,
+    });
+    request.resolve({ ...data, detections: data.detections.map(normalize), allDetections: data.allDetections.map(normalize) });
   };
   worker.onerror = (event) => {
     const error = new Error(event.message || "YOLO worker failed");

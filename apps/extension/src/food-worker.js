@@ -1,81 +1,65 @@
-import { loadAndCompile, loadLiteRt, Tensor } from "@litertjs/core";
+import * as ort from "onnxruntime-web";
 
-const LABELS = ["healthy_food", "not_food", "unhealthy_food"];
-const INPUT_SHAPE = [1, 224, 224, 3];
-let modelPromise;
-let runtimePromise;
+const INPUT_SIZE = 640;
+const MODEL_URL = new URL("models/food-detector/best_dynamic.onnx", self.location.href).href;
+let sessionPromise;
 
-function getRuntime() {
-  if (!runtimePromise) {
-    runtimePromise = loadLiteRt(new URL("litert-wasm/", self.location.href).href).catch((error) => {
-      runtimePromise = undefined;
-      throw error;
-    });
-  }
-  return runtimePromise;
-}
-
-function getModel() {
-  if (!modelPromise) {
+function getSession() {
+  if (!sessionPromise) {
     self.postMessage({ type: "status", status: "loading" });
-    modelPromise = getRuntime()
-      .then(loadFixedBatchModel)
-      .then((model) => { self.postMessage({ type: "status", status: "ready" }); return model; });
+    ort.env.wasm.numThreads = 1;
+    sessionPromise = ort.InferenceSession.create(MODEL_URL, { executionProviders: ["wasm"], graphOptimizationLevel: "all" })
+      .then((session) => { self.postMessage({ type: "status", status: "ready" }); return session; })
+      .catch((error) => { sessionPromise = undefined; throw error; });
   }
-  return modelPromise;
-}
-
-async function loadFixedBatchModel() {
-  const response = await fetch(new URL("models/food-classifier/model.tflite", self.location.href));
-  if (!response.ok) throw new Error(`Unable to load food model (${response.status})`);
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  let patchedSignatures = 0;
-
-  // This model exports a dynamic batch signature (-1, 224, 224, 3), while
-  // LiteRT.js currently compares input shapes literally instead of treating
-  // -1 as a wildcard. CraveLens always performs single-frame inference, so
-  // specialize only that exact signature to batch size 1 in the loaded copy.
-  for (let offset = 0; offset <= bytes.byteLength - 16; offset += 4) {
-    if (view.getInt32(offset, true) === -1
-      && view.getInt32(offset + 4, true) === 224
-      && view.getInt32(offset + 8, true) === 224
-      && view.getInt32(offset + 12, true) === 3) {
-      view.setInt32(offset, 1, true);
-      patchedSignatures += 1;
-    }
-  }
-  if (!patchedSignatures) throw new Error("Food model input signature was not found");
-  return loadAndCompile(bytes, { accelerator: "wasm" });
+  return sessionPromise;
 }
 
 self.onmessage = async ({ data }) => {
   if (data.type !== "detect") return;
   const startedAt = performance.now();
-  let input;
-  let results;
   try {
-    const model = await getModel();
-    input = new Tensor(new Float32Array(data.pixels), INPUT_SHAPE);
-    results = await model.run(input);
-    const probabilities = normalizeProbabilities([...results[0].toTypedArray()]);
-    const classes = probabilities.map((score, index) => ({ label: LABELS[index], score })).sort((a, b) => b.score - a.score);
-    const foodScore = probabilities[0] + probabilities[2];
-    const topFood = probabilities[0] >= probabilities[2] ? classes.find((item) => item.label === "healthy_food") : classes.find((item) => item.label === "unhealthy_food");
-    const detections = foodScore >= data.threshold ? [{ label: topFood.label, score: foodScore }] : [];
-    self.postMessage({ id: data.id, ok: true, detections, allDetections: classes, inferenceMs: Math.round(performance.now() - startedAt), foodScore });
+    const session = await getSession();
+    const input = new ort.Tensor("float32", new Float32Array(data.pixels), [1, 3, INPUT_SIZE, INPUT_SIZE]);
+    const outputs = await session.run({ [session.inputNames[0]]: input });
+    const detections = decodeOutput(outputs[session.outputNames[0]], Number(data.threshold) || .5);
+    self.postMessage({ id: data.id, ok: true, detections, allDetections: detections.slice(0, 10), inferenceMs: Math.round(performance.now() - startedAt), foodScore: detections[0]?.score || 0 });
   } catch (error) {
-    modelPromise = undefined;
     self.postMessage({ id: data.id, ok: false, error: error instanceof Error ? error.message : String(error) });
-  } finally {
-    input?.delete();
-    if (results) for (const tensor of results) tensor.delete();
   }
 };
 
-function normalizeProbabilities(values) {
-  const sum = values.reduce((total, value) => total + value, 0);
-  if (values.every((value) => value >= 0 && value <= 1) && Math.abs(sum - 1) < .05) return values;
-  const max = Math.max(...values); const exponents = values.map((value) => Math.exp(value - max)); const denominator = exponents.reduce((a, b) => a + b, 0);
-  return exponents.map((value) => value / denominator);
+function decodeOutput(output, threshold) {
+  const [batch, first, second] = output.dims;
+  if (batch !== 1 || !first || !second) throw new Error(`Unexpected detector output shape: ${output.dims.join("×")}`);
+  const channelFirst = first < second;
+  const channels = channelFirst ? first : second;
+  const count = channelFirst ? second : first;
+  if (channels < 5) throw new Error(`Detector output has only ${channels} channels`);
+  const get = (channel, index) => channelFirst ? output.data[channel * count + index] : output.data[index * channels + channel];
+  const candidates = [];
+  for (let index = 0; index < count; index += 1) {
+    let classIndex = 0;
+    let score = get(4, index);
+    for (let channel = 5; channel < channels; channel += 1) {
+      if (get(channel, index) > score) { score = get(channel, index); classIndex = channel - 4; }
+    }
+    if (score < threshold) continue;
+    const cx = get(0, index); const cy = get(1, index); const width = get(2, index); const height = get(3, index);
+    candidates.push({ label: classIndex ? `food_${classIndex + 1}` : "food", score, x1: cx - width / 2, y1: cy - height / 2, x2: cx + width / 2, y2: cy + height / 2 });
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  const kept = [];
+  for (const candidate of candidates) {
+    if (kept.every((other) => intersectionOverUnion(candidate, other) < .45)) kept.push(candidate);
+    if (kept.length >= 25) break;
+  }
+  return kept;
+}
+
+function intersectionOverUnion(a, b) {
+  const intersection = Math.max(0, Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1)) * Math.max(0, Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1));
+  const areaA = Math.max(0, a.x2 - a.x1) * Math.max(0, a.y2 - a.y1);
+  const areaB = Math.max(0, b.x2 - b.x1) * Math.max(0, b.y2 - b.y1);
+  return intersection / Math.max(areaA + areaB - intersection, Number.EPSILON);
 }

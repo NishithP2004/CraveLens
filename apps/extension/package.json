@@ -11,10 +11,10 @@
     "vite": "^6.3.5"
   },
   "dependencies": {
-    "@litertjs/core": "^2.5.2",
     "@mediapipe/tasks-genai": "^0.10.28",
     "dompurify": "^3.4.11",
     "marked": "^15.0.12",
+    "onnxruntime-web": "^1.22.0",
     "socket.io-client": "^4.8.3"
   }
 }
