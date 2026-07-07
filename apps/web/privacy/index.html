@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="CraveLens privacy policy: what the Chrome extension processes, why it is needed, and the choices available to users." />
+    <meta name="theme-color" content="#ff5b38" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://cravelens.nishithp.page/privacy/" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/src/style.css" />
+    <link rel="stylesheet" href="/src/privacy.css" />
+    <title>Privacy Policy — CraveLens</title>
+  </head>
+  <body class="policy-page">
+    <header class="policy-header">
+      <a class="brand" href="/" aria-label="CraveLens home">
+        <span class="brand-mark"><i></i><i></i></span>
+        <span>CraveLens</span>
+      </a>
+      <a class="policy-back" href="/">← Back to CraveLens</a>
+    </header>
+
+    <main class="policy-shell">
+      <header class="policy-hero">
+        <span class="kicker">PRIVACY, IN PLAIN LANGUAGE</span>
+        <h1>Privacy Policy</h1>
+        <p>CraveLens uses the minimum data needed to recognize food in YouTube videos and prepare a Swiggy cart that you can review. Food-frame analysis happens on your device, and an order is never placed without your explicit confirmation.</p>
+        <div class="policy-meta"><span>Effective July 8, 2026</span><span>Last updated July 8, 2026</span></div>
+      </header>
+
+      <div class="policy-layout">
+        <nav class="policy-toc" aria-label="Privacy policy sections">
+          <strong>On this page</strong>
+          <a href="#scope">Scope</a>
+          <a href="#data">Data we process</a>
+          <a href="#use">How we use data</a>
+          <a href="#sharing">Sharing</a>
+          <a href="#storage">Storage & retention</a>
+          <a href="#choices">Your choices</a>
+          <a href="#security">Security</a>
+          <a href="#children">Children</a>
+          <a href="#changes">Changes</a>
+          <a href="#contact">Contact</a>
+        </nav>
+
+        <article class="policy-content">
+          <section class="policy-summary" aria-label="Privacy summary">
+            <div><b>On-device vision</b><span>Sampled video frames are analyzed locally and are not uploaded to CraveLens, Swiggy, or an AI API.</span></div>
+            <div><b>No data sales</b><span>We do not sell personal data or use it for advertising, lending, or creditworthiness.</span></div>
+            <div><b>You confirm orders</b><span>CraveLens may prepare a cart, but only you can approve placing the order.</span></div>
+          </section>
+
+          <section id="scope">
+            <h2>1. Scope</h2>
+            <p>This policy describes how the CraveLens Chrome extension, landing site, and supporting CraveLens service (together, “CraveLens,” “we,” or “us”) handle information. It applies when you use the extension on YouTube, connect a Swiggy account, ask CraveLens to prepare a cart, or contact us.</p>
+          </section>
+
+          <section id="data">
+            <h2>2. Data we process</h2>
+            <h3>Video and website context</h3>
+            <p>The extension accesses the active YouTube video so it can sample frames, read the video identifier and title, and record the playback timestamp where food was detected. Sampled frames are processed locally in an offscreen extension document by the bundled food detector and a locally loaded Gemma model. Frames are not sent to our server, Swiggy, or the provider of the cart-planning AI model.</p>
+            <p>When food is confidently identified, CraveLens sends our supporting service the YouTube video identifier, title, playback timestamp, detector confidence, and a structured food description such as the dish, cuisine, likely ingredients, confidence, and dining context.</p>
+
+            <h3>Swiggy account and delivery information</h3>
+            <p>If you choose to connect Swiggy, we process an OAuth session identifier and authorization tokens needed to maintain that connection. Through Swiggy, CraveLens may retrieve saved delivery addresses (which can contain a name, address, phone number, label, and coordinates), recent food orders, restaurant and menu information, cart contents, prices, fees, discounts, delivery estimates, and available payment-method names. CraveLens does not ask for or store your payment-card number, CVV, Swiggy password, or PIN.</p>
+
+            <h3>Approximate or precise location</h3>
+            <p>If saved Swiggy addresses include coordinates and you grant Chrome’s geolocation permission, the extension reads your device coordinates to select the nearest saved address. This distance comparison happens locally in the extension. Your live device coordinates are not sent to our server or Swiggy by CraveLens.</p>
+
+            <h3>Settings and extension activity</h3>
+            <p>The extension stores settings such as enabled status, detection sensitivity, debug preference, selected address identifier and label, connection session identifier and expiration, detected dishes, and prepared-cart history. It also handles progress events needed to show what the cart agent is doing. We do not monitor keystrokes, mouse movement, general browsing history, personal communications, or activity on sites other than the YouTube pages covered by the extension.</p>
+          </section>
+
+          <section id="use">
+            <h2>3. How we use data</h2>
+            <p>We use the information above only to provide and improve CraveLens’ user-facing purpose:</p>
+            <ul>
+              <li>detect and identify visible food in the current YouTube video;</li>
+              <li>avoid duplicate suggestions for the same dish or video moment;</li>
+              <li>connect the Swiggy account you authorize and select a delivery address;</li>
+              <li>use relevant order history and preferences to find a suitable restaurant and menu item;</li>
+              <li>prepare, verify, and display a cart, charges, delivery estimate, and applicable discount;</li>
+              <li>place an order only after your explicit confirmation;</li>
+              <li>operate, secure, troubleshoot, and prevent misuse of the service; and</li>
+              <li>comply with legal obligations.</li>
+            </ul>
+            <p>We do not use or transfer user data for personalized advertising, unrelated profiling, lending, or determining creditworthiness.</p>
+          </section>
+
+          <section id="sharing">
+            <h2>4. When data is shared</h2>
+            <p>We do not sell user data. We disclose data only as needed for the following approved purposes:</p>
+            <ul>
+              <li><strong>Swiggy:</strong> to authenticate the connection you request and retrieve addresses, orders, restaurants, menus, carts, offers, and order results.</li>
+              <li><strong>Cart-planning AI provider:</strong> to process the identified food description, selected-address summary, and relevant Swiggy results so the agent can choose and verify a personalized cart. Video frames and live device coordinates are not provided to this service.</li>
+              <li><strong>Hosting and infrastructure providers:</strong> to operate and secure the supporting service and its database.</li>
+              <li><strong>Legal or safety disclosures:</strong> if required by law or reasonably necessary to protect users, CraveLens, or the public.</li>
+              <li><strong>Business transfer:</strong> as part of a merger, acquisition, financing, or sale, subject to this policy and applicable law.</li>
+            </ul>
+            <p>These providers may process information only for the service being supplied and under their own applicable terms and privacy policies.</p>
+          </section>
+
+          <section id="storage">
+            <h2>5. Storage and retention</h2>
+            <p>Extension settings, session identifiers, detected-food history, and prepared-cart history are stored locally in your Chrome profile or the YouTube site storage used by the extension. You can remove this local information by clearing extension/site data or uninstalling CraveLens.</p>
+            <p>The supporting service stores OAuth credentials in access-restricted server storage and may retain detection records and prepared-cart records in its database. We retain information only while it is reasonably needed to provide the service, maintain security and records, resolve disputes, or satisfy legal obligations. Retention periods can vary by data type and operational need. You may request deletion using the contact details below.</p>
+          </section>
+
+          <section id="choices">
+            <h2>6. Your choices and controls</h2>
+            <ul>
+              <li>Disable food detection from the extension popup.</li>
+              <li>Deny geolocation; you can still select a saved address manually or use Swiggy’s first recommended address.</li>
+              <li>Choose which saved delivery address CraveLens uses.</li>
+              <li>Decline any proposed cart. No order is placed without your confirmation.</li>
+              <li>Revoke CraveLens’ Swiggy authorization through the available Swiggy account controls.</li>
+              <li>Clear extension and site data or uninstall the extension.</li>
+              <li>Contact us to request access, correction, or deletion, subject to applicable law.</li>
+            </ul>
+          </section>
+
+          <section id="security">
+            <h2>7. Security</h2>
+            <p>We use reasonable technical and organizational safeguards designed to protect information, including OAuth authorization rather than collecting a Swiggy password and access-restricted storage for server-side credentials. No method of storage or transmission is completely secure, so we cannot guarantee absolute security.</p>
+          </section>
+
+          <section id="children">
+            <h2>8. Children</h2>
+            <p>CraveLens is not directed to children under 13, and we do not knowingly collect personal information from children under 13. If you believe a child has provided personal information, contact us so we can investigate and delete it where appropriate.</p>
+          </section>
+
+          <section id="changes">
+            <h2>9. Changes to this policy</h2>
+            <p>We may update this policy as CraveLens changes or as required by law. We will post the revised policy here and update the “Last updated” date. If a change materially affects how we use previously collected personal information, we will provide additional notice where required.</p>
+          </section>
+
+          <section id="contact">
+            <h2>10. Contact</h2>
+            <p>For privacy questions or requests, email <a href="mailto:me@nishithp.page">me@nishithp.page</a>. To help us respond, include “CraveLens privacy request” in the subject line and describe your request.</p>
+          </section>
+        </article>
+      </div>
+    </main>
+
+    <footer class="policy-footer"><a class="brand" href="/"><span class="brand-mark"><i></i><i></i></span><span>CraveLens</span></a><span>See it. Crave it. Get it.</span><a href="mailto:me@nishithp.page">Privacy contact</a></footer>
+  </body>
+</html>

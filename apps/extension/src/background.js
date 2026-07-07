@@ -1,7 +1,7 @@
 const defaults = { enabled: true, debug: false, apiUrl: "http://localhost:8787", addressId: "", addressLabel: "", sensitivity: 0.58 };
-chrome.runtime.onInstalled.addListener(async () => {
+chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   const existing = await chrome.storage.local.get(Object.keys(defaults));
-  await chrome.storage.local.set({ ...defaults, ...existing });
+  await chrome.storage.local.set({ ...defaults, ...existing, ...(reason === "install" ? { debug: false } : {}) });
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, respond) => {

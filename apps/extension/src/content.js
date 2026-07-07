@@ -250,7 +250,17 @@ chrome.runtime.onMessage.addListener((message, _sender, respond) => {
 chrome.storage.onChanged.addListener((changes) => { if (changes.debug) { renderDebug(); if (!changes.debug.newValue) removeDetectorOverlay(); } });
 
 async function initialize() {
-  const id = getVideoId(); if (!id || id === state.videoId) return;
+  const id = getVideoId();
+  if (!id) {
+    if (state.videoId) {
+      state.videoId = ""; state.cache = []; state.foodHistory = []; state.carts = [];
+      document.getElementById("cravelens-cart-history")?.remove();
+      removeToast(); removeDetectorOverlay();
+    }
+    return;
+  }
+  if (id === state.videoId) return;
+  document.getElementById("cravelens-cart-history")?.remove(); removeToast();
   removeDetectorOverlay();
   state.videoId = id; state.cache = []; state.lastTrigger = -120; state.vlmStatus = "idle"; state.vlmResult = null;
   loadVideoState(); renderCartHistory();
@@ -311,7 +321,7 @@ function suggestionHtml(s) {
   }).join("") : `<div class="receipt-row item"><b>${escapeHtml(s.item)}</b><span>${currency(receipt.subtotal)}</span></div>`;
   const charges = (receipt.charges || []).map((charge) => `<div class="receipt-row muted"><span>${escapeHtml(charge.label)}</span><span>${currency(charge.amount)}</span></div>`).join("");
   const rationale = DOMPurify.sanitize(marked.parse(String(s.rationale || ""), { async: false, breaks: true }), { ALLOWED_TAGS: ["p", "strong", "em", "ul", "ol", "li", "code", "br"], ALLOWED_ATTR: [] });
-  return `<div class="eyebrow">A craving, understood</div><div class="product-head">${heroImage}<div class="product-copy"><div class="title-row"><div><h3>${escapeHtml(s.item)}</h3><p class="restaurant">${escapeHtml(s.restaurant)}</p></div>${receipt.discount > 0 ? `<span class="deal">SAVE ${currency(receipt.discount)}</span>` : ""}</div>${eta}</div></div><section class="receipt"><div class="section-title">Cart summary</div>${items}<div class="rule"></div><div class="receipt-row"><span>Item subtotal</span><span>${currency(receipt.subtotal)}</span></div>${charges}${receipt.discount > 0 ? `<div class="receipt-row discount"><span>${escapeHtml(s.coupon ? `Coupon · ${s.coupon}` : "Item savings")}</span><span>−${currency(receipt.discount)}</span></div>` : ""}<div class="receipt-row total"><strong>To pay</strong><strong>${currency(receipt.finalAmount)}</strong></div></section><div class="delivery"><span>⌖</span><div><small>DELIVERING TO</small><b>${escapeHtml(s.deliveryAddress || "Selected Swiggy address")}</b>${payment ? `<em>${escapeHtml(payment)}</em>` : ""}</div></div><details><summary>Why this cart?</summary><div class="markdown">${rationale}</div></details><div class="actions"><button class="quiet">Not now</button><button class="order">Confirm · ${currency(receipt.finalAmount)}</button></div>`;
+  return `<div class="eyebrow">A craving, understood</div><div class="product-head">${heroImage}<div class="product-copy"><div class="title-row"><div><h3>${escapeHtml(s.item)}</h3><p class="restaurant">${escapeHtml(s.restaurant)}</p></div>${receipt.discount > 0 ? `<span class="deal">SAVE ${currency(receipt.discount)}</span>` : ""}</div>${eta}</div></div><section class="receipt"><div class="section-title">Cart summary</div>${items}<div class="rule"></div><div class="receipt-row"><span>Item subtotal</span><span>${currency(receipt.subtotal)}</span></div>${charges}${receipt.discount > 0 ? `<div class="receipt-row discount"><span>${escapeHtml(`Item savings${s.coupon ? ` · ${s.coupon}` : ""}`)}</span><span>−${currency(receipt.discount)}</span></div>` : ""}<div class="receipt-row total"><strong>To pay</strong><strong>${currency(receipt.finalAmount)}</strong></div></section><div class="delivery"><span>⌖</span><div><small>DELIVERING TO</small><b>${escapeHtml(s.deliveryAddress || "Selected Swiggy address")}</b>${payment ? `<em>${escapeHtml(payment)}</em>` : ""}</div></div><details><summary>Why this cart?</summary><div class="markdown">${rationale}</div></details><div class="actions"><button class="quiet">Not now</button><button class="order">Confirm · ${currency(receipt.finalAmount)}</button></div>`;
 }
 function currency(value) { return `₹${Math.max(0, Number(value) || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`; }
 function safeImageUrl(value) { try { const url = new URL(String(value)); return url.protocol === "https:" ? url.href : ""; } catch { return ""; } }
