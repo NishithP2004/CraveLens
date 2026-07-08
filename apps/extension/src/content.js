@@ -7,9 +7,13 @@ const state = { running: false, lastTrigger: -120, cache: [], videoId: "", model
 const VIDEO_STORE_PREFIX = "cravelens:video:";
 let detectorOverlayTimer;
 const api = (path, options = {}) => chrome.runtime.sendMessage({ type: "CRAVELENS_API", path, ...options }).then((r) => { if (!r.ok) throw new Error(r.error); return r.data; });
-const settings = () => chrome.storage.local.get({ enabled: true, debug: false, apiUrl: "http://localhost:8787", addressId: "", addressLabel: "", sensitivity: .58 });
+const settings = () => chrome.storage.local.get({ enabled: true, debug: false, apiUrl: "http://localhost:8787", addressId: "", addressLabel: "", sensitivity: .38 });
 
-function getVideoId() { return new URL(location.href).searchParams.get("v") || ""; }
+function getVideoId() {
+  const url = new URL(location.href);
+  if (url.pathname.startsWith("/shorts/")) return url.pathname.split("/").filter(Boolean)[1] || "";
+  return url.searchParams.get("v") || "";
+}
 function capture(video, width = 320) {
   const canvas = document.createElement("canvas");
   canvas.width = width; canvas.height = Math.round(width * video.videoHeight / video.videoWidth);
@@ -168,13 +172,13 @@ async function tick() {
   finally { state.running = false; }
 }
 
-async function detectFood(canvas, threshold) {
-  state.modelStatus = "running"; renderDebug();
+async function detectFood(canvas, threshold, forceDebug = false) {
+  state.modelStatus = "running"; renderDebug(forceDebug);
   const response = await chrome.runtime.sendMessage({ type: "CRAVELENS_YOLO_DETECT", imageDataUrl: canvas.toDataURL("image/jpeg", .82), threshold });
   if (!response?.ok) throw new Error(response?.error || "YOLO inference failed");
   state.modelStatus = "ready";
   const { debug } = await settings();
-  if (debug) renderDetectorOverlay(response.detections); else removeDetectorOverlay();
+  if (debug || forceDebug) renderDetectorOverlay(response.detections); else removeDetectorOverlay();
   return response;
 }
 
@@ -208,23 +212,27 @@ function renderDetectorOverlay(detections) {
   detectorOverlayTimer = setTimeout(removeDetectorOverlay, 4500);
 }
 
-async function debugScan() {
+async function debugScan(forceDebug = false) {
   const video = document.querySelector("video");
   if (!video || video.readyState < 2) throw new Error("No ready YouTube video found");
   const cfg = await settings();
-  state.running = true; state.error = ""; renderDebug();
+  state.running = true; state.error = ""; renderDebug(forceDebug);
   try {
-    const result = await detectFood(capture(video, 640).canvas, cfg.sensitivity);
+    const result = await detectFood(capture(video, 640).canvas, cfg.sensitivity, forceDebug);
     state.lastResult = { ...result, timestamp: video.currentTime, source: "manual" };
     return result;
   } catch (error) { state.error = error.message; throw error; }
-  finally { state.running = false; renderDebug(); }
+  finally {
+    state.running = false; renderDebug(forceDebug);
+    const { debug } = await settings();
+    if (forceDebug && !debug) setTimeout(() => document.getElementById("cravelens-debug")?.remove(), 4500);
+  }
 }
 
-async function renderDebug() {
+async function renderDebug(forceDebug = false) {
   const cfg = await settings();
   document.getElementById("cravelens-debug")?.remove();
-  if (!cfg.debug) return;
+  if (!cfg.debug && !forceDebug) return;
   const video = document.querySelector("video");
   const panel = document.createElement("div"); panel.id = "cravelens-debug";
   const top = state.lastResult?.allDetections?.map((item) => `${item.label} ${(item.score * 100).toFixed(0)}%`).join(" · ") || "No detections yet";
@@ -244,10 +252,24 @@ async function renderDebug() {
 
 chrome.runtime.onMessage.addListener((message, _sender, respond) => {
   if (message.type === "CRAVELENS_PING") { respond({ ok: true }); return; }
-  if (message.type === "CRAVELENS_DEBUG_SCAN") { debugScan().then((result) => respond({ ok: true, result })).catch((error) => respond({ ok: false, error: error.message })); return true; }
+  if (message.type === "CRAVELENS_DEBUG_SCAN") { debugScan(Boolean(message.forceDebug)).then((result) => respond({ ok: true, result })).catch((error) => respond({ ok: false, error: error.message })); return true; }
   if (message.type === "CRAVELENS_DEBUG_CHANGED") { renderDebug(); respond({ ok: true }); }
+  if (message.type === "CRAVELENS_ENABLED_CHANGED") { handleEnabledChange(); respond({ ok: true }); }
 });
-chrome.storage.onChanged.addListener((changes) => { if (changes.debug) { renderDebug(); if (!changes.debug.newValue) removeDetectorOverlay(); } });
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.debug) { renderDebug(); if (!changes.debug.newValue) removeDetectorOverlay(); }
+  if (changes.enabled) handleEnabledChange(changes.enabled.newValue);
+});
+
+async function handleEnabledChange(enabled) {
+  const active = typeof enabled === "boolean" ? enabled : (await settings()).enabled;
+  if (active) return;
+  state.running = false;
+  closeAgentStream();
+  removeToast();
+  removeDetectorOverlay();
+  document.getElementById("cravelens-debug")?.remove();
+}
 
 async function initialize() {
   const id = getVideoId();

@@ -1,22 +1,31 @@
 const ids = ["enabled", "debug", "sensitivity"];
-const defaults = { enabled: true, debug: false, addressId: "", addressLabel: "", sensitivity: .58 };
+const defaults = { enabled: true, debug: false, addressId: "", addressLabel: "", sensitivity: .38 };
+const preferenceKeys = Object.keys(defaults);
 const PREFERENCE_CACHE_KEY = "cravelens.preferences.v1";
 let selectedAddress;
 
 async function main() {
-  const values = { ...defaults, ...await chrome.storage.local.get(defaults), ...readCachedPreferences() };
+  const values = await loadPreferences();
+  await savePreferences(values);
   for (const id of ids) document.getElementById(id)[id === "enabled" || id === "debug" ? "checked" : "value"] = values[id];
+  updateEnabledState(values.enabled);
   const updateOutput = () => document.getElementById("sensitivityValue").textContent = `${Math.round(document.getElementById("sensitivity").value * 100)}%`;
   updateOutput();
   document.getElementById("sensitivity").addEventListener("input", updateOutput);
+  document.getElementById("enabled").addEventListener("change", async (event) => {
+    await savePreferences({ enabled: event.target.checked });
+    updateEnabledState(event.target.checked);
+    await sendToYouTube({ type: "CRAVELENS_ENABLED_CHANGED" }).catch(() => {});
+    showMessage(event.target.checked ? "CraveLens enabled" : "CraveLens disabled");
+  });
   document.getElementById("save").addEventListener("click", async () => {
     const preferences = { enabled: document.getElementById("enabled").checked, debug: document.getElementById("debug").checked, addressId: selectedAddress?.id || "", addressLabel: selectedAddress ? addressLabel(selectedAddress) : "", sensitivity: Number(document.getElementById("sensitivity").value) };
-    await chrome.storage.local.set(preferences); cachePreferences(preferences);
-    document.getElementById("message").textContent = "Saved";
-    setTimeout(() => document.getElementById("message").textContent = "", 1500);
+    await savePreferences(preferences);
+    updateEnabledState(preferences.enabled);
+    showMessage("Saved");
   });
   document.getElementById("connect").addEventListener("click", beginSwiggySignIn);
-  document.getElementById("debug").addEventListener("change", async (event) => { await chrome.storage.local.set({ debug: event.target.checked }); await sendToYouTube({ type: "CRAVELENS_DEBUG_CHANGED" }).catch(() => {}); });
+  document.getElementById("debug").addEventListener("change", async (event) => { await savePreferences({ debug: event.target.checked }); await sendToYouTube({ type: "CRAVELENS_DEBUG_CHANGED" }).catch(() => {}); });
   document.getElementById("scan").addEventListener("click", scanCurrentFrame);
   document.getElementById("addressTrigger").addEventListener("click", toggleAddressList);
   document.addEventListener("click", (event) => { if (!document.getElementById("addressPicker").contains(event.target)) closeAddressList(); });
@@ -27,20 +36,21 @@ async function main() {
 }
 
 async function scanCurrentFrame() {
-  const button = document.getElementById("scan"); button.disabled = true; button.textContent = "Scanning for food…";
+  if (!document.getElementById("enabled").checked) { showMessage("Enable CraveLens to scan"); return; }
+  const button = document.getElementById("scan"); button.disabled = true; setScanButtonLabel("Scanning for food…");
   try {
-    await chrome.storage.local.set({ debug: true }); document.getElementById("debug").checked = true;
+    await savePreferences({ debug: true }); document.getElementById("debug").checked = true;
     const response = await sendToYouTube({ type: "CRAVELENS_DEBUG_SCAN" });
     if (!response?.ok) throw new Error(response?.error || "Scan failed");
     const food = response.result.detections.map((item) => `${item.label} ${Math.round(item.score * 100)}%`).join(", ");
     document.getElementById("message").textContent = food || "No food class detected";
   } catch (error) { document.getElementById("message").textContent = error.message; }
-  finally { button.disabled = false; button.textContent = "Scan current frame"; }
+  finally { updateEnabledState(document.getElementById("enabled").checked); setScanButtonLabel("Scan current frame"); }
 }
 
 async function sendToYouTube(message) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id || !tab.url?.includes("youtube.com/watch")) throw new Error("Open a YouTube video first");
+  if (!tab?.id || !isYouTubeVideoUrl(tab.url)) throw new Error("Open a YouTube video or Short first");
   try { return await chrome.tabs.sendMessage(tab.id, message); }
   catch (error) {
     if (!/Receiving end does not exist|Could not establish connection/i.test(error.message)) throw error;
@@ -52,6 +62,13 @@ async function sendToYouTube(message) {
     await waitForReceiver(tab.id);
     return chrome.tabs.sendMessage(tab.id, message);
   }
+}
+
+function isYouTubeVideoUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.hostname.endsWith("youtube.com") && (url.pathname === "/watch" || url.pathname.startsWith("/shorts/"));
+  } catch { return false; }
 }
 
 async function waitForReceiver(tabId) {
@@ -131,7 +148,7 @@ async function loadAddresses(savedAddressId) {
     const chosen = savedAddressId && addresses.find((item) => item.id === savedAddressId) || nearest.address;
     selectAddress(chosen);
     document.getElementById("addressHint").textContent = nearest.usedCoordinates ? "Automatically selected nearest saved address." : "Coordinates aren’t exposed by Swiggy; using its first recommended address.";
-    await chrome.storage.local.set({ addressId: chosen.id, addressLabel: addressLabel(chosen) });
+    await savePreferences({ addressId: chosen.id, addressLabel: addressLabel(chosen) });
   } catch (error) { document.getElementById("addressPrimary").textContent = "Unable to load addresses"; document.getElementById("addressSecondary").textContent = "Try reconnecting Swiggy"; list.innerHTML = ""; document.getElementById("addressHint").textContent = error.message; }
 }
 
@@ -143,7 +160,7 @@ function selectAddress(address) {
   for (const option of document.querySelectorAll(".address-option")) {
     const selected = option.dataset.id === address.id; option.classList.toggle("selected", selected); option.setAttribute("aria-selected", String(selected));
   }
-  cachePreferences({ ...readCachedPreferences(), addressId: address.id, addressLabel: addressLabel(address) });
+  savePreferences({ addressId: address.id, addressLabel: addressLabel(address) }).catch(() => {});
 }
 
 function meaningfulAddressTag(address) {
@@ -161,8 +178,38 @@ function addressBadges(address) {
 }
 function addressLabel(address) { return [meaningfulAddressTag(address), address.receiverName, address.addressString].filter(Boolean).join(" · "); }
 function semanticTag(value) { return value.toLowerCase().replace(/\band\b|&/g, "").replace(/[^a-z0-9]/g, ""); }
-function readCachedPreferences() { try { return JSON.parse(localStorage.getItem(PREFERENCE_CACHE_KEY) || "{}"); } catch { return {}; } }
-function cachePreferences(value) { localStorage.setItem(PREFERENCE_CACHE_KEY, JSON.stringify(value)); }
+async function loadPreferences() {
+  return { ...defaults, ...await chrome.storage.local.get(defaults), ...readCachedPreferences() };
+}
+async function savePreferences(value) {
+  const preferences = sanitizePreferences({ ...readCachedPreferences(), ...value });
+  localStorage.setItem(PREFERENCE_CACHE_KEY, JSON.stringify(preferences));
+  await chrome.storage.local.set(preferences);
+}
+function readCachedPreferences() {
+  try { return sanitizePreferences(JSON.parse(localStorage.getItem(PREFERENCE_CACHE_KEY) || "{}")); }
+  catch { return {}; }
+}
+function sanitizePreferences(value) {
+  const preferences = {};
+  for (const key of preferenceKeys) if (Object.prototype.hasOwnProperty.call(value || {}, key)) preferences[key] = value[key];
+  if (typeof preferences.enabled !== "boolean") delete preferences.enabled;
+  if (typeof preferences.debug !== "boolean") delete preferences.debug;
+  if (typeof preferences.addressId !== "string") delete preferences.addressId;
+  if (typeof preferences.addressLabel !== "string") delete preferences.addressLabel;
+  if (!Number.isFinite(preferences.sensitivity)) delete preferences.sensitivity;
+  return preferences;
+}
+function setScanButtonLabel(label) {
+  document.getElementById("scan").innerHTML = `<span>${escapeHtml(label)}</span><kbd>Ctrl Shift Y</kbd>`;
+}
+function updateEnabledState(enabled) {
+  document.getElementById("scan").disabled = !enabled;
+}
+function showMessage(message) {
+  document.getElementById("message").textContent = message;
+  setTimeout(() => document.getElementById("message").textContent = "", 1500);
+}
 function toggleAddressList() { const list = document.getElementById("addressList"); const open = list.hidden; list.hidden = !open; document.getElementById("addressTrigger").setAttribute("aria-expanded", String(open)); }
 function closeAddressList() { document.getElementById("addressList").hidden = true; document.getElementById("addressTrigger").setAttribute("aria-expanded", "false"); }
 

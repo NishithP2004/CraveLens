@@ -12,13 +12,24 @@ nav.querySelectorAll('a').forEach((link) => link.addEventListener('click', () =>
   menuButton.setAttribute('aria-expanded', 'false');
 }));
 
-document.querySelectorAll('details').forEach((detail) => {
-  detail.addEventListener('toggle', () => {
-    if (!detail.open) return;
-    document.querySelectorAll('details').forEach((other) => {
-      if (other !== detail) other.open = false;
-    });
+const installDialog = document.querySelector('#installDialog');
+const installCommand = 'curl -fsSL https://cravelens.nishithp.page/install.sh | bash';
+
+document.querySelectorAll('.install-trigger').forEach((trigger) => {
+  trigger.addEventListener('click', (event) => {
+    event.preventDefault();
+    installDialog.showModal();
   });
+});
+
+installDialog.querySelector('.dialog-close').addEventListener('click', () => installDialog.close());
+installDialog.addEventListener('click', (event) => {
+  if (event.target === installDialog) installDialog.close();
+});
+installDialog.querySelector('.copy-command').addEventListener('click', async (event) => {
+  await navigator.clipboard.writeText(installCommand);
+  event.currentTarget.textContent = 'Copied ✓';
+  window.setTimeout(() => { event.currentTarget.textContent = 'Copy'; }, 1800);
 });
 
 const quickAdd = document.querySelector('#quickAdd');

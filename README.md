@@ -157,7 +157,7 @@ Then:
 3. Choose **Load unpacked** and select `apps/extension/dist`.
 4. Open the CraveLens popup and complete Swiggy sign-in.
 5. Select a saved delivery address.
-6. Open a YouTube video containing food and use **Scan current frame**, or allow continuous scanning.
+6. Open a YouTube video or Short containing food and use **Scan current frame** (`Ctrl+Shift+Y`), or allow continuous scanning.
 
 During extension development, `npm run dev` watches and rebuilds the extension. Reload the unpacked extension from `chrome://extensions` after a rebuild. Restart the Node process after server changes.
 
@@ -275,7 +275,7 @@ The browser additionally stores the following per YouTube video in `localStorage
 - prepared cart suggestions and their ready/ordered state;
 - whether the **Carts for this video** shelf is hidden or visible.
 
-The selected address, extension preferences, detector sensitivity, and debug setting remain in Chrome extension storage.
+The selected address, extension preferences, detector sensitivity, and debug setting are cached in extension `localStorage` and mirrored into Chrome extension storage for background and content-script reads.
 
 ## Debugging
 

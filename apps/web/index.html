@@ -64,7 +64,7 @@
         <a href="#features">Features</a>
         <a href="#faq">FAQ</a>
       </nav>
-      <a class="button button-small nav-cta" href="#download">Add to Chrome <span>↗</span></a>
+      <a class="button button-small nav-cta install-trigger" href="#download">Add to Chrome <span>↗</span></a>
       <button class="menu-button" aria-label="Toggle menu" aria-expanded="false"><span></span><span></span></button>
     </header>
 
@@ -75,7 +75,7 @@
           <h1>See it.<br>Crave it. <em>Get it.</em></h1>
           <p class="hero-lede">CraveLens spots the food in your videos, finds your perfect match nearby, and gets it ready to order—without breaking your scroll.</p>
           <div class="hero-actions">
-            <a class="button" href="#download">
+            <a class="button install-trigger" href="#download">
               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.8 8h16.4M9.5 20.4l4.3-7.5M7 4.2l4.3 7.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
               Add to Chrome — it’s free
             </a>
@@ -139,19 +139,27 @@
       <section class="faq section" id="faq">
         <span class="kicker">A FEW GOOD QUESTIONS</span><h2>Still curious?</h2>
         <div class="faq-list">
-          <details open><summary>Does CraveLens place orders automatically?<span>＋</span></summary><p>Never. CraveLens can prepare the perfect cart, but the final order always waits for your explicit confirmation.</p></details>
-          <details><summary>Which videos does it work with?<span>＋</span></summary><p>CraveLens currently works on YouTube videos in Chrome and recognizes a growing catalog of dishes and food moments.</p></details>
-          <details><summary>Is my browsing data uploaded?<span>＋</span></summary><p>No. The first food-detection step happens locally in your browser, and only a chosen food frame is used to identify the dish.</p></details>
+          <details name="faq" open><summary>Does CraveLens place orders automatically?<span>＋</span></summary><p>Never. CraveLens can prepare the perfect cart, but the final order always waits for your explicit confirmation.</p></details>
+          <details name="faq"><summary>Which videos does it work with?<span>＋</span></summary><p>CraveLens currently works on YouTube videos in Chrome and recognizes a growing catalog of dishes and food moments.</p></details>
+          <details name="faq"><summary>Is my browsing data uploaded?<span>＋</span></summary><p>No. The first food-detection step happens locally in your browser, and only a chosen food frame is used to identify the dish.</p></details>
         </div>
       </section>
 
       <section class="cta" id="download">
-        <span class="cta-doodle">↝</span><span class="kicker">YOUR NEXT CRAVING IS WAITING</span><h2>Turn “what is that?”<br>into “it’s on the way.”</h2><p>Free to install. Deliciously easy to use.</p><a class="button button-light" href="#top">Add CraveLens to Chrome <span>↗</span></a>
+        <span class="cta-doodle">↝</span><span class="kicker">YOUR NEXT CRAVING IS WAITING</span><h2>Turn “what is that?”<br>into “it’s on the way.”</h2><p>Free to install. Deliciously easy to use.</p><a class="button button-light install-trigger" href="#download">Add CraveLens to Chrome <span>↗</span></a>
         <div class="float-food food-one">🍜</div><div class="float-food food-two">🍕</div><div class="float-food food-three">🥟</div>
       </section>
     </main>
 
     <footer class="site-footer"><a class="brand" href="#top"><span class="brand-mark"><i></i><i></i></span><span>CraveLens</span></a><p>See it. Crave it. Get it.</p><div><a href="/privacy/">Privacy</a><a href="#faq">Terms</a><a href="mailto:me@nishithp.page">Say hello</a></div><small>© 2026 CraveLens</small></footer>
+    <dialog class="install-dialog" id="installDialog" aria-labelledby="installTitle">
+      <button class="dialog-close" type="button" aria-label="Close installation options">×</button>
+      <span class="kicker">TWO QUICK STEPS</span>
+      <h2 id="installTitle">Install CraveLens</h2>
+      <p>Add the browser extension, then run the local service that powers your cart agent.</p>
+      <a class="install-option extension-option" href="https://chromewebstore.google.com/detail/cravelens/gehijhngicamfekokcbcdkjnjkmfofpn/preview?hl=en&amp;authuser=0" target="_blank" rel="noopener noreferrer"><span><small>STEP 1</small><strong>Add the extension to Chrome</strong></span><b>↗</b></a>
+      <div class="install-option command-option"><span><small>STEP 2 · RUN IN YOUR TERMINAL</small><code>curl -fsSL https://cravelens.nishithp.page/install.sh | bash</code></span><button type="button" class="copy-command">Copy</button></div>
+    </dialog>
     <div class="toast" role="status" aria-live="polite"><span>✓</span> Added to your craving cart</div>
     <script type="module" src="/src/main.js"></script>
   </body>
