@@ -1,25 +1,26 @@
 services:
-    db:
-      image: mongodb
-      restart: unless-stopped
-      ports:
-        - 27017:27017
-      environment:
-        - MONGO_INITDB_ROOT_USERNAME=admin 
-        - MONGO_INITDB_ROOT_PASSWORD=admin
-    
-    server:
-      image: nishithp/cravelens-server
-      restart: unless-stopped
-      build: .
-      ports:
-        - 8787:8787
-      environment:
-        - MONGODB_URI=mongodb://admin:admin@db:27017
-        - MONGODB_DATABASE=cravelens
-        - PORT=8787
-      env_file:
-        - ./.env
-      depends_on:
-        - db
-      
+  db:
+    image: mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin
+
+  server:
+    image: nishithp/cravelens-server
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      MONGODB_URI: mongodb://admin:admin@db:27017
+      MONGODB_DATABASE: cravelens
+      PORT: 8787
+      LOCAL_MODEL_DIRECTORY: /app/apps/server/models
+    env_file:
+      - ./.env
+    volumes:
+      - ./models:/app/apps/server/models:ro
+    depends_on:
+      - db
