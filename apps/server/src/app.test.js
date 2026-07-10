@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { FoodVerificationSchema, OrchestrateRequestSchema } from "@cravelens/shared";
+import { isSuggestionExpired } from "./app.js";
 import { normalizeToolSchema } from "./swiggy-agent.js";
 import { normalizeAddress, normalizeCartReceipt, resolveDeliveryEta, resolveItemImage, resolveRestaurantName } from "./swiggy.js";
 
 describe("CraveLens contracts", () => {
   it("accepts a verified dish", () => expect(FoodVerificationSchema.parse({ isFood: true, dish: "ramen", cuisine: "Japanese", ingredients: [], confidence: .9, context: "ready_to_eat" }).dish).toBe("ramen"));
+  it("treats expired or missing cart expiries as unorderable", () => {
+    expect(isSuggestionExpired({ expiresAt: "2026-07-09T12:00:00.000Z" }, Date.parse("2026-07-09T12:00:00.001Z"))).toBe(true);
+    expect(isSuggestionExpired({ expiresAt: "2026-07-09T12:10:00.000Z" }, Date.parse("2026-07-09T12:00:00.000Z"))).toBe(false);
+    expect(isSuggestionExpired({})).toBe(true);
+  });
   it("accepts an orchestration request verified on-device", () => expect(OrchestrateRequestSchema.parse({ videoId: "198AWISrLgl", timestamp: 76, triggerConfidence: .8, verification: { isFood: true, dish: "ramen", cuisine: "Japanese", ingredients: ["noodles"], confidence: .91, context: "ready_to_eat" }, videoTitle: "Ramen", location: "Home" }).verification.dish).toBe("ramen"));
   it("accepts legacy requests containing a full delivery address", () => expect(OrchestrateRequestSchema.parse({ videoId: "198AWISrLgl", timestamp: 76, triggerConfidence: .8, verification: { isFood: true, dish: "ramen", cuisine: "Japanese", ingredients: [], confidence: .9, context: "ready_to_eat" }, location: "Nishith P: ".padEnd(400, "A") }).location.length).toBe(400));
   it("rejects invalid video ids", () => expect(() => OrchestrateRequestSchema.parse({ videoId: "?", timestamp: 0, triggerConfidence: .8, keyframeDataUrl: "data:image/jpeg;base64,x", videoTitle: "x", location: "x" })).toThrow());

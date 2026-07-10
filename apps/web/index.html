@@ -52,7 +52,7 @@
       }
     </script>
   </head>
-  <body>
+  <body id="top">
     <div class="announcement">Made for late-night food rabbit holes <span>✦</span> Your cravings finally have a shortcut</div>
     <header class="nav-shell">
       <a class="brand" href="#top" aria-label="CraveLens home">
@@ -68,7 +68,7 @@
       <button class="menu-button" aria-label="Toggle menu" aria-expanded="false"><span></span><span></span></button>
     </header>
 
-    <main id="top">
+    <main>
       <section class="hero">
         <div class="hero-copy">
           <div class="eyebrow"><span class="pulse"></span> AI that speaks fluent craving</div>
@@ -151,7 +151,20 @@
       </section>
     </main>
 
-    <footer class="site-footer"><a class="brand" href="#top"><span class="brand-mark"><i></i><i></i></span><span>CraveLens</span></a><p>See it. Crave it. Get it.</p><div><a href="/privacy/">Privacy</a><a href="#faq">Terms</a><a href="mailto:me@nishithp.page">Say hello</a></div><small>© 2026 CraveLens</small></footer>
+    <footer class="site-footer">
+      <a class="brand" href="#top"><span class="brand-mark"><i></i><i></i></span><span>CraveLens</span></a>
+      <p>See it. Crave it. Get it.</p>
+      <div class="footer-links"><a href="/privacy/">Privacy</a><a href="#faq">Terms</a><a href="mailto:me@nishithp.page">Say hello</a></div>
+      <div class="social-links" aria-label="CraveLens social links">
+        <a href="https://www.facebook.com/profile.php?id=61591659457183" target="_blank" rel="noopener noreferrer" aria-label="CraveLens on Facebook">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 8.6V6.8c0-.9.6-1.1 1-1.1h2.5V2h-3.5c-3.9 0-4.8 2.9-4.8 4.8v1.8H7v3.8h2.9V22h4.4v-9.6h3.3l.5-3.8h-3.4Z"/></svg>
+        </a>
+        <a href="https://www.instagram.com/cravelens.dev/" target="_blank" rel="noopener noreferrer" aria-label="CraveLens on Instagram">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.8 2h8.4A5.8 5.8 0 0 1 22 7.8v8.4a5.8 5.8 0 0 1-5.8 5.8H7.8A5.8 5.8 0 0 1 2 16.2V7.8A5.8 5.8 0 0 1 7.8 2Zm0 2A3.8 3.8 0 0 0 4 7.8v8.4A3.8 3.8 0 0 0 7.8 20h8.4a3.8 3.8 0 0 0 3.8-3.8V7.8A3.8 3.8 0 0 0 16.2 4H7.8Zm4.2 3.4A4.6 4.6 0 1 1 7.4 12 4.6 4.6 0 0 1 12 7.4Zm0 2A2.6 2.6 0 1 0 14.6 12 2.6 2.6 0 0 0 12 9.4Zm4.9-2.7a1.1 1.1 0 1 1-1.1 1.1 1.1 1.1 0 0 1 1.1-1.1Z"/></svg>
+        </a>
+      </div>
+      <small>© 2026 CraveLens</small>
+    </footer>
     <dialog class="install-dialog" id="installDialog" aria-labelledby="installTitle">
       <button class="dialog-close" type="button" aria-label="Close installation options">×</button>
       <span class="kicker">TWO QUICK STEPS</span>
@@ -161,6 +174,8 @@
       <div class="install-option command-option"><span><small>STEP 2 · RUN IN YOUR TERMINAL</small><code>curl -fsSL https://cravelens.nishithp.page/install.sh | bash</code></span><button type="button" class="copy-command">Copy</button></div>
     </dialog>
     <div class="toast" role="status" aria-live="polite"><span>✓</span> Added to your craving cart</div>
+    <a class="scroll-top" href="#top" aria-label="Scroll back to top">↑</a>
+    <script type="module" src="/src/scroll-top.js"></script>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

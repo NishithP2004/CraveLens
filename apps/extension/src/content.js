@@ -5,6 +5,8 @@ import { io } from "socket.io-client";
 
 const state = { running: false, lastTrigger: -120, cache: [], videoId: "", modelStatus: "idle", lastResult: null, vlmStatus: "idle", vlmResult: null, error: "", agentSocket: null, agentEvents: [], foodHistory: [], carts: [], cartsHidden: false };
 const VIDEO_STORE_PREFIX = "cravelens:video:";
+const CART_STORE_SUFFIX = ":session-carts";
+const DETECTOR_OVERLAY_TTL_MS = 350;
 let detectorOverlayTimer;
 const api = (path, options = {}) => chrome.runtime.sendMessage({ type: "CRAVELENS_API", path, ...options }).then((r) => { if (!r.ok) throw new Error(r.error); return r.data; });
 const settings = () => chrome.storage.local.get({ enabled: true, debug: false, apiUrl: "http://localhost:8787", addressId: "", addressLabel: "", sensitivity: .38 });
@@ -73,17 +75,29 @@ async function trigger(video, confidence, signature) {
 function normalizeDish(value) { return String(value || "food").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
 function histogramDistance(a, b) { return !a || !b ? Infinity : a.reduce((sum, value, index) => sum + Math.abs(value - (b[index] || 0)), 0); }
 function storageKey() { return `${VIDEO_STORE_PREFIX}${state.videoId}`; }
+function cartStorageKey() { return `${storageKey()}${CART_STORE_SUFFIX}`; }
 function persistVideoState() {
   if (!state.videoId) return;
-  localStorage.setItem(storageKey(), JSON.stringify({ foodHistory: state.foodHistory, carts: state.carts, cartsHidden: state.cartsHidden }));
+  localStorage.setItem(storageKey(), JSON.stringify({ foodHistory: state.foodHistory }));
+  sessionStorage.setItem(cartStorageKey(), JSON.stringify({ carts: state.carts, cartsHidden: state.cartsHidden }));
 }
 function loadVideoState() {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey()) || "{}");
+    const session = JSON.parse(sessionStorage.getItem(cartStorageKey()) || "{}");
     state.foodHistory = Array.isArray(saved.foodHistory) ? saved.foodHistory : [];
-    state.carts = Array.isArray(saved.carts) ? saved.carts : [];
-    state.cartsHidden = Boolean(saved.cartsHidden);
+    state.carts = pruneExpiredCarts(Array.isArray(session.carts) ? session.carts : Array.isArray(saved.carts) ? saved.carts : []);
+    state.cartsHidden = Boolean(session.cartsHidden);
+    persistVideoState();
   } catch { state.foodHistory = []; state.carts = []; state.cartsHidden = false; }
+}
+
+function pruneExpiredCarts(carts) {
+  return carts.filter((cart) => cart.status === "ordered" || !isCartExpired(cart));
+}
+function isCartExpired(cart) {
+  const expiresAt = Date.parse(cart?.expiresAt || "");
+  return !Number.isFinite(expiresAt) || expiresAt <= Date.now();
 }
 
 function connectAgentStream(apiUrl, streamId) {
@@ -209,7 +223,7 @@ function renderDetectorOverlay(detections) {
     context.fillStyle = "white"; context.fillText(label, x + 8, Math.max(17, y - 8));
   }
   clearTimeout(detectorOverlayTimer);
-  detectorOverlayTimer = setTimeout(removeDetectorOverlay, 4500);
+  detectorOverlayTimer = setTimeout(removeDetectorOverlay, DETECTOR_OVERLAY_TTL_MS);
 }
 
 async function debugScan(forceDebug = false) {
@@ -296,6 +310,11 @@ document.addEventListener("ended", (event) => { if (event.target instanceof HTML
 function removeToast() { document.getElementById("cravelens-root")?.remove(); }
 function renderCartHistory() {
   document.getElementById("cravelens-cart-history")?.remove();
+  const activeCarts = pruneExpiredCarts(state.carts);
+  if (activeCarts.length !== state.carts.length) {
+    state.carts = activeCarts;
+    persistVideoState();
+  }
   if (!state.videoId || !state.carts.length) return;
   const root = document.createElement("div"); root.id = "cravelens-cart-history";
   const shadow = root.attachShadow({ mode: "open" });
@@ -309,10 +328,17 @@ function renderCartHistory() {
 }
 function formatTimestamp(seconds) { const value = Math.max(0, Math.floor(Number(seconds) || 0)); return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, "0")}`; }
 async function orderStoredCart(threadId, button) {
+  const cart = state.carts.find((item) => item.threadId === threadId);
+  if (!cart || isCartExpired(cart)) {
+    state.carts = pruneExpiredCarts(state.carts);
+    persistVideoState();
+    renderCartHistory();
+    showToast({ error: "Cart expired. Build a fresh Swiggy cart." });
+    return;
+  }
   button.disabled = true; button.textContent = "Ordering…";
   try {
     const data = await api(`/api/orchestrate/${threadId}/decision`, { method: "POST", body: { decision: "approve" } });
-    const cart = state.carts.find((item) => item.threadId === threadId);
     if (cart) { cart.status = "ordered"; cart.order = data.order; persistVideoState(); }
     button.textContent = `On its way · ${data.order.etaMinutes} min`;
     renderCartHistory();

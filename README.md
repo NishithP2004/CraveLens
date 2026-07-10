@@ -271,9 +271,9 @@ Without MongoDB, both server stores fall back to process memory and are cleared 
 The browser additionally stores the following per YouTube video in `localStorage`:
 
 - VLM-confirmed dish names, normalized deduplication keys, confidence, and frame timestamps;
-- compact frame histogram signatures used to avoid repeated VLM verification of the same scene;
-- prepared cart suggestions and their ready/ordered state;
-- whether the **Carts for this video** shelf is hidden or visible.
+- compact frame histogram signatures used to avoid repeated VLM verification of the same scene.
+
+Prepared cart suggestions, their ready/ordered state, and whether the **Carts for this video** shelf is hidden or visible are stored in per-tab `sessionStorage`. Cart suggestions include a 10-minute `expiresAt`; expired suggestions are removed from the client shelf and rejected by the server before order placement.
 
 The selected address, extension preferences, detector sensitivity, and debug setting are cached in extension `localStorage` and mirrored into Chrome extension storage for background and content-script reads.
 

@@ -13,19 +13,27 @@ async function main() {
   updateOutput();
   document.getElementById("sensitivity").addEventListener("input", updateOutput);
   document.getElementById("enabled").addEventListener("change", async (event) => {
-    await savePreferences({ enabled: event.target.checked });
-    updateEnabledState(event.target.checked);
+    const enabled = event.target.checked;
+    if (!enabled) document.getElementById("debug").checked = false;
+    await savePreferences({ enabled, ...(enabled ? {} : { debug: false }) });
+    updateEnabledState(enabled);
     await sendToYouTube({ type: "CRAVELENS_ENABLED_CHANGED" }).catch(() => {});
-    showMessage(event.target.checked ? "CraveLens enabled" : "CraveLens disabled");
+    if (!enabled) await sendToYouTube({ type: "CRAVELENS_DEBUG_CHANGED" }).catch(() => {});
+    showMessage(enabled ? "CraveLens enabled" : "CraveLens disabled");
   });
   document.getElementById("save").addEventListener("click", async () => {
-    const preferences = { enabled: document.getElementById("enabled").checked, debug: document.getElementById("debug").checked, addressId: selectedAddress?.id || "", addressLabel: selectedAddress ? addressLabel(selectedAddress) : "", sensitivity: Number(document.getElementById("sensitivity").value) };
+    const enabled = document.getElementById("enabled").checked;
+    if (!enabled) document.getElementById("debug").checked = false;
+    const preferences = { enabled, debug: enabled && document.getElementById("debug").checked, addressId: selectedAddress?.id || "", addressLabel: selectedAddress ? addressLabel(selectedAddress) : "", sensitivity: Number(document.getElementById("sensitivity").value) };
     await savePreferences(preferences);
     updateEnabledState(preferences.enabled);
     showMessage("Saved");
   });
   document.getElementById("connect").addEventListener("click", beginSwiggySignIn);
-  document.getElementById("debug").addEventListener("change", async (event) => { await savePreferences({ debug: event.target.checked }); await sendToYouTube({ type: "CRAVELENS_DEBUG_CHANGED" }).catch(() => {}); });
+  document.getElementById("debug").addEventListener("change", async (event) => {
+    if (!document.getElementById("enabled").checked) { event.target.checked = false; await savePreferences({ debug: false }); return; }
+    await savePreferences({ debug: event.target.checked }); await sendToYouTube({ type: "CRAVELENS_DEBUG_CHANGED" }).catch(() => {});
+  });
   document.getElementById("scan").addEventListener("click", scanCurrentFrame);
   document.getElementById("addressTrigger").addEventListener("click", toggleAddressList);
   document.addEventListener("click", (event) => { if (!document.getElementById("addressPicker").contains(event.target)) closeAddressList(); });
@@ -205,6 +213,9 @@ function setScanButtonLabel(label) {
 }
 function updateEnabledState(enabled) {
   document.getElementById("scan").disabled = !enabled;
+  const debug = document.getElementById("debug");
+  debug.disabled = !enabled;
+  if (!enabled) debug.checked = false;
 }
 function showMessage(message) {
   document.getElementById("message").textContent = message;

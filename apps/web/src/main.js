@@ -27,9 +27,19 @@ installDialog.addEventListener('click', (event) => {
   if (event.target === installDialog) installDialog.close();
 });
 installDialog.querySelector('.copy-command').addEventListener('click', async (event) => {
+  const copyButton = event.currentTarget;
+  const commandOption = copyButton.closest('.command-option');
+
   await navigator.clipboard.writeText(installCommand);
-  event.currentTarget.textContent = 'Copied ✓';
-  window.setTimeout(() => { event.currentTarget.textContent = 'Copy'; }, 1800);
+  copyButton.textContent = 'Copied ✓';
+  copyButton.classList.add('copied');
+  commandOption.classList.add('copied');
+
+  window.setTimeout(() => {
+    copyButton.textContent = 'Copy';
+    copyButton.classList.remove('copied');
+    commandOption.classList.remove('copied');
+  }, 1800);
 });
 
 const quickAdd = document.querySelector('#quickAdd');

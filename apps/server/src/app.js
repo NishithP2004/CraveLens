@@ -4,7 +4,7 @@ import { join } from "node:path";
 import express from "express";
 import cors from "cors";
 import { DetectionSchema, OrchestrateRequestSchema } from "@cravelens/shared";
-import { getVideo, saveDetection, saveThread, updateThread } from "./store.js";
+import { getThread, getVideo, saveDetection, saveThread, updateThread } from "./store.js";
 import { buildPersonalizedCart, getSavedAddresses, placeOrder } from "./swiggy.js";
 import { completeSwiggyAuthorization, failSwiggyAuthorization, getSwiggyAuthorizationStatus, startSwiggyAuthorization } from "./swiggy-auth.js";
 import { config } from "./config.js";
@@ -58,8 +58,10 @@ app.post("/api/orchestrate/:threadId/decision", async (req, res, next) => {
   try {
     const decision = req.body?.decision;
     if (!["approve", "reject"].includes(decision)) return res.status(400).json({ error: "decision must be approve or reject" });
-    const thread = await updateThread(req.params.threadId, decision === "approve" ? "approved" : "rejected");
+    const thread = await getThread(req.params.threadId);
     if (!thread) return res.status(404).json({ error: "Suggestion expired or not found" });
+    if (isSuggestionExpired(thread.suggestion)) return res.status(410).json({ error: "Cart expired. Build a fresh Swiggy cart." });
+    await updateThread(req.params.threadId, decision === "approve" ? "approved" : "rejected");
     if (decision === "reject") return res.json({ status: "rejected" });
     res.json({ status: "approved", order: await placeOrder(thread.suggestion, readSwiggySession(req)) });
   } catch (error) { next(error); }
@@ -69,6 +71,11 @@ app.use((error, _req, res, _next) => { console.error(error); res.status(error?.n
 function readSwiggySession(req) {
   const session = req.get("x-swiggy-session-id");
   return session && /^[\w-]{20,80}$/.test(session) ? session : undefined;
+}
+
+export function isSuggestionExpired(suggestion, now = Date.now()) {
+  const expiresAt = Date.parse(suggestion?.expiresAt || "");
+  return !Number.isFinite(expiresAt) || expiresAt <= now;
 }
 
 function authResultPage(success, title, detail) {

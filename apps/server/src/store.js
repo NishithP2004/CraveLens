@@ -41,6 +41,10 @@ export async function saveThread(doc) {
   if (threads) await threads.insertOne(doc); else memory.threads.set(doc.threadId, doc);
 }
 
+export async function getThread(threadId) {
+  return threads ? threads.findOne({ threadId }) : memory.threads.get(threadId) || null;
+}
+
 export async function updateThread(threadId, status) {
   if (threads) return threads.findOneAndUpdate({ threadId }, { $set: { status } }, { returnDocument: "after" });
   const doc = memory.threads.get(threadId);
