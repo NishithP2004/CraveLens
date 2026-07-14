@@ -1,17 +1,29 @@
-const ids = ["enabled", "debug", "sensitivity"];
-const defaults = { enabled: true, debug: false, addressId: "", addressLabel: "", sensitivity: .38 };
+const DEFAULT_SENSITIVITY = .38;
+const DEFAULT_SCAN_INTERVAL_MS = 4000;
+const MIN_SCAN_INTERVAL_MS = 2000;
+const MAX_SCAN_INTERVAL_MS = 30000;
+const ids = ["enabled", "debug", "sensitivity", "scanIntervalMs"];
+const defaults = { enabled: true, debug: false, addressId: "", addressLabel: "", sensitivity: DEFAULT_SENSITIVITY, scanIntervalMs: DEFAULT_SCAN_INTERVAL_MS };
 const preferenceKeys = Object.keys(defaults);
 const PREFERENCE_CACHE_KEY = "cravelens.preferences.v1";
 let selectedAddress;
 
 async function main() {
+  const contextPanels = [...document.querySelectorAll('details[name="popup-context"]')];
+  for (const panel of contextPanels) panel.addEventListener("toggle", () => {
+    if (panel.open) for (const other of contextPanels) if (other !== panel) other.open = false;
+  });
   const values = await loadPreferences();
   await savePreferences(values);
   for (const id of ids) document.getElementById(id)[id === "enabled" || id === "debug" ? "checked" : "value"] = values[id];
   updateEnabledState(values.enabled);
-  const updateOutput = () => document.getElementById("sensitivityValue").textContent = `${Math.round(document.getElementById("sensitivity").value * 100)}%`;
-  updateOutput();
-  document.getElementById("sensitivity").addEventListener("input", updateOutput);
+  const updateDetectionOutputs = () => {
+    document.getElementById("sensitivityValue").textContent = `${Math.round(document.getElementById("sensitivity").value * 100)}%`;
+    document.getElementById("scanIntervalValue").textContent = `${Math.round(document.getElementById("scanIntervalMs").value / 1000)}s`;
+  };
+  updateDetectionOutputs();
+  document.getElementById("sensitivity").addEventListener("input", updateDetectionOutputs);
+  document.getElementById("scanIntervalMs").addEventListener("input", updateDetectionOutputs);
   document.getElementById("enabled").addEventListener("change", async (event) => {
     const enabled = event.target.checked;
     if (!enabled) document.getElementById("debug").checked = false;
@@ -24,10 +36,17 @@ async function main() {
   document.getElementById("save").addEventListener("click", async () => {
     const enabled = document.getElementById("enabled").checked;
     if (!enabled) document.getElementById("debug").checked = false;
-    const preferences = { enabled, debug: enabled && document.getElementById("debug").checked, addressId: selectedAddress?.id || "", addressLabel: selectedAddress ? addressLabel(selectedAddress) : "", sensitivity: Number(document.getElementById("sensitivity").value) };
+    const preferences = { enabled, debug: enabled && document.getElementById("debug").checked, addressId: selectedAddress?.id || "", addressLabel: selectedAddress ? addressLabel(selectedAddress) : "", sensitivity: Number(document.getElementById("sensitivity").value), scanIntervalMs: Number(document.getElementById("scanIntervalMs").value) };
     await savePreferences(preferences);
     updateEnabledState(preferences.enabled);
     showMessage("Saved");
+  });
+  document.getElementById("resetDetectionDefaults").addEventListener("click", async () => {
+    document.getElementById("sensitivity").value = DEFAULT_SENSITIVITY;
+    document.getElementById("scanIntervalMs").value = DEFAULT_SCAN_INTERVAL_MS;
+    updateDetectionOutputs();
+    await savePreferences({ sensitivity: DEFAULT_SENSITIVITY, scanIntervalMs: DEFAULT_SCAN_INTERVAL_MS });
+    showMessage("Detection defaults restored");
   });
   document.getElementById("connect").addEventListener("click", beginSwiggySignIn);
   document.getElementById("debug").addEventListener("change", async (event) => {
@@ -47,11 +66,13 @@ async function scanCurrentFrame() {
   if (!document.getElementById("enabled").checked) { showMessage("Enable CraveLens to scan"); return; }
   const button = document.getElementById("scan"); button.disabled = true; setScanButtonLabel("Scanning for food…");
   try {
-    await savePreferences({ debug: true }); document.getElementById("debug").checked = true;
     const response = await sendToYouTube({ type: "CRAVELENS_DEBUG_SCAN" });
     if (!response?.ok) throw new Error(response?.error || "Scan failed");
     const food = response.result.detections.map((item) => `${item.label} ${Math.round(item.score * 100)}%`).join(", ");
-    document.getElementById("message").textContent = food || "No food class detected";
+    const verification = response.result.verification;
+    document.getElementById("message").textContent = verification
+      ? verification.isFood ? `${verification.dish} · Gemma ${Math.round(verification.confidence * 100)}%` : "Gemma did not confirm food"
+      : food || "No food class detected";
   } catch (error) { document.getElementById("message").textContent = error.message; }
   finally { updateEnabledState(document.getElementById("enabled").checked); setScanButtonLabel("Scan current frame"); }
 }
@@ -206,6 +227,8 @@ function sanitizePreferences(value) {
   if (typeof preferences.addressId !== "string") delete preferences.addressId;
   if (typeof preferences.addressLabel !== "string") delete preferences.addressLabel;
   if (!Number.isFinite(preferences.sensitivity)) delete preferences.sensitivity;
+  if (!Number.isFinite(preferences.scanIntervalMs)) delete preferences.scanIntervalMs;
+  else preferences.scanIntervalMs = Math.max(MIN_SCAN_INTERVAL_MS, Math.min(MAX_SCAN_INTERVAL_MS, Math.round(preferences.scanIntervalMs / 1000) * 1000));
   return preferences;
 }
 function setScanButtonLabel(label) {

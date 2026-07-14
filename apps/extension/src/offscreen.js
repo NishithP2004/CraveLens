@@ -12,7 +12,10 @@ chrome.runtime.onMessage.addListener((message, _sender, respond) => {
       ? runLocalVerification(message)
       : undefined;
   if (!operation) return;
-  operation.then((result) => respond({ ok: true, ...result })).catch((error) => respond({ ok: false, error: error.message }));
+  operation.then((result) => respond({ ok: true, ...result })).catch((error) => {
+    console.error("[CraveLens] Offscreen model operation failed:", error);
+    respond({ ok: false, error: error.message });
+  });
   return true;
 });
 
@@ -40,7 +43,9 @@ async function runLocalVerification({ imageDataUrl, videoTitle, modelUrl }) {
   const bitmap = await createImageBitmap(await (await fetch(imageDataUrl)).blob());
   const startedAt = performance.now();
   try {
+    console.info("[CraveLens] Gemma 3n inference requested", { videoTitle: String(videoTitle || "YouTube video") });
     const vlm = await getVlm(modelUrl);
+    console.info("[CraveLens] Gemma 3n model ready; generating response");
     const prompt = [
       "<start_of_turn>user\n",
       "Inspect this video frame. Return only minified JSON with keys isFood (boolean), dish (string), cuisine (string), ingredients (string array), confidence (number 0 to 1), and context (ready_to_eat, recipe, or restaurant_experience). Be conservative and identify only the main visible dish. Video title: ",
@@ -60,6 +65,7 @@ function parseVerification(text) {
   const match = String(text).match(/\{[\s\S]*\}/);
   if (!match) throw new Error("Gemma 3n did not return a JSON object");
   const value = JSON.parse(match[0]);
+  console.info("[CraveLens] Gemma 3n JSON output:", JSON.stringify(value));
   const contexts = new Set(["ready_to_eat", "recipe", "restaurant_experience"]);
   if (typeof value.isFood !== "boolean" || typeof value.dish !== "string" || !contexts.has(value.context)) throw new Error("Gemma 3n returned an invalid food result");
   return {

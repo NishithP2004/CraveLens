@@ -10,7 +10,6 @@ GEMMA_MODEL_FILE="gemma-3n-E2B-it-int4-Web.litertlm"
 GEMMA_MODEL_PATH="$MODEL_DIR/$GEMMA_MODEL_FILE"
 GEMMA_ACCESS_URL="https://huggingface.co/google/gemma-3n-E2B-it-litert-lm"
 GEMMA_FILE_URL="$GEMMA_ACCESS_URL/blob/main/$GEMMA_MODEL_FILE"
-GEMMA_HF_URI="hf://$GEMMA_REPO/$GEMMA_MODEL_FILE"
 GEMMA_TERMS_URL="https://ai.google.dev/gemma/terms"
 HF_BIN=""
 
@@ -18,6 +17,17 @@ info() { printf '\n\033[1;36mCraveLens:\033[0m %s\n' "$*"; }
 fail() { printf '\n\033[1;31mCraveLens install failed:\033[0m %s\n' "$*" >&2; exit 1; }
 prompt() { local value; printf '%s' "$1" > /dev/tty; IFS= read -r value < /dev/tty; printf '%s' "$value"; }
 prompt_secret() { local value; printf '%s' "$1" > /dev/tty; IFS= read -r -s value < /dev/tty; printf '\n' > /dev/tty; printf '%s' "$value"; }
+
+show_banner() {
+  cat <<'BANNER'
+
+[0;37;40m▄▀▀▀▄                         ▀█▀                   [0m
+[0;37;40m█     ▀█▄▀▄ ▀▀▀▄  █   █ ▄▀▀▀▄  █    ▄▀▀▀▄ █▄▀▀▄ ▄▀▀▀[0m
+[0;37;40m█   ▄  █  ▀ ▄▀▀█  ▀▄ ▄▀ █▀▀▀▀  █  ▄ █▀▀▀▀ █   █  ▀▀▄[0m
+[0;37;40m ▀▀▀  ▀▀▀    ▀▀ ▀   ▀    ▀▀▀  ▀▀▀▀▀  ▀▀▀  ▀   ▀ ▀▀▀ [0m
+
+BANNER
+}
 
 install_docker() {
   if command -v docker >/dev/null 2>&1; then
@@ -99,7 +109,7 @@ show_gemma_access_instructions() {
     printf '\nFull Gemma Terms of Use:\n  %s\n' "$GEMMA_TERMS_URL"
     printf '\nRequest/accept access to the gated Hugging Face model:\n  %s\n' "$GEMMA_ACCESS_URL"
     printf '\nCraveLens will download only this model file:\n  %s\n\n' "$GEMMA_FILE_URL"
-    printf 'Download command:\n  hf download %s\n\n' "$GEMMA_HF_URI"
+    printf 'Download command:\n  hf download %s %s\n\n' "$GEMMA_REPO" "$GEMMA_MODEL_FILE"
   } > /dev/tty
   prompt "Press Enter after you have accepted the terms and model access on Hugging Face..."
   printf '\n' > /dev/tty
@@ -118,7 +128,7 @@ download_gemma_model() {
   mkdir -p "$download_dir"
 
   info "Downloading Gemma 3n from Hugging Face. This is a large file and may take a while."
-  "$HF_BIN" download "$GEMMA_HF_URI" --local-dir "$download_dir" || fail "Unable to download Gemma 3n. Confirm that your Hugging Face account has accepted access at $GEMMA_ACCESS_URL."
+  "$HF_BIN" download "$GEMMA_REPO" "$GEMMA_MODEL_FILE" --local-dir "$download_dir" || fail "Unable to download Gemma 3n. Confirm that your Hugging Face account has accepted access at $GEMMA_ACCESS_URL."
 
   [ -s "$download_dir/$GEMMA_MODEL_FILE" ] || fail "Gemma 3n downloaded, but $GEMMA_MODEL_FILE was not found."
   mv "$download_dir/$GEMMA_MODEL_FILE" "$GEMMA_MODEL_PATH"
@@ -155,7 +165,7 @@ write_compose_file() {
   cat > "$COMPOSE_FILE" <<'COMPOSE'
 services:
   db:
-    image: mongodb
+    image: mongo
     restart: unless-stopped
     ports:
       - "27017:27017"
@@ -183,6 +193,7 @@ COMPOSE
 
 main() {
   [ -r /dev/tty ] || fail "An interactive terminal is required."
+  show_banner
   install_docker
   wait_for_docker
   install_hf_cli

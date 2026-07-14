@@ -1,6 +1,6 @@
 services:
   db:
-    image: mongodb
+    image: mongo
     restart: unless-stopped
     ports:
       - "27017:27017"
