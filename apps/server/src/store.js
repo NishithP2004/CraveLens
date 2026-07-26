@@ -45,11 +45,24 @@ export async function getThread(threadId) {
   return threads ? threads.findOne({ threadId }) : memory.threads.get(threadId) || null;
 }
 
-export async function updateThread(threadId, status) {
-  if (threads) return threads.findOneAndUpdate({ threadId }, { $set: { status } }, { returnDocument: "after" });
+export async function patchThread(threadId, patch) {
+  if (threads) return threads.findOneAndUpdate({ threadId }, { $set: patch }, { returnDocument: "after" });
   const doc = memory.threads.get(threadId);
   if (!doc) return null;
-  const updated = { ...doc, status };
+  const updated = { ...doc, ...patch };
+  memory.threads.set(threadId, updated);
+  return updated;
+}
+
+export async function claimThreadStatus(threadId, expectedStatuses, nextStatus) {
+  if (threads) return threads.findOneAndUpdate(
+    { threadId, status: { $in: expectedStatuses } },
+    { $set: { status: nextStatus } },
+    { returnDocument: "after" },
+  );
+  const doc = memory.threads.get(threadId);
+  if (!doc || !expectedStatuses.includes(doc.status)) return null;
+  const updated = { ...doc, status: nextStatus };
   memory.threads.set(threadId, updated);
   return updated;
 }

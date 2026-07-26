@@ -30,8 +30,11 @@ function wrapClient(client, closeWhenDone) {
     async call(name, args = {}) {
       try {
         const result = await client.callTool({ name, arguments: args });
+        if (name === "fetch_food_coupons") logCouponDiagnostic("mcp_raw", result);
         if (result.isError) throw new Error(readError(result));
-        return unwrap(result);
+        const value = unwrap(result);
+        if (name === "fetch_food_coupons") logCouponDiagnostic("unwrapped", value);
+        return value;
       } catch (error) {
         if (isAuthError(error)) throw new Error("Swiggy authorization expired. Run the OAuth 2.1 PKCE flow again.");
         throw error;
@@ -41,8 +44,28 @@ function wrapClient(client, closeWhenDone) {
   };
 }
 
-function unwrap(result) {
-  if (result.structuredContent) {
+function logCouponDiagnostic(stage, value) {
+  console.log(`[swiggy:coupon] ${stage}\n${safeDiagnosticJson(value)}`);
+}
+
+function safeDiagnosticJson(value) {
+  const seen = new WeakSet();
+  try {
+    return JSON.stringify(value, (key, child) => {
+      if (/authorization|access.?token|refresh.?token|cookie|session/i.test(key)) return "[redacted]";
+      if (child && typeof child === "object") {
+        if (seen.has(child)) return "[circular]";
+        seen.add(child);
+      }
+      return child;
+    }, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+export function unwrap(result) {
+  if (hasContent(result.structuredContent)) {
     const value = result.structuredContent;
     return value.success === false ? (() => { throw new Error(value.error?.message || "Swiggy tool failed"); })() : value.data ?? value;
   }
@@ -56,6 +79,11 @@ function unwrap(result) {
     if (error instanceof SyntaxError) return text;
     throw error;
   }
+}
+
+function hasContent(value) {
+  if (!value || typeof value !== "object") return false;
+  return Array.isArray(value) ? value.length > 0 : Object.keys(value).length > 0;
 }
 
 function readError(result) {

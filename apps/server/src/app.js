@@ -3,9 +3,9 @@ import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import express from "express";
 import cors from "cors";
-import { DetectionSchema, OrchestrateRequestSchema } from "@cravelens/shared";
-import { getThread, getVideo, saveDetection, saveThread, updateThread } from "./store.js";
-import { buildPersonalizedCart, getSavedAddresses, placeOrder } from "./swiggy.js";
+import { CartCustomizationSchema, CartMutationSchema, CouponSelectionSchema, DetectionSchema, OrchestrateRequestSchema } from "@cravelens/shared";
+import { claimThreadStatus, getThread, getVideo, patchThread, saveDetection, saveThread } from "./store.js";
+import { buildPersonalizedCart, checkUPIPayment, confirmUPIPayment, customizePersonalizedCart, getRestaurantMenuItems, getSavedAddresses, mutatePersonalizedCart, placeOrder, publicPayment, selectPersonalizedCoupon } from "./swiggy.js";
 import { completeSwiggyAuthorization, failSwiggyAuthorization, getSwiggyAuthorizationStatus, startSwiggyAuthorization } from "./swiggy-auth.js";
 import { config } from "./config.js";
 import { publishAgentEvent } from "./agent-events.js";
@@ -45,14 +45,100 @@ app.post("/api/orchestrate", async (req, res, next) => {
     if (!food.isFood || food.confidence < 0.65) return res.json({ detected: false });
     const threadId = crypto.randomUUID();
     publishAgentEvent(input.streamId, "orchestration_started", { dish: food.dish });
-    const suggestion = await buildPersonalizedCart(food, threadId, readSwiggySession(req), input.addressId, input.streamId);
-    await Promise.all([saveThread({ threadId, status: "awaiting_confirmation", suggestion, createdAt: new Date() }), saveDetection(input.videoId, { itemLabel: food.dish, startTime: Math.floor(input.timestamp), endTime: Math.floor(input.timestamp + 5), confidence: food.confidence })]);
+    const suggestion = await buildPersonalizedCart(food, threadId, readSwiggySession(req), input.addressId, input.streamId, {
+      personalContext: input.personalContext,
+      timeZone: input.timeZone,
+    });
+    await Promise.all([saveThread({ threadId, conversationId: threadId, status: "awaiting_confirmation", suggestion, createdAt: new Date() }), saveDetection(input.videoId, { itemLabel: food.dish, startTime: Math.floor(input.timestamp), endTime: Math.floor(input.timestamp + 5), confidence: food.confidence })]);
     publishAgentEvent(input.streamId, "cart_ready", { restaurant: suggestion.restaurant, item: suggestion.item, finalAmount: suggestion.finalAmount });
     res.json({ detected: true, suggestion });
   } catch (error) {
     publishAgentEvent(req.body?.streamId, "failed", { error: error instanceof Error ? error.message : "Unexpected error" });
     next(error);
   }
+});
+app.post("/api/orchestrate/:threadId/customize", async (req, res, next) => {
+  try {
+    const input = CartCustomizationSchema.parse(req.body);
+    const thread = await claimThreadStatus(req.params.threadId, ["awaiting_confirmation"], "customizing");
+    if (!thread) {
+      const existing = await getThread(req.params.threadId);
+      if (!existing) return res.status(404).json({ error: "Cart conversation expired or was not found." });
+      return res.status(409).json({ error: "This cart can no longer be customized." });
+    }
+    publishAgentEvent(input.streamId, "customization_started", { instruction: input.instruction });
+    try {
+      const conversationId = thread.conversationId || thread.threadId;
+      const suggestion = await customizePersonalizedCart(thread.suggestion, input.instruction, conversationId, readSwiggySession(req), input.streamId, {
+        personalContext: input.personalContext,
+        timeZone: input.timeZone,
+      });
+      await patchThread(req.params.threadId, {
+        status: "awaiting_confirmation",
+        suggestion,
+        conversationId,
+        lastInstruction: input.instruction,
+        customizedAt: new Date(),
+      });
+      publishAgentEvent(input.streamId, "cart_ready", { restaurant: suggestion.restaurant, item: suggestion.item, finalAmount: suggestion.finalAmount });
+      return res.json({ status: "awaiting_confirmation", conversationId, suggestion });
+    } catch (error) {
+      await patchThread(req.params.threadId, { status: "awaiting_confirmation", customizationError: error instanceof Error ? error.message : String(error) });
+      throw error;
+    }
+  } catch (error) { next(error); }
+});
+app.get("/api/orchestrate/:threadId/menu", async (req, res, next) => {
+  try {
+    const thread = await getThread(req.params.threadId);
+    if (!thread) return res.status(404).json({ error: "Cart conversation expired or was not found." });
+    if (thread.status !== "awaiting_confirmation") return res.status(409).json({ error: "This cart cannot be edited right now." });
+    const query = String(req.query.q || "").trim();
+    if (query.length > 80) return res.status(400).json({ error: "Menu search must be 80 characters or fewer." });
+    res.json({ items: await getRestaurantMenuItems(thread.suggestion, readSwiggySession(req), query) });
+  } catch (error) { next(error); }
+});
+app.post("/api/orchestrate/:threadId/cart", async (req, res, next) => {
+  try {
+    const input = CartMutationSchema.parse(req.body);
+    const thread = await claimThreadStatus(req.params.threadId, ["awaiting_confirmation"], "updating_cart");
+    if (!thread) {
+      const existing = await getThread(req.params.threadId);
+      if (!existing) return res.status(404).json({ error: "Cart conversation expired or was not found." });
+      return res.status(409).json({ error: "This cart is already being updated." });
+    }
+    try {
+      const suggestion = await mutatePersonalizedCart(thread.suggestion, input, readSwiggySession(req));
+      if (suggestion?.deleted) {
+        await patchThread(req.params.threadId, { status: "rejected", suggestion: null, cartUpdatedAt: new Date() });
+        return res.json({ status: "deleted" });
+      }
+      await patchThread(req.params.threadId, { status: "awaiting_confirmation", suggestion, cartUpdatedAt: new Date() });
+      return res.json({ status: "awaiting_confirmation", suggestion });
+    } catch (error) {
+      await patchThread(req.params.threadId, { status: "awaiting_confirmation", cartUpdateError: error instanceof Error ? error.message : String(error) });
+      throw error;
+    }
+  } catch (error) { next(error); }
+});
+app.post("/api/orchestrate/:threadId/coupon", async (req, res, next) => {
+  try {
+    const input = CouponSelectionSchema.parse(req.body);
+    const thread = await claimThreadStatus(req.params.threadId, ["awaiting_confirmation"], "updating_coupon");
+    if (!thread) {
+      const existing = await getThread(req.params.threadId);
+      if (!existing) return res.status(404).json({ error: "Cart conversation expired or was not found." });
+      return res.status(409).json({ error: "This cart is already being updated." });
+    }
+    try {
+      const suggestion = await selectPersonalizedCoupon(thread.suggestion, input.couponCode, readSwiggySession(req));
+      await patchThread(req.params.threadId, { status: "awaiting_confirmation", suggestion, couponUpdatedAt: new Date() });
+      return res.json({ status: "awaiting_confirmation", suggestion });
+    } catch (error) {
+      await patchThread(req.params.threadId, { status: "awaiting_confirmation", couponUpdateError: error instanceof Error ? error.message : String(error) });
+      throw error;
+    }
+  } catch (error) { next(error); }
 });
 app.post("/api/orchestrate/:threadId/decision", async (req, res, next) => {
   try {
@@ -61,12 +147,99 @@ app.post("/api/orchestrate/:threadId/decision", async (req, res, next) => {
     const thread = await getThread(req.params.threadId);
     if (!thread) return res.status(404).json({ error: "Suggestion expired or not found" });
     if (isSuggestionExpired(thread.suggestion)) return res.status(410).json({ error: "Cart expired. Build a fresh Swiggy cart." });
-    await updateThread(req.params.threadId, decision === "approve" ? "approved" : "rejected");
-    if (decision === "reject") return res.json({ status: "rejected" });
-    res.json({ status: "approved", order: await placeOrder(thread.suggestion, readSwiggySession(req)) });
+    if (decision === "reject") {
+      const rejected = await claimThreadStatus(req.params.threadId, ["awaiting_confirmation"], "rejected");
+      if (!rejected) return res.status(409).json({ error: "This cart is already being processed." });
+      return res.json({ status: "rejected" });
+    }
+    if (thread.status === "payment_pending" || thread.status === "payment_paid") return res.json({ status: thread.status, payment: publicPayment(thread.payment) });
+    if (thread.status === "ordered") return res.json({ status: "ordered", order: thread.order });
+    const paymentMethod = String(req.body?.paymentMethod || "").toUpperCase();
+    if (!["COD", "UPI"].includes(paymentMethod)) return res.status(400).json({ error: "Choose COD or UPI before confirming the order." });
+    if (!thread.suggestion.paymentOptions?.[paymentMethod.toLowerCase()]?.available) return res.status(400).json({ error: `${paymentMethod} is not available for this Swiggy cart.` });
+    const claimed = await claimThreadStatus(req.params.threadId, ["awaiting_confirmation"], "placing_order");
+    if (!claimed) return res.status(409).json({ error: "This cart is already being processed." });
+    try {
+      const result = await placeOrder(claimed.suggestion, readSwiggySession(req), paymentMethod);
+      if (result.payment) {
+        await patchThread(req.params.threadId, { status: "payment_pending", paymentMethod, payment: result.payment });
+        return res.json({ status: "payment_pending", payment: publicPayment(result.payment) });
+      }
+      await patchThread(req.params.threadId, { status: "ordered", paymentMethod, order: result.order });
+      return res.json({ status: "ordered", order: result.order });
+    } catch (error) {
+      await patchThread(req.params.threadId, { status: "placement_failed", placementError: error instanceof Error ? error.message : String(error) });
+      throw error;
+    }
   } catch (error) { next(error); }
 });
-app.use((error, _req, res, _next) => { console.error(error); res.status(error?.name === "ZodError" ? 400 : 500).json({ error: error instanceof Error ? error.message : "Unexpected error" }); });
+app.get("/api/orchestrate/:threadId/payment-status", async (req, res, next) => {
+  try {
+    const thread = await getThread(req.params.threadId);
+    if (!thread?.payment) return res.status(404).json({ error: "No UPI payment is pending for this cart." });
+    if (thread.status === "ordered") return res.json({ status: "ordered", order: thread.order });
+    if (thread.status === "payment_paid") return res.json({ status: "paid" });
+    if (thread.status === "payment_cancelled") return res.json({ status: "cancelled" });
+    if (thread.status === "payment_failed" || paymentExpired(thread.payment)) {
+      if (thread.status !== "payment_failed") await claimThreadStatus(req.params.threadId, ["payment_pending"], "payment_failed");
+      return res.json({ status: "failed" });
+    }
+    if (thread.status !== "payment_pending") return res.status(409).json({ error: "This payment is no longer available." });
+    const status = await checkUPIPayment(thread.payment, readSwiggySession(req));
+    if (status === "pending") return res.json({ status });
+    const nextStatus = status === "paid" ? "payment_paid" : "payment_failed";
+    const transitioned = await claimThreadStatus(req.params.threadId, ["payment_pending"], nextStatus);
+    if (transitioned) return res.json({ status });
+    return res.json(paymentStatusResponse(await getThread(req.params.threadId)));
+  } catch (error) { next(error); }
+});
+app.post("/api/orchestrate/:threadId/cancel-payment", async (req, res, next) => {
+  try {
+    const existing = await getThread(req.params.threadId);
+    if (!existing?.payment) return res.status(404).json({ error: "No UPI payment is pending for this cart." });
+    if (existing.status !== "payment_pending") return res.json(paymentStatusResponse(existing));
+    const claimed = await claimThreadStatus(req.params.threadId, ["payment_pending"], "payment_cancelling");
+    if (!claimed) return res.json(paymentStatusResponse(await getThread(req.params.threadId)));
+    try {
+      const status = paymentExpired(claimed.payment) ? "failed" : await checkUPIPayment(claimed.payment, readSwiggySession(req));
+      if (status === "paid") {
+        await patchThread(req.params.threadId, { status: "payment_paid" });
+        return res.json({ status: "paid" });
+      }
+      if (status === "failed") {
+        await patchThread(req.params.threadId, { status: "payment_failed" });
+        return res.json({ status: "failed" });
+      }
+      await patchThread(req.params.threadId, { status: "payment_cancelled", paymentCancelledAt: new Date() });
+      return res.json({ status: "cancelled" });
+    } catch (error) {
+      await patchThread(req.params.threadId, { status: "payment_pending" });
+      throw error;
+    }
+  } catch (error) { next(error); }
+});
+app.post("/api/orchestrate/:threadId/confirm-payment", async (req, res, next) => {
+  try {
+    const existing = await getThread(req.params.threadId);
+    if (!existing) return res.status(404).json({ error: "Payment not found." });
+    if (existing.status === "ordered") return res.json({ status: "ordered", order: existing.order });
+    const thread = await claimThreadStatus(req.params.threadId, ["payment_paid"], "confirming_payment");
+    if (!thread) return res.status(409).json({ error: "Payment has not completed or is already being finalized." });
+    try {
+      const order = await confirmUPIPayment(thread.payment, readSwiggySession(req));
+      await patchThread(req.params.threadId, { status: "ordered", order });
+      return res.json({ status: "ordered", order });
+    } catch (error) {
+      await patchThread(req.params.threadId, { status: "confirmation_failed", confirmationError: error instanceof Error ? error.message : String(error) });
+      throw error;
+    }
+  } catch (error) { next(error); }
+});
+app.use((error, _req, res, _next) => {
+  console.error(error);
+  const status = error?.name === "ZodError" ? 400 : Number(error?.statusCode) || 500;
+  res.status(status).json({ error: error instanceof Error ? error.message : "Unexpected error", code: error?.code });
+});
 
 function readSwiggySession(req) {
   const session = req.get("x-swiggy-session-id");
@@ -76,6 +249,19 @@ function readSwiggySession(req) {
 export function isSuggestionExpired(suggestion, now = Date.now()) {
   const expiresAt = Date.parse(suggestion?.expiresAt || "");
   return !Number.isFinite(expiresAt) || expiresAt <= now;
+}
+
+function paymentExpired(payment, now = Date.now()) {
+  const expiresAt = Date.parse(payment?.expiresAt || "");
+  return Number.isFinite(expiresAt) && expiresAt <= now;
+}
+
+function paymentStatusResponse(thread) {
+  if (thread?.status === "ordered") return { status: "ordered", order: thread.order };
+  if (thread?.status === "payment_paid" || thread?.status === "confirming_payment") return { status: "paid" };
+  if (thread?.status === "payment_cancelled") return { status: "cancelled" };
+  if (thread?.status === "payment_failed") return { status: "failed" };
+  return { status: "pending" };
 }
 
 function authResultPage(success, title, detail) {

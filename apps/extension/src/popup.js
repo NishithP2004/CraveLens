@@ -2,8 +2,8 @@ const DEFAULT_SENSITIVITY = .38;
 const DEFAULT_SCAN_INTERVAL_MS = 4000;
 const MIN_SCAN_INTERVAL_MS = 2000;
 const MAX_SCAN_INTERVAL_MS = 30000;
-const ids = ["enabled", "debug", "sensitivity", "scanIntervalMs"];
-const defaults = { enabled: true, debug: false, addressId: "", addressLabel: "", sensitivity: DEFAULT_SENSITIVITY, scanIntervalMs: DEFAULT_SCAN_INTERVAL_MS };
+const ids = ["enabled", "debug", "sensitivity", "scanIntervalMs", "personalContext"];
+const defaults = { enabled: true, debug: false, addressId: "", addressLabel: "", sensitivity: DEFAULT_SENSITIVITY, scanIntervalMs: DEFAULT_SCAN_INTERVAL_MS, themeMode: "system", personalContext: "" };
 const preferenceKeys = Object.keys(defaults);
 const PREFERENCE_CACHE_KEY = "cravelens.preferences.v1";
 let selectedAddress;
@@ -15,11 +15,26 @@ async function main() {
   });
   const values = await loadPreferences();
   await savePreferences(values);
+  applyTheme(values.themeMode);
   for (const id of ids) document.getElementById(id)[id === "enabled" || id === "debug" ? "checked" : "value"] = values[id];
   updateEnabledState(values.enabled);
+  const updateRangeProgress = (input, valueText) => {
+    const min = Number(input.min || 0);
+    const max = Number(input.max || 100);
+    const value = Number(input.value);
+    const progress = max > min ? ((value - min) / (max - min)) * 100 : 0;
+    input.style.setProperty("--range-progress", `${Math.max(0, Math.min(100, progress))}%`);
+    input.setAttribute("aria-valuetext", valueText);
+  };
   const updateDetectionOutputs = () => {
-    document.getElementById("sensitivityValue").textContent = `${Math.round(document.getElementById("sensitivity").value * 100)}%`;
-    document.getElementById("scanIntervalValue").textContent = `${Math.round(document.getElementById("scanIntervalMs").value / 1000)}s`;
+    const sensitivity = document.getElementById("sensitivity");
+    const scanInterval = document.getElementById("scanIntervalMs");
+    const sensitivityText = `${Math.round(sensitivity.value * 100)}%`;
+    const scanIntervalText = `${Math.round(scanInterval.value / 1000)}s`;
+    document.getElementById("sensitivityValue").textContent = sensitivityText;
+    document.getElementById("scanIntervalValue").textContent = scanIntervalText;
+    updateRangeProgress(sensitivity, sensitivityText);
+    updateRangeProgress(scanInterval, scanIntervalText);
   };
   updateDetectionOutputs();
   document.getElementById("sensitivity").addEventListener("input", updateDetectionOutputs);
@@ -33,10 +48,20 @@ async function main() {
     if (!enabled) await sendToYouTube({ type: "CRAVELENS_DEBUG_CHANGED" }).catch(() => {});
     showMessage(enabled ? "CraveLens enabled" : "CraveLens disabled");
   });
+  document.getElementById("themeToggle").addEventListener("click", async () => {
+    const themeMode = resolvedTheme() === "dark" ? "light" : "dark";
+    applyTheme(themeMode);
+    await savePreferences({ themeMode });
+    await sendToYouTube({ type: "CRAVELENS_THEME_CHANGED", themeMode }).catch(() => {});
+    showMessage(`${themeMode === "dark" ? "Dark" : "Light"} mode selected`);
+  });
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if ((readCachedPreferences().themeMode || "system") === "system") applyTheme("system");
+  });
   document.getElementById("save").addEventListener("click", async () => {
     const enabled = document.getElementById("enabled").checked;
     if (!enabled) document.getElementById("debug").checked = false;
-    const preferences = { enabled, debug: enabled && document.getElementById("debug").checked, addressId: selectedAddress?.id || "", addressLabel: selectedAddress ? addressLabel(selectedAddress) : "", sensitivity: Number(document.getElementById("sensitivity").value), scanIntervalMs: Number(document.getElementById("scanIntervalMs").value) };
+    const preferences = { enabled, debug: enabled && document.getElementById("debug").checked, addressId: selectedAddress?.id || "", addressLabel: selectedAddress ? addressLabel(selectedAddress) : "", sensitivity: Number(document.getElementById("sensitivity").value), scanIntervalMs: Number(document.getElementById("scanIntervalMs").value), personalContext: document.getElementById("personalContext").value.trim() };
     await savePreferences(preferences);
     updateEnabledState(preferences.enabled);
     showMessage("Saved");
@@ -64,7 +89,7 @@ async function main() {
 
 async function scanCurrentFrame() {
   if (!document.getElementById("enabled").checked) { showMessage("Enable CraveLens to scan"); return; }
-  const button = document.getElementById("scan"); button.disabled = true; setScanButtonLabel("Scanning for food…");
+  const button = document.getElementById("scan"); button.disabled = true; setScanButtonLabel("Checking with Gemma 3n…");
   try {
     const response = await sendToYouTube({ type: "CRAVELENS_DEBUG_SCAN" });
     if (!response?.ok) throw new Error(response?.error || "Scan failed");
@@ -226,10 +251,26 @@ function sanitizePreferences(value) {
   if (typeof preferences.debug !== "boolean") delete preferences.debug;
   if (typeof preferences.addressId !== "string") delete preferences.addressId;
   if (typeof preferences.addressLabel !== "string") delete preferences.addressLabel;
+  if (typeof preferences.personalContext !== "string") delete preferences.personalContext;
+  else preferences.personalContext = preferences.personalContext.trim().slice(0, 1000);
+  if (!["system", "light", "dark"].includes(preferences.themeMode)) delete preferences.themeMode;
   if (!Number.isFinite(preferences.sensitivity)) delete preferences.sensitivity;
   if (!Number.isFinite(preferences.scanIntervalMs)) delete preferences.scanIntervalMs;
   else preferences.scanIntervalMs = Math.max(MIN_SCAN_INTERVAL_MS, Math.min(MAX_SCAN_INTERVAL_MS, Math.round(preferences.scanIntervalMs / 1000) * 1000));
   return preferences;
+}
+function resolvedTheme(mode = document.documentElement.dataset.themeMode || "system") {
+  return mode === "system" ? window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light" : mode;
+}
+function applyTheme(mode = "system") {
+  const theme = resolvedTheme(mode);
+  document.documentElement.dataset.themeMode = mode;
+  document.documentElement.dataset.theme = theme;
+  const button = document.getElementById("themeToggle");
+  if (!button) return;
+  button.dataset.mode = mode;
+  button.setAttribute("aria-label", `${mode === "system" ? "Following system theme. " : ""}Switch to ${theme === "dark" ? "light" : "dark"} mode`);
+  button.title = mode === "system" ? `System theme (${theme})` : `${theme[0].toUpperCase()}${theme.slice(1)} mode`;
 }
 function setScanButtonLabel(label) {
   document.getElementById("scan").innerHTML = `<span>${escapeHtml(label)}</span><kbd>Ctrl Shift Y</kbd>`;

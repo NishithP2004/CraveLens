@@ -12,7 +12,7 @@
 6. Records the confirmed dish, frame timestamp, and visual signature in per-video `localStorage` history to suppress repeated scenes, duplicate dishes, unnecessary VLM work, and duplicate carts.
 7. Sends only the structured dish description, selected saved-address ID, and video metadata to the Node.js backend.
 8. Runs a LangChain `createAgent()` ReAct loop with authenticated Swiggy MCP tools to inspect order history, search orderable menu items, respect observed dietary constraints, build the cart, and apply the best valid coupon.
-9. Saves prepared carts in a collapsible per-video cart shelf and shows an itemized receipt with an explicit confirmation step before calling Swiggy's order tool.
+9. Saves prepared carts in a collapsible per-video cart shelf and shows an itemized receipt with dietary markers, available item imagery, descriptions, and an explicit confirmation step before calling Swiggy's order tool.
 
 ## Architecture
 
@@ -23,29 +23,41 @@ flowchart TB
   subgraph Chrome["Chrome MV3 extension — on-device boundary"]
     direction TB
     Popup["Popup UI<br/>Swiggy connection, saved-address picker,<br/>sensitivity and debug controls"]
+    Background["Background service worker<br/>API proxy, keyboard command,<br/>offscreen document lifecycle"]
     Content["YouTube content script<br/>sampling scheduler, detector canvas,<br/>craving prompt and cart shelf"]
+    Offscreen["Offscreen document<br/>local inference coordinator"]
     Worker["Module Web Worker<br/>best_dynamic.onnx via ONNX Runtime WASM<br/>YOLO decode + NMS"]
     Burst["Frame burst and keyframe selector<br/>RGB histogram clustering + sharpness"]
-    Offscreen["Offscreen document<br/>Gemma 3n VLM via MediaPipe / LiteRT WebGPU"]
+    VLM["Gemma 3n VLM<br/>MediaPipe Tasks GenAI / WebGPU"]
     Gate{"Valid JSON?<br/>isFood = true?<br/>confidence ≥ 0.65?"}
-    History[("Per-video localStorage<br/>confirmed dishes + timestamps + signatures<br/>prepared carts + shelf state")]
+    History[("YouTube localStorage<br/>per-video confirmed dishes,<br/>timestamps and signatures")]
+    Carts[("YouTube sessionStorage<br/>per-tab prepared carts,<br/>payment state and shelf state")]
     Debug["Debug UI<br/>ONNX boxes and confidence,<br/>Gemma isFood verdict, latency and errors"]
     LocalPrefs[("Chrome storage<br/>session ID, selected address,<br/>preferences and debug setting")]
 
-    Content -->|"sample frame"| Worker
-    Worker -->|"food boxes + confidence"| Content
+    Content -->|"sample frame"| Background
+    Background --> Offscreen
+    Offscreen --> Worker
+    Worker -->|"food boxes + confidence"| Offscreen
+    Offscreen -->|"detector result"| Background
+    Background --> Content
     Content -->|"debug mode: draw temporary boxes"| Debug
     Content -->|"detector-positive: check timestamp / signature"| History
     History -->|"new scene"| Burst
     History -->|"known scene: skip verification"| Content
-    Burst -->|"selected frame stays local"| Offscreen
-    Offscreen -->|"structured verification JSON"| Gate
+    Burst -->|"selected frame stays local"| Background
+    Background -->|"verification request"| Offscreen
+    Offscreen --> VLM
+    VLM -->|"structured verification JSON"| Gate
     Gate -->|"confirmed food only"| Content
     Gate -->|"failed / invalid / rejected: stop silently"| Debug
     Content -->|"deduplicate dish and persist confirmation"| History
-    Content -->|"persist prepared cart"| History
+    Content -->|"persist prepared cart / payment state"| Carts
+    Carts -->|"restore cart shelf in this tab"| Content
     Content --> Debug
-    Offscreen --> Debug
+    VLM --> Debug
+    Popup <--> Background
+    Content <--> Background
     Popup <--> LocalPrefs
     Content <--> LocalPrefs
   end
@@ -54,15 +66,17 @@ flowchart TB
     direction TB
     Routes["HTTP API<br/>OAuth, addresses, detections,<br/>orchestration and decision endpoints"]
     Events["Socket.IO event gateway<br/>stream-scoped agent progress rooms"]
+    ModelHost["Static local-model endpoint<br/>Gemma LiteRT model"]
     OAuth["Swiggy OAuth 2.1 + PKCE<br/>official MCP SDK auth provider"]
-    Orchestrator["Cart orchestration service<br/>address validation and receipt normalization"]
+    Orchestrator["Cart orchestration service<br/>address validation, customization,<br/>deterministic edits and receipt normalization"]
     Agent["LangChain createAgent() ReAct loop<br/>Gemini or ChatOpenAI"]
     ToolPolicy["MCP tool policy<br/>allowlisted preparation tools only<br/>place_food_order withheld from agent"]
-    Decision["Confirmation gate<br/>approve or reject"]
+    Decision["Confirmation and payment gate<br/>reject, COD order or UPI handoff"]
     Store["Storage adapter<br/>MongoDB or in-memory fallback"]
 
     Routes --> OAuth
     Routes --- Events
+    Routes --- ModelHost
     Routes --> Orchestrator
     Orchestrator --> Agent
     Agent --> ToolPolicy
@@ -77,35 +91,41 @@ flowchart TB
     Account[("User account<br/>addresses and order history")]
     Catalog[("Restaurants, menus,<br/>cart and coupons")]
     Order["place_food_order"]
+    Payment["UPI payment lifecycle<br/>QR, status and confirm_order"]
 
     Consent --> OAuth
     MCP <--> Account
     MCP <--> Catalog
     MCP --> Order
+    Order --> Payment
   end
 
   subgraph Models["Model services"]
     AgentModel["Agent LLM<br/>Gemini or OpenAI-compatible endpoint"]
+    Langfuse["Optional Langfuse<br/>agent trace export"]
   end
 
   User --> Popup
   User --> Content
   Popup -->|"open authorization URL"| Consent
-  Popup <-->|"auth status and saved addresses"| Routes
-  Content -->|"VLM-confirmed dish JSON + addressId + video metadata<br/>no video frame"| Routes
+  Background <-->|"auth, model and orchestration HTTP"| Routes
+  ModelHost -->|"Gemma model bytes"| VLM
+  Content -->|"VLM-confirmed dish JSON + addressId + video metadata<br/>no video frame"| Background
   Events -->|"WebSocket: sanitized lifecycle and tool events"| Content
   Agent <-->|"reasoning and tool calls"| AgentModel
+  Agent -.->|"when configured"| Langfuse
   ToolPolicy <-->|"get addresses/history, search menu,<br/>update/verify cart, coupons"| MCP
   Orchestrator -->|"normalized receipt + rationale"| Content
-  Content -->|"persist cart and render shelf / full prompt"| History
+  Content -->|"persist cart and render shelf / full prompt"| Carts
   Content -->|"render final amount, Why this cart? and Confirm button"| User
-  User -->|"approve"| Decision
-  Decision -->|"server-only, non-retried call"| Order
+  User -->|"approve COD / UPI"| Decision
+  Decision -->|"server-only, non-retried placement"| Order
+  Decision <-->|"poll / cancel / confirm paid order"| Payment
   User -->|"reject"| Decision
 
   classDef local fill:#173d2b,stroke:#55c98a,color:#fff
   classDef safety fill:#4a251b,stroke:#ff7043,color:#fff
-  class Offscreen,Worker,Burst local
+  class Offscreen,Worker,VLM,Burst local
   class ToolPolicy,Decision safety
 ```
 
@@ -157,7 +177,7 @@ Then:
 3. Choose **Load unpacked** and select `apps/extension/dist`.
 4. Open the CraveLens popup and complete Swiggy sign-in.
 5. Select a saved delivery address.
-6. Open a YouTube video or Short containing food and use **Scan current frame** (`Ctrl+Shift+Y`), or allow continuous scanning.
+6. Open a YouTube video or Short containing food and use **Scan current frame** (`Ctrl+Shift+Y`) to send the frame directly to Gemma 3n, bypassing the scheduled ONNX gate, or allow continuous ONNX-gated scanning.
 
 During extension development, `npm run dev` watches and rebuilds the extension. Reload the unpacked extension from `chrome://extensions` after a rebuild. Restart the Node process after server changes.
 
@@ -188,6 +208,22 @@ Gemma 3n is served by the local backend and loaded into the extension for on-dev
 
 See `apps/server/models/README.md` for model-specific notes. The browser must support WebGPU; first load can take time because the model is large.
 
+### Docker Compose
+
+The repository Compose file runs MongoDB and the published CraveLens server image. It mounts the same canonical model directory used by local development:
+
+```text
+apps/server/models/gemma-3n-E2B-it-int4-Web.litertlm
+```
+
+After creating `.env` and placing the model there, start the services with:
+
+```bash
+docker compose up -d
+```
+
+The host directory `./apps/server/models` is mounted read-only at `/app/apps/server/models` in the server container.
+
 ## Configuration
 
 | Variable | Required | Default | Purpose |
@@ -199,11 +235,14 @@ See `apps/server/models/README.md` for model-specific notes. The browser must su
 | `AGENT_MODEL_NAME` | Yes | `gemini-2.5-flash` | Agent model name |
 | `AGENT_MODEL_API_KEY` | Yes | — | Agent provider API key |
 | `AGENT_MODEL_BASE_URL` | For custom OpenAI-compatible APIs | `https://api.openai.com/v1` | ChatOpenAI base URL |
+| `LANGFUSE_PUBLIC_KEY` | No | — | Enables Langfuse tracing when paired with the secret key |
+| `LANGFUSE_SECRET_KEY` | No | — | Enables Langfuse tracing when paired with the public key |
+| `LANGFUSE_BASE_URL` | No | `https://cloud.langfuse.com` | Langfuse Cloud region or self-hosted instance |
+| `LANGFUSE_TRACING_ENVIRONMENT` | No | `development` | Environment label applied to Langfuse traces |
 | `MONGODB_URI` | No | — | Enables persistent storage when set |
 | `MONGODB_DATABASE` | No | `cravelens` | MongoDB database name |
 | `SWIGGY_FOOD_MCP_URL` | No | `https://mcp.swiggy.com/food` | Swiggy Food MCP endpoint |
 | `SWIGGY_MCP_ACCESS_TOKEN` | No | — | Developer-only fallback; normal users use OAuth |
-| `EXTENSION_ORIGIN` | No | `chrome-extension://*` | Allowed extension origin configuration |
 
 For OpenAI:
 
@@ -213,6 +252,19 @@ AGENT_MODEL_NAME=gpt-4.1-mini
 AGENT_MODEL_API_KEY=...
 AGENT_MODEL_BASE_URL=https://api.openai.com/v1
 ```
+
+### Langfuse observability
+
+Langfuse tracing is optional and runs only when both credentials are present:
+
+```dotenv
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_BASE_URL=https://cloud.langfuse.com
+LANGFUSE_TRACING_ENVIRONMENT=development
+```
+
+Each Swiggy agent invocation is sent through Langfuse's LangChain callback handler, including nested model and tool observations, latency, outputs, and errors. Runs are grouped by the cart conversation ID. The server initializes the OpenTelemetry exporter at startup and flushes it during graceful shutdown. If either credential is missing or initialization fails, the agent runs normally without Langfuse.
 
 ## Swiggy OAuth flow
 
@@ -236,7 +288,7 @@ The LangChain agent follows this sequence:
 3. Search orderable menu items, including sensible synonyms when the literal dish name fails.
 4. Select an open, serviceable restaurant and an exact variant/add-on configuration.
 5. Update and re-read the cart to verify the chosen item.
-6. Compare applicable COD-compatible coupons and apply the best valid offer.
+6. Prefer the best payment-method-neutral coupon so the user can choose COD or UPI at confirmation.
 7. Re-read the cart and return a concise rationale.
 8. Normalize the actual restaurant, line items, savings, fees, taxes, and final payable amount for the confirmation UI.
 
@@ -248,14 +300,22 @@ The user—not the agent—decides whether to place the order.
 | --- | --- | --- |
 | `GET` | `/health` | Service health check |
 | `GET` | `/api/local-model/status` | Local Gemma model availability |
+| `GET` | `/models/gemma-3n-E2B-it-int4-Web.litertlm` | Stream the locally installed Gemma model to the extension |
 | `POST` | `/api/swiggy/auth/start` | Start OAuth/PKCE authorization |
 | `GET` | `/api/swiggy/auth/status/:sessionId` | Poll authorization state |
 | `GET` | `/api/swiggy/auth/callback` | OAuth redirect callback |
 | `GET` | `/api/swiggy/addresses` | Load normalized saved addresses |
 | `GET` | `/api/videos/:videoId/detections` | Read cached video detections |
-| `POST` | `/api/videos/:videoId/detections` | Save a detection window |
 | `POST` | `/api/orchestrate` | Build and verify a personalized cart |
-| `POST` | `/api/orchestrate/:threadId/decision` | Approve or reject the prepared cart |
+| `POST` | `/api/orchestrate/:threadId/customize` | Continue the cart-agent conversation with a free-form instruction |
+| `GET` | `/api/orchestrate/:threadId/menu` | Browse or search the prepared cart's restaurant menu |
+| `POST` | `/api/orchestrate/:threadId/cart` | Add, remove, or change the quantity of verified cart items |
+| `POST` | `/api/orchestrate/:threadId/coupon` | Apply a selected eligible coupon and refresh the receipt |
+| `POST` | `/api/orchestrate/:threadId/decision` | Reject a cart or approve it with `COD`/`UPI` |
+| `GET` | `/api/orchestrate/:threadId/payment-status` | Poll a pending UPI payment |
+| `POST` | `/api/orchestrate/:threadId/cancel-payment` | Stop a still-pending UPI flow after re-checking its status |
+| `POST` | `/api/orchestrate/:threadId/confirm-payment` | Finalize a successfully paid UPI order |
+| `POST` | `/api/videos/:videoId/detections` | Save a detection window |
 
 Authenticated Swiggy API requests carry the opaque session in the `x-swiggy-session-id` header.
 
@@ -264,7 +324,7 @@ Authenticated Swiggy API requests carry the opaque session in the `x-swiggy-sess
 With `MONGODB_URI` configured, CraveLens stores:
 
 - one cache document per YouTube video, with five-second fuzzy detection deduplication;
-- orchestration threads with a 24-hour TTL index.
+- orchestration threads with a 24-hour TTL index, including short-lived pending UPI references while a payment is in progress.
 
 Without MongoDB, both server stores fall back to process memory and are cleared when the server restarts.
 
@@ -300,7 +360,7 @@ npm run typecheck
 
 Agent progress is logged by the server as `[agent:<run-id>]`, including tool start/completion, duration, and sanitized arguments.
 
-While orchestration is running, the extension also opens a Socket.IO WebSocket and subscribes to a UUID-scoped room before sending the cart request. The server streams sanitized lifecycle and MCP tool events to that room, allowing the loading card to show live address, history, menu, cart, coupon, and verification progress. The socket closes when the cart is ready or the run fails; cart confirmation continues to use the explicit HTTP decision endpoint.
+While orchestration is running, the extension also opens a Socket.IO WebSocket and subscribes to a UUID-scoped room before sending the cart request. The server streams sanitized lifecycle and MCP tool events to that room, allowing the loading card to show live address, history, menu, cart, coupon, and verification progress. The generated-cart popup accepts follow-up instructions and sends them through the same application thread UUID, which is also used as LangGraph's checkpointed `thread_id`; the verified receipt is then refreshed in place. The socket closes when the cart is ready or the run fails; cart confirmation continues to use the explicit HTTP decision endpoint.
 
 ## Scripts
 
@@ -320,5 +380,5 @@ While orchestration is running, the extension also opens a Socket.IO WebSocket a
 - Per-video history is local to the current YouTube browser origin/profile and can be cleared with browser site data.
 - Gemma inference requires a capable WebGPU device and sufficient memory.
 - Swiggy MCP client availability and account eligibility are controlled by Swiggy.
-- Checkout currently follows the payment methods returned by the verified Swiggy cart and the Builders Club ordering constraints.
+- Checkout shows the live COD and UPI methods returned by Swiggy. UPI orders use Swiggy's QR handoff, payment-status polling, optional mid-flow cancellation, and one-time confirmation flow; availability remains account/cart dependent.
 - This is an experimental ordering assistant; always review the restaurant, address, items, dietary implications, and final amount before confirming.

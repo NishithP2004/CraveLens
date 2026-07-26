@@ -1,4 +1,4 @@
-const defaults = { enabled: true, debug: false, apiUrl: "http://localhost:8787", addressId: "", addressLabel: "", sensitivity: 0.38, scanIntervalMs: 4000 };
+const defaults = { enabled: true, debug: false, apiUrl: "http://localhost:8787", addressId: "", addressLabel: "", sensitivity: 0.38, scanIntervalMs: 4000, personalContext: "", themeMode: "system" };
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   const existing = await chrome.storage.local.get(Object.keys(defaults));
   await chrome.storage.local.set({ ...defaults, ...existing, ...(reason === "install" ? { debug: false } : {}) });

@@ -7,10 +7,10 @@
   },
   "scripts": {
     "dev": "node --watch src/index.js",
-    "build": "node --check src/index.js && node --check src/app.js",
+    "build": "node --check src/index.js && node --check src/app.js && node --check src/langfuse.js",
     "start": "node src/index.js",
     "test": "vitest run",
-    "typecheck": "node --check src/index.js && node --check src/app.js"
+    "typecheck": "node --check src/index.js && node --check src/app.js && node --check src/langfuse.js"
   },
   "dependencies": {
     "@cravelens/shared": "*",
@@ -18,7 +18,11 @@
     "@langchain/google": "^0.2.1",
     "@langchain/langgraph": "^1.4.7",
     "@langchain/openai": "^1.2.1",
+    "@langfuse/core": "^5.9.1",
+    "@langfuse/langchain": "^5.9.1",
+    "@langfuse/otel": "^5.9.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@opentelemetry/sdk-node": "^0.221.0",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",

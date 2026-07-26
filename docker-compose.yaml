@@ -21,6 +21,6 @@ services:
     env_file:
       - ./.env
     volumes:
-      - ./models:/app/apps/server/models:ro
+      - ./apps/server/models:/app/apps/server/models:ro
     depends_on:
       - db

@@ -1,0 +1,134 @@
+html,
+body {
+  background-color: #f1ece4 !important;
+}
+
+body {
+  width: 380px;
+  padding: 8px;
+  background:
+    radial-gradient(circle at 8% 4%, #fff 0, #fff0 34%),
+    radial-gradient(circle at 92% 94%, #ffd9ca73 0, #ffd9ca00 38%),
+    #f1ece4 !important;
+}
+
+main {
+  padding: 18px;
+  overflow: hidden;
+  border: 1px solid #a9a194b8;
+  border-radius: 26px;
+  background: linear-gradient(150deg, #ffffffd2, #fffaf2a8);
+  box-shadow: 0 16px 40px #49331c29, inset 0 1px 0 #ffffffed;
+  -webkit-backdrop-filter: blur(22px) saturate(130%);
+  backdrop-filter: blur(22px) saturate(130%);
+}
+
+.settings-card,
+.popup-links a,
+.theme-toggle {
+  border-color: #9c9487a8;
+  background: #ffffff73;
+  box-shadow: inset 0 1px 0 #ffffffed, 0 10px 28px #49331c20;
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+  backdrop-filter: blur(14px) saturate(120%);
+}
+
+.settings-card {
+  border-color: #9d9589d9;
+  background: linear-gradient(145deg, #ffffffcf, #eeeae2ad);
+  box-shadow:
+    inset 0 1px 0 #fff,
+    inset 0 -1px 0 #bdb5a94d,
+    0 12px 30px #49331c1c;
+}
+
+.settings-card[open] {
+  border-color: #c58e76e0;
+  background: linear-gradient(145deg, #ffffffd8, #f2e9e1ba);
+}
+
+.context-card {
+  position: relative;
+  z-index: 1;
+}
+
+.context-card:has(.address-trigger[aria-expanded="true"]) {
+  z-index: 30;
+}
+
+.address-picker:has(.address-trigger[aria-expanded="true"]) {
+  z-index: 31;
+}
+
+.popup-links a,
+.theme-toggle {
+  border-color: #9d9589d9;
+  background: linear-gradient(145deg, #ffffffcf, #eeeae2ad);
+  color: var(--muted);
+  box-shadow:
+    inset 0 1px 0 #fff,
+    inset 0 -1px 0 #bdb5a94d,
+    0 8px 20px #49331c18;
+}
+
+.switch,
+.switch span,
+.debug-row,
+.debug-row input {
+  cursor: pointer;
+}
+
+.status {
+  border: 1px solid #ffffff2b;
+  background: linear-gradient(145deg, #24241fd8, #141411ca);
+  box-shadow: 0 14px 32px #1818142b, inset 0 1px 0 #ffffff12;
+  -webkit-backdrop-filter: blur(14px) saturate(125%);
+  backdrop-filter: blur(14px) saturate(125%);
+}
+
+:root[data-theme="light"] .status {
+  background: linear-gradient(145deg, #292925f7, #181815f2);
+  box-shadow: 0 14px 32px #18181438, inset 0 1px 0 #ffffff1f;
+}
+
+.address-trigger,
+.debug-row,
+.personal-context-input {
+  background: #ffffff8f;
+  border-color: #9d9589c7;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+:root[data-theme="dark"] main {
+  border-color: #ffffff2a;
+  background: linear-gradient(150deg, #20211db8, #11120fa3);
+  box-shadow: 0 20px 54px #000b, inset 0 1px 0 #ffffff12;
+}
+
+:root[data-theme="dark"],
+:root[data-theme="dark"] body {
+  background-color: #10110e !important;
+}
+
+:root[data-theme="dark"] body {
+  background:
+    radial-gradient(circle at 8% 4%, #34352e7a 0, #34352e00 36%),
+    radial-gradient(circle at 92% 94%, #5b261c42 0, #5b261c00 38%),
+    #10110e !important;
+}
+
+:root[data-theme="dark"] .settings-card,
+:root[data-theme="dark"] .popup-links a,
+:root[data-theme="dark"] .theme-toggle {
+  border-color: #ffffff25;
+  background: #ffffff07;
+  box-shadow: inset 0 1px 0 #ffffff0d, 0 10px 28px #0004;
+}
+
+:root[data-theme="dark"] .address-trigger,
+:root[data-theme="dark"] .debug-row,
+:root[data-theme="dark"] .personal-context-input {
+  background: #11120f91;
+  border-color: #ffffff25;
+}
