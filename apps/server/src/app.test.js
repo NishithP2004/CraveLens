@@ -1,20 +1,80 @@
 import { describe, expect, it } from "vitest";
 import { SystemMessage } from "@langchain/core/messages";
 import { AgentFollowUpSchema, CartCustomizationSchema, CartMutationSchema, CouponSelectionSchema, FoodVerificationSchema, OrchestrateRequestSchema } from "@cravelens/shared";
-import { isSuggestionExpired } from "./app.js";
-import { appendSystemInstruction, createSearchBudgetGuard, invokeModelWithToolChoiceRetry, isToolChoiceMismatchError, isTransientModelError, normalizeToolSchema, replaceSystemInstruction, shouldFinalizeCartAgent, splitAgentResponse } from "./swiggy-agent.js";
+import { isSuggestionExpired, orchestrationFlightKey, runSingleFlight } from "./app.js";
+import { appendSystemInstruction, createSearchBudgetGuard, invokeModelWithToolChoiceRetry, isToolChoiceMismatchError, isTransientModelError, normalizeAgentFollowUpPayload, normalizeToolSchema, replaceSystemInstruction, shouldFinalizeCartAgent, splitAgentResponse } from "./swiggy-agent.js";
 import { unwrap } from "./swiggy-mcp.js";
 import { claimThreadStatus, getThread, saveThread } from "./store.js";
 import { cartReflectsItems, configuredMenuItemPayload, currentTemporalContext, normalizeAddress, normalizeCartReceipt, normalizeFoodCoupons, normalizeMenuCatalog, normalizeMenuOptionGroups, normalizePaymentOptions, normalizePaymentStatus, normalizePendingPayment, reconcileCouponRationale, resolveAppliedCouponDiscount, resolveCouponCode, resolveDeliveryEta, resolveDietaryType, resolveItemDescription, resolveItemImage, resolveProductRating, resolveRestaurantLocation, resolveRestaurantLogo, resolveRestaurantName, resolveRestaurantNameWithRetry, resolveRestaurantRating } from "./swiggy.js";
 
 describe("CraveLens contracts", () => {
-  it("accepts a verified dish", () => expect(FoodVerificationSchema.parse({ isFood: true, dish: "ramen", cuisine: "Japanese", ingredients: [], confidence: .9, context: "ready_to_eat" }).dish).toBe("ramen"));
+  it("accepts a verified dish with a detailed visual description", () => expect(FoodVerificationSchema.parse({
+    isFood: true,
+    dish: "Miso chicken ramen",
+    description: "A bowl of wheat noodles in a pale miso broth, topped with sliced chicken, sweetcorn, scallions, and sesame.",
+    cuisine: "Japanese",
+    ingredients: ["noodles", "miso broth", "chicken", "sweetcorn", "scallions"],
+    confidence: .9,
+    context: "ready_to_eat",
+  })).toMatchObject({
+    dish: "Miso chicken ramen",
+    description: expect.stringContaining("pale miso broth"),
+  }));
   it("treats expired or missing cart expiries as unorderable", () => {
     expect(isSuggestionExpired({ expiresAt: "2026-07-09T12:00:00.000Z" }, Date.parse("2026-07-09T12:00:00.001Z"))).toBe(true);
     expect(isSuggestionExpired({ expiresAt: "2026-07-09T12:10:00.000Z" }, Date.parse("2026-07-09T12:00:00.000Z"))).toBe(false);
     expect(isSuggestionExpired({})).toBe(true);
   });
   it("accepts an orchestration request verified on-device", () => expect(OrchestrateRequestSchema.parse({ videoId: "198AWISrLgl", timestamp: 76, triggerConfidence: .8, verification: { isFood: true, dish: "ramen", cuisine: "Japanese", ingredients: ["noodles"], confidence: .91, context: "ready_to_eat" }, videoTitle: "Ramen", location: "Home" }).verification.dish).toBe("ramen"));
+  it("coalesces concurrent cart builds for the same user, video, and normalized dish", async () => {
+    const flights = new Map();
+    let operations = 0;
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const operation = async () => {
+      operations += 1;
+      await gate;
+      return { detected: true, suggestion: { threadId: "thread-1" } };
+    };
+    const input = { videoId: "video-1", addressId: "home", verification: { dish: "Miso Chicken Ramen" } };
+    const key = orchestrationFlightKey(input, "session-1");
+    expect(key).toBe(orchestrationFlightKey({ ...input, verification: { dish: "  miso-chicken RAMEN " } }, "session-1"));
+
+    const first = runSingleFlight(flights, key, operation, { retainMs: 0 });
+    const second = runSingleFlight(flights, key, operation, { retainMs: 0 });
+    expect(first.joined).toBe(false);
+    expect(second.joined).toBe(true);
+    release();
+    const [firstResult, secondResult] = await Promise.all([first.promise, second.promise]);
+
+    expect(operations).toBe(1);
+    expect(secondResult).toBe(firstResult);
+    expect(flights.size).toBe(0);
+  });
+  it("briefly reuses successful builds but releases failed builds for retry", async () => {
+    const retainedFlights = new Map();
+    let successfulOperations = 0;
+    const first = runSingleFlight(retainedFlights, "same", async () => {
+      successfulOperations += 1;
+      return { suggestion: { threadId: "thread-1" } };
+    }, { retainMs: 1_000 });
+    const firstResult = await first.promise;
+    const duplicate = runSingleFlight(retainedFlights, "same", async () => {
+      successfulOperations += 1;
+      return { suggestion: { threadId: "thread-2" } };
+    }, { retainMs: 1_000 });
+    expect(duplicate.joined).toBe(true);
+    expect(await duplicate.promise).toBe(firstResult);
+    expect(successfulOperations).toBe(1);
+
+    const failedFlights = new Map();
+    const failed = runSingleFlight(failedFlights, "retryable", async () => {
+      throw new Error("temporary failure");
+    });
+    await expect(failed.promise).rejects.toThrow("temporary failure");
+    expect(failedFlights.size).toBe(0);
+    expect(runSingleFlight(failedFlights, "retryable", async () => "retried").joined).toBe(false);
+  });
   it("accepts personal context and supplies a default when omitted", () => {
     const base = { videoId: "198AWISrLgl", timestamp: 76, triggerConfidence: .8, verification: { isFood: true, dish: "ramen", cuisine: "Japanese", ingredients: [], confidence: .9, context: "ready_to_eat" } };
     expect(OrchestrateRequestSchema.parse(base).personalContext).toBe("");
@@ -39,6 +99,57 @@ describe("CraveLens contracts", () => {
       title: "Choose a size",
       fields: [{ id: "size", type: "radio", label: "Which size?" }],
     })).toThrow();
+  });
+  it("converts standard JSON Schema follow-ups into renderable version-1 controls", () => {
+    expect(normalizeAgentFollowUpPayload({
+      type: "object",
+      title: "Add-ons (optional)",
+      properties: {
+        beverage_addon: {
+          type: "string",
+          title: "Choose a beverage to add with your bread (optional)",
+          enum: [
+            "Classic Lemonade [300ml] (₹90)",
+            "Valencia Orange Juice [200ml] (₹180)",
+            "Hot Chocolate [250ml] (₹195)",
+            "Latte [250ml] (₹155)",
+            "Cappuccino [250ml] (₹155)",
+            "Mango & Pineapple Juice (200ml) (₹180)",
+            "Lemon Iced Tea [300 ml] (₹104)",
+            "Peach Iced Tea [300 ml] (₹104)",
+            "None",
+          ],
+          default: "None",
+        },
+      },
+      required: [],
+    })).toMatchObject({
+      version: 1,
+      title: "Add-ons (optional)",
+      fields: [{
+        id: "beverage_addon",
+        type: "select",
+        label: "Choose a beverage to add with your bread (optional)",
+        required: false,
+        defaultValue: "None",
+        options: expect.arrayContaining([
+          { value: "Classic Lemonade [300ml] (₹90)", label: "Classic Lemonade [300ml] (₹90)" },
+          { value: "Peach Iced Tea [300 ml] (₹104)", label: "Peach Iced Tea [300 ml] (₹104)" },
+          { value: "None", label: "None" },
+        ]),
+      }],
+    });
+    expect(splitAgentResponse(`CART_RATIONALE:
+The bread requires an optional add-on choice.
+HUMAN_INPUT_UI:
+{"type":"object","title":"Add-ons (optional)","properties":{"beverage_addon":{"type":"string","title":"Choose a beverage","enum":["Lemonade","Coffee","Tea","Juice","None"]}},"required":[]}`)).toMatchObject({
+      agentPrompt: "",
+      agentFollowUp: {
+        version: 1,
+        title: "Add-ons (optional)",
+        fields: [{ id: "beverage_addon", type: "select", required: false }],
+      },
+    });
   });
   it("accepts deterministic cart edits and coupon overrides", () => {
     expect(CartMutationSchema.parse({ action: "set_quantity", itemId: "dish-1", quantity: 3 })).toEqual({

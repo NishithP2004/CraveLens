@@ -4,7 +4,33 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   await chrome.storage.local.set({ ...defaults, ...existing, ...(reason === "install" ? { debug: false } : {}) });
 });
 
-chrome.runtime.onMessage.addListener((message, _sender, respond) => {
+chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if (message.type === "CRAVELENS_YOUTUBE_CAPTION_TRACKS") {
+    (async () => {
+      if (!sender.tab?.id || !chrome.scripting?.executeScript) return { tracks: [] };
+      const [result] = await chrome.scripting.executeScript({
+        target: { tabId: sender.tab.id },
+        world: "MAIN",
+        func: () => {
+          const player = document.getElementById("movie_player")
+            || document.querySelector("ytd-player #movie_player, #shorts-player");
+          const response = player?.getPlayerResponse?.() || globalThis.ytInitialPlayerResponse;
+          const tracks = response?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+          return (Array.isArray(tracks) ? tracks : []).map((track) => ({
+            baseUrl: track.baseUrl,
+            languageCode: track.languageCode,
+            kind: track.kind,
+            name: track.name?.simpleText || track.name?.runs?.map((run) => run.text).join("") || "",
+          }));
+        },
+      });
+      return { tracks: Array.isArray(result?.result) ? result.result : [] };
+    })().then((data) => respond({ ok: true, ...data })).catch((error) => {
+      console.warn("[CraveLens] Unable to read live YouTube caption tracks:", error);
+      respond({ ok: false, tracks: [], error: error.message });
+    });
+    return true;
+  }
   if (message.type === "CRAVELENS_YOLO_DETECT") {
     (async () => {
       await ensureOffscreenDocument();

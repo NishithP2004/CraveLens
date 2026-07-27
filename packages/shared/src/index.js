@@ -10,6 +10,7 @@ export const DetectionSchema = z.object({
 export const FoodVerificationSchema = z.object({
   isFood: z.boolean(),
   dish: z.string(),
+  description: z.string().trim().max(1200).default(""),
   cuisine: z.string(),
   ingredients: z.array(z.string()),
   confidence: z.number().min(0).max(1),
@@ -52,6 +53,10 @@ export const AgentFollowUpSchema = z.object({
     label: z.string().trim().min(1).max(240),
     required: z.boolean().default(true),
     placeholder: z.string().trim().max(240).optional(),
+    defaultValue: z.union([
+      z.string().trim().max(120),
+      z.array(z.string().trim().max(120)).max(12),
+    ]).optional(),
     options: z.array(AgentFollowUpOptionSchema).max(12).optional(),
   }).superRefine((field, context) => {
     if (["radio", "checkbox", "select"].includes(field.type) && !field.options?.length) {

@@ -625,6 +625,23 @@ export const interfaceThemeCss = `
     box-shadow: inset 0 1px 0 #ffffff0e;
   }
   .promo-empty { padding: 13px; }
+  .promo-empty-copy {
+    display: grid;
+    min-width: 0;
+    gap: 5px;
+  }
+  .promo-empty .section-title {
+    display: block;
+    margin: 0;
+    line-height: 1.35;
+  }
+  .promo-empty small {
+    display: block;
+    color: #aaa69d;
+    font-size: 10px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
   .promos > summary {
     display: flex;
     align-items: center;
@@ -978,6 +995,7 @@ export const interfaceThemeCss = `
     border-color: #18181416;
     scrollbar-color: #8d8376 transparent;
   }
+  :host([data-theme="light"]) .promo-empty small { color: #615c53; }
   :host([data-theme="light"]) .receipt-bill {
     background: #ffffff8f;
     border-color: #9b918275;

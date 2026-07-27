@@ -3,9 +3,12 @@ import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { io } from "socket.io-client";
 import QRCode from "qrcode";
+import { createCartBuildLock } from "./cart-build-lock.js";
 import { historyThemeCss, interfaceThemeCss } from "./theme.js";
+import { formatTranscriptContext, getTranscriptContext } from "./transcript.js";
 
 const state = { running: false, navigationVersion: 0, lastTrigger: -120, lastPlaybackTime: null, replayPending: false, cache: [], videoId: "", modelStatus: "idle", lastResult: null, vlmStatus: "idle", vlmResult: null, error: "", agentSocket: null, agentEvents: [], foodHistory: [], carts: [], cartsHidden: false, themeMode: "system" };
+const cartBuildLock = createCartBuildLock();
 const VIDEO_STORE_PREFIX = "cravelens:video:";
 const CART_STORE_SUFFIX = ":session-carts";
 const DETECTOR_OVERLAY_TTL_MS = 350;
@@ -66,14 +69,15 @@ async function burst(video) {
   const frames = [];
   for (let i = 0; i < 6; i++) {
     const shot = capture(video, 720); const features = frameFeatures(shot.imageData);
-    frames.push({ ...features, dataUrl: shot.canvas.toDataURL("image/jpeg", .82) });
+    frames.push({ ...features, timestamp: video.currentTime, dataUrl: shot.canvas.toDataURL("image/jpeg", .82) });
     await new Promise((r) => setTimeout(r, 330));
   }
-  return selectKeyframe(frames).dataUrl;
+  return selectKeyframe(frames);
 }
 
-async function trigger(video, confidence, signature, { forceVerification = false, forceAgent = false, throwOnError = false } = {}) {
+async function trigger(video, confidence, signature, { forceVerification = false, throwOnError = false } = {}) {
   const navigationVersion = state.navigationVersion;
+  let cartBuildClaim;
   state.lastTrigger = video.currentTime;
   if (!forceVerification && state.foodHistory.some((entry) => Math.abs(Number(entry.timestamp) - video.currentTime) < 8)) {
     console.info("[CraveLens] Gemma skipped: this video timestamp was already confirmed");
@@ -88,25 +92,60 @@ async function trigger(video, confidence, signature, { forceVerification = false
   try {
     const cfg = await settings();
     console.info("[CraveLens] ONNX-positive frame accepted; preparing Gemma 3n keyframe");
-    const keyframeDataUrl = await burst(video);
+    const keyframe = await burst(video);
+    const frameTimestamp = Number.isFinite(keyframe.timestamp) ? keyframe.timestamp : video.currentTime;
     if (!isCurrentNavigation(navigationVersion)) return;
     state.vlmStatus = "running"; renderDebug();
-    console.info("[CraveLens] Sending keyframe to Gemma 3n");
-    const local = await chrome.runtime.sendMessage({ type: "CRAVELENS_VLM_VERIFY", imageDataUrl: keyframeDataUrl, videoTitle: document.title.replace(" - YouTube", "") });
+    const liveCaptionTracks = await chrome.runtime.sendMessage({
+      type: "CRAVELENS_YOUTUBE_CAPTION_TRACKS",
+    }).then((response) => response?.tracks || []).catch(() => []);
+    const transcriptContext = await getTranscriptContext({
+      videoId: state.videoId,
+      timestamp: frameTimestamp,
+      captionTracks: liveCaptionTracks,
+    }).catch((error) => {
+      console.warn("[CraveLens] Transcript context unavailable; continuing with visual verification only:", error);
+      return undefined;
+    });
+    console.info("[CraveLens] Sending keyframe to Gemma 3n", {
+      frameTimestamp,
+      transcriptCues: transcriptContext
+        ? transcriptContext.before.length + transcriptContext.at.length + transcriptContext.after.length
+        : 0,
+    });
+    console.info("[CraveLens] Gemma 3n input context", {
+      videoTitle: document.title.replace(" - YouTube", ""),
+      frameTimestamp,
+      captionTrackSource: liveCaptionTracks.length ? "live YouTube player" : "page metadata fallback",
+      transcript: formatTranscriptContext(transcriptContext),
+      frame: "[selected keyframe image omitted from console]",
+    });
+    const local = await chrome.runtime.sendMessage({
+      type: "CRAVELENS_VLM_VERIFY",
+      imageDataUrl: keyframe.dataUrl,
+      videoTitle: document.title.replace(" - YouTube", ""),
+      frameTimestamp,
+      transcriptContext,
+    });
     if (!isCurrentNavigation(navigationVersion)) return;
     if (!local?.ok) { state.vlmStatus = "failed"; renderDebug(); throw new Error(local?.error || "Local Gemma 3n verification failed"); }
-    state.vlmStatus = "ready"; state.vlmResult = { ...local.verification, inferenceMs: local.vlmInferenceMs, timestamp: video.currentTime }; renderDebug();
+    state.vlmStatus = "ready"; state.vlmResult = { ...local.verification, inferenceMs: local.vlmInferenceMs, timestamp: frameTimestamp }; renderDebug();
     if (!local.verification.isFood || local.verification.confidence < .65) return local.verification;
     vlmConfirmed = true;
     const dishKey = normalizeDish(local.verification.dish);
     const existing = state.foodHistory.find((entry) => entry.dishKey === dishKey);
     const existingCart = state.carts.find((cart) => normalizeDish(cart.detectedDish || cart.item) === dishKey && !isCartExpired(cart));
-    if (existing && existingCart && !forceAgent) {
+    if (existing && existingCart) {
       console.info(`[CraveLens] Agent flow skipped: an active ${local.verification.dish} cart already exists for this video`);
       return local.verification;
     }
+    cartBuildClaim = cartBuildLock.claim(state.videoId, dishKey);
+    if (!cartBuildClaim) {
+      console.info(`[CraveLens] Agent flow skipped: a ${local.verification.dish} cart build is already in progress for this video`);
+      return local.verification;
+    }
     if (!existing) {
-      state.foodHistory.push({ dish: local.verification.dish, dishKey, timestamp: video.currentTime, confidence: local.verification.confidence, signature: signature || null, confirmedAt: Date.now() });
+      state.foodHistory.push({ dish: local.verification.dish, dishKey, timestamp: frameTimestamp, confidence: local.verification.confidence, signature: signature || null, confirmedAt: Date.now() });
       persistVideoState();
     }
     state.agentEvents = [{ message: `${local.verification.dish} confirmed by Gemma 3n`, state: "done" }, { message: "Connecting to the cart agent…", state: "active" }];
@@ -117,7 +156,7 @@ async function trigger(video, confidence, signature, { forceVerification = false
     if (!isCurrentNavigation(navigationVersion)) { closeAgentStream(); return; }
     const result = await api("/api/orchestrate", { method: "POST", body: {
       videoId: state.videoId,
-      timestamp: video.currentTime,
+      timestamp: frameTimestamp,
       triggerConfidence: confidence,
       verification: local.verification,
       videoTitle: document.title.replace(" - YouTube", ""),
@@ -129,7 +168,7 @@ async function trigger(video, confidence, signature, { forceVerification = false
     if (!isCurrentNavigation(navigationVersion)) return;
     closeAgentStream();
     if (result.detected) {
-      const cart = { ...result.suggestion, detectedDish: local.verification.dish, frameTimestamp: video.currentTime, addedAt: Date.now(), status: "ready" };
+      const cart = { ...result.suggestion, detectedDish: local.verification.dish, frameTimestamp, addedAt: Date.now(), status: "ready" };
       state.carts.push(cart); persistVideoState(); renderCartHistory(); showToast({ suggestion: cart });
     } else removeToast();
     return local.verification;
@@ -139,6 +178,8 @@ async function trigger(video, confidence, signature, { forceVerification = false
     state.error = error.message; renderDebug();
     if (vlmConfirmed) showToast({ error: error.message });
     if (throwOnError) throw error;
+  } finally {
+    cartBuildLock.release(cartBuildClaim);
   }
 }
 
@@ -222,6 +263,7 @@ function agentEventMessage({ event, details = {} }) {
     metadata_retry: "Refreshing restaurant details",
   };
   if (event === "orchestration_started") return `Preparing a ${details.dish || "food"} cart`;
+  if (event === "orchestration_joined") return `Using the ${details.dish || "food"} cart build already in progress`;
   if (event === "customization_started") return "Understanding your requested changes";
   if (event === "started") return "Personalization agent started";
   if (event === "tools_ready") return `${details.count || 0} Swiggy tools connected`;
@@ -347,7 +389,7 @@ async function debugScan(forceDebug = false) {
     state.lastResult = result;
     renderDebug(forceDebug);
     console.info("[CraveLens] Manual scan bypassing ONNX and invoking Gemma 3n directly");
-    const verification = await trigger(video, 1, undefined, { forceVerification: true, forceAgent: true, throwOnError: true });
+    const verification = await trigger(video, 1, undefined, { forceVerification: true, throwOnError: true });
     if (!isCurrentNavigation(navigationVersion)) return result;
     return { ...result, verification };
   } catch (error) { if (isCurrentNavigation(navigationVersion)) state.error = error.message; throw error; }
@@ -737,7 +779,7 @@ function promoHtml(s) {
     const message = s.promoLookupStatus === "unavailable"
       ? "Swiggy offer information is temporarily unavailable."
       : "Swiggy returned no promo codes for this cart.";
-    return `<div class="promos promo-empty"><div><span class="section-title">Available promo codes</span><small>${escapeHtml(message)}</small></div></div>`;
+    return `<div class="promos promo-empty" role="status"><div class="promo-empty-copy"><span class="section-title">Available promo codes</span><small>${escapeHtml(message)}</small></div></div>`;
   }
   const selectedPromo = promos.find((promo) => promo.selected || promo.code === s.coupon);
   const orderedPromos = [...promos].sort((left, right) =>
@@ -835,7 +877,7 @@ function agentFollowUpHtml(followUp, error = "") {
   const fields = followUp.fields.map((field) => {
     const required = field.required === false ? "" : "required";
     if (field.type === "select") {
-      return `<label class="generated-field"><span>${escapeHtml(field.label)}</span><select name="${escapeHtml(field.id)}" ${required}><option value="">Choose one</option>${field.options.map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`).join("")}</select></label>`;
+      return `<label class="generated-field"><span>${escapeHtml(field.label)}</span><select name="${escapeHtml(field.id)}" ${required}><option value="">Choose one</option>${field.options.map((option) => `<option value="${escapeHtml(option.value)}" ${field.defaultValue === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></label>`;
     }
     if (field.type === "text" || field.type === "textarea") {
       const control = field.type === "textarea"
@@ -843,7 +885,8 @@ function agentFollowUpHtml(followUp, error = "") {
         : `<input type="text" name="${escapeHtml(field.id)}" maxlength="200" placeholder="${escapeHtml(field.placeholder || "")}" ${required}>`;
       return `<label class="generated-field"><span>${escapeHtml(field.label)}</span>${control}</label>`;
     }
-    return `<fieldset class="generated-field generated-options"><legend>${escapeHtml(field.label)}</legend>${field.options.map((option, index) => `<label><input type="${field.type}" name="${escapeHtml(field.id)}" value="${escapeHtml(option.value)}" ${field.type === "radio" && index === 0 ? required : ""}><i></i><span><b>${escapeHtml(option.label)}</b>${option.description ? `<small>${escapeHtml(option.description)}</small>` : ""}</span></label>`).join("")}</fieldset>`;
+    const defaults = new Set(Array.isArray(field.defaultValue) ? field.defaultValue : field.defaultValue ? [field.defaultValue] : []);
+    return `<fieldset class="generated-field generated-options"><legend>${escapeHtml(field.label)}</legend>${field.options.map((option, index) => `<label><input type="${field.type}" name="${escapeHtml(field.id)}" value="${escapeHtml(option.value)}" ${defaults.has(option.value) ? "checked" : ""} ${field.type === "radio" && index === 0 ? required : ""}><i></i><span><b>${escapeHtml(option.label)}</b>${option.description ? `<small>${escapeHtml(option.description)}</small>` : ""}</span></label>`).join("")}</fieldset>`;
   }).join("");
   return `<section class="agent-composer generated-agent-ui"><div class="agent-question"><span aria-hidden="true"></span><div><small>CART AGENT NEEDS YOUR INPUT</small><div class="agent-question-copy"><strong>${escapeHtml(followUp.title)}</strong>${followUp.description ? `<p>${escapeHtml(followUp.description)}</p>` : ""}</div></div></div><form class="agent-follow-up-form">${fields}<button type="submit" class="generated-submit">${escapeHtml(followUp.submitLabel || "Continue")}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13m-5-5 5 5-5 5"/></svg></button><small class="customize-status ${error ? "error" : ""}" role="status">${escapeHtml(error || "Your selection will be sent to the cart agent.")}</small></form></section>`;
 }

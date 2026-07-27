@@ -11,6 +11,33 @@ import { config } from "./config.js";
 import { publishAgentEvent } from "./agent-events.js";
 
 export const app = express();
+const orchestrationFlights = new Map();
+
+export function orchestrationFlightKey(input, swiggySessionId, requester = "") {
+  const dish = String(input.verification?.dish || "food").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const identity = [swiggySessionId || `anonymous:${requester}`, input.addressId || "default", input.videoId, dish].join("\u001f");
+  return crypto.createHash("sha256").update(identity).digest("hex");
+}
+
+export function runSingleFlight(flights, key, operation, { retainMs = 30_000 } = {}) {
+  const existing = flights.get(key);
+  if (existing) return { joined: true, promise: existing };
+
+  const promise = Promise.resolve().then(operation);
+  flights.set(key, promise);
+  const remove = () => {
+    if (flights.get(key) === promise) flights.delete(key);
+  };
+  promise.then(() => {
+    if (retainMs <= 0) remove();
+    else {
+      const timer = setTimeout(remove, retainMs);
+      timer.unref?.();
+    }
+  }, remove);
+  return { joined: false, promise };
+}
+
 app.use(cors());
 app.use(express.json({ limit: "5mb" }));
 app.use("/models", express.static(config.localModelDirectory, { fallthrough: false, immutable: true, maxAge: "1y" }));
@@ -43,15 +70,23 @@ app.post("/api/orchestrate", async (req, res, next) => {
     const input = OrchestrateRequestSchema.parse(req.body);
     const food = input.verification;
     if (!food.isFood || food.confidence < 0.65) return res.json({ detected: false });
-    const threadId = crypto.randomUUID();
-    publishAgentEvent(input.streamId, "orchestration_started", { dish: food.dish });
-    const suggestion = await buildPersonalizedCart(food, threadId, readSwiggySession(req), input.addressId, input.streamId, {
-      personalContext: input.personalContext,
-      timeZone: input.timeZone,
+    const swiggySessionId = readSwiggySession(req);
+    const flightKey = orchestrationFlightKey(input, swiggySessionId, req.ip);
+    const { joined, promise } = runSingleFlight(orchestrationFlights, flightKey, async () => {
+      const threadId = crypto.randomUUID();
+      publishAgentEvent(input.streamId, "orchestration_started", { dish: food.dish });
+      const suggestion = await buildPersonalizedCart(food, threadId, swiggySessionId, input.addressId, input.streamId, {
+        personalContext: input.personalContext,
+        timeZone: input.timeZone,
+      });
+      await Promise.all([saveThread({ threadId, conversationId: threadId, status: "awaiting_confirmation", suggestion, createdAt: new Date() }), saveDetection(input.videoId, { itemLabel: food.dish, startTime: Math.floor(input.timestamp), endTime: Math.floor(input.timestamp + 5), confidence: food.confidence })]);
+      publishAgentEvent(input.streamId, "cart_ready", { restaurant: suggestion.restaurant, item: suggestion.item, finalAmount: suggestion.finalAmount });
+      return { detected: true, suggestion };
     });
-    await Promise.all([saveThread({ threadId, conversationId: threadId, status: "awaiting_confirmation", suggestion, createdAt: new Date() }), saveDetection(input.videoId, { itemLabel: food.dish, startTime: Math.floor(input.timestamp), endTime: Math.floor(input.timestamp + 5), confidence: food.confidence })]);
-    publishAgentEvent(input.streamId, "cart_ready", { restaurant: suggestion.restaurant, item: suggestion.item, finalAmount: suggestion.finalAmount });
-    res.json({ detected: true, suggestion });
+    if (joined) publishAgentEvent(input.streamId, "orchestration_joined", { dish: food.dish });
+    const result = await promise;
+    if (joined) publishAgentEvent(input.streamId, "cart_ready", { restaurant: result.suggestion.restaurant, item: result.suggestion.item, finalAmount: result.suggestion.finalAmount });
+    res.json(joined ? { ...result, deduplicated: true } : result);
   } catch (error) {
     publishAgentEvent(req.body?.streamId, "failed", { error: error instanceof Error ? error.message : "Unexpected error" });
     next(error);

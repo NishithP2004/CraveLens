@@ -28,7 +28,7 @@ async function getVlm(modelUrl) {
         // Gemma 3n encodes one image as roughly 256 tokens. Leave enough room
         // for the instruction and structured JSON response as maxTokens covers
         // both prompt and generated tokens.
-        maxTokens: 768,
+        maxTokens: 1_536,
         topK: 1,
         temperature: 0.2,
         randomSeed: 7,
@@ -39,7 +39,7 @@ async function getVlm(modelUrl) {
   return vlmPromise;
 }
 
-async function runLocalVerification({ imageDataUrl, videoTitle, modelUrl }) {
+async function runLocalVerification({ imageDataUrl, videoTitle, frameTimestamp, transcriptContext, modelUrl }) {
   const bitmap = await createImageBitmap(await (await fetch(imageDataUrl)).blob());
   const startedAt = performance.now();
   try {
@@ -48,8 +48,12 @@ async function runLocalVerification({ imageDataUrl, videoTitle, modelUrl }) {
     console.info("[CraveLens] Gemma 3n model ready; generating response");
     const prompt = [
       "<start_of_turn>user\n",
-      "Inspect this video frame. Return only minified JSON with keys isFood (boolean), dish (string), cuisine (string), ingredients (string array), confidence (number 0 to 1), and context (ready_to_eat, recipe, or restaurant_experience). Be conservative and identify only the main visible dish. Video title: ",
+      "Inspect this video frame. Base the food identification primarily on the actual pixels in the supplied frame. Do not assume, copy, or infer a dish merely because it appears in the video title. Treat the title and transcript only as weak supporting context, and ignore them whenever they are unsupported by or conflict with the visible frame. If the frame is ambiguous, lower confidence or return isFood=false instead of guessing from the title. Return only minified JSON with keys isFood (boolean), dish (specific dish name), description (string), cuisine (string), ingredients (string array), confidence (number 0 to 1), and context (ready_to_eat, recipe, or restaurant_experience). Make description a precise, detailed visual account of the main detected food item in 2 to 4 concise sentences: cover the visible base, protein or filling, sauce or broth, toppings and garnishes, cooking style or texture, presentation, and distinguishing characteristics when observable. Clearly separate what is visibly supported from what is only likely, and never invent hidden ingredients. Use a generic dish name only when the pixels do not support a more specific identification. Be conservative and identify only the main visible dish. Video title (weak context only): ",
       String(videoTitle || "YouTube video"),
+      "\nThe following YouTube transcript excerpts surround the exact frame timestamp. Use them only as weak supporting context; the visible frame is authoritative.\n",
+      formatTranscriptContext(transcriptContext || (Number.isFinite(frameTimestamp)
+        ? { timestamp: frameTimestamp, before: [], at: [], after: [] }
+        : undefined)),
       "\nFrame: ",
       { imageSource: bitmap },
       "<end_of_turn>\n<start_of_turn>model\n",
@@ -71,11 +75,30 @@ function parseVerification(text) {
   return {
     isFood: value.isFood,
     dish: value.dish,
+    description: typeof value.description === "string" ? value.description.trim().slice(0, 1200) : "",
     cuisine: typeof value.cuisine === "string" ? value.cuisine : "unknown",
     ingredients: Array.isArray(value.ingredients) ? value.ingredients.filter((item) => typeof item === "string").slice(0, 20) : [],
     confidence: Math.max(0, Math.min(1, Number(value.confidence) || 0)),
     context: value.context,
   };
+}
+
+function formatTranscriptContext(context) {
+  if (!context) return "No transcript context was available.";
+  const render = (label, cues) => `${label}: ${cues.length
+    ? cues.map((cue) => `[${formatTime(cue.start)}] ${cue.text}`).join(" ")
+    : "(none)"}`;
+  return [
+    `Target timestamp: ${formatTime(context.timestamp)}`,
+    render("Before", context.before || []),
+    render("At", context.at || []),
+    render("After", context.after || []),
+  ].join("\n");
+}
+
+function formatTime(value) {
+  const seconds = Math.max(0, Math.floor(Number(value) || 0));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
 async function runDetection({ imageDataUrl, threshold }) {

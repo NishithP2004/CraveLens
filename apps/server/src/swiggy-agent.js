@@ -150,6 +150,7 @@ CART_RATIONALE:
 <brief factual summary based only on completed tool results; clearly say if no cart was built>
 HUMAN_INPUT_UI:
 <a valid compact version-1 JSON form when user input is required, otherwise NONE>
+Use the CraveLens version-1 fields format shown in the main instructions. Never return JSON Schema with top-level type, properties, or required keys.
 Do not continue searching. Do not claim a cart was updated or verified unless the completed tool results prove it.`);
         }
         return invokeModelWithToolChoiceRetry(modelRequest, handler, {
@@ -186,6 +187,7 @@ HUMAN_INPUT_UI:
 <one valid compact JSON object matching this shape, or NONE>
 {"version":1,"title":"Choose an option","description":"Optional context","fields":[{"id":"choice","type":"radio","label":"Which would you prefer?","required":true,"options":[{"value":"a","label":"Option A","description":"Optional detail"}]}],"submitLabel":"Continue"}
 If no human input is required, output only NONE after HUMAN_INPUT_UI and do not append the example JSON.
+Never return standard JSON Schema with top-level type, properties, or required keys. Only return the version-1 fields format above.
 Never put a question or choice for the user inside CART_RATIONALE. Never wrap the JSON in Markdown fences. The application—not you—renders the follow-up form and asks the user for final order confirmation.`,
   });
 
@@ -410,8 +412,8 @@ export function splitAgentResponse(content) {
       const jsonStart = unfenced.indexOf("{");
       const jsonEnd = unfenced.lastIndexOf("}");
       const payload = jsonStart >= 0 && jsonEnd > jsonStart ? unfenced.slice(jsonStart, jsonEnd + 1) : unfenced;
-      const parsed = AgentFollowUpSchema.safeParse(JSON.parse(payload));
-      if (parsed.success) return { rationale, agentPrompt: "", agentFollowUp: parsed.data };
+      const parsed = normalizeAgentFollowUpPayload(JSON.parse(payload));
+      if (parsed) return { rationale, agentPrompt: "", agentFollowUp: parsed };
     } catch { /* Fall through to a safe text prompt for malformed model output. */ }
     return { rationale, agentPrompt: raw, agentFollowUp: undefined };
   }
@@ -437,6 +439,94 @@ export function splitAgentResponse(content) {
     agentPrompt: "",
     agentFollowUp: undefined,
   };
+}
+
+export function normalizeAgentFollowUpPayload(payload) {
+  const native = AgentFollowUpSchema.safeParse(payload);
+  if (native.success) return native.data;
+  if (!payload || payload.type !== "object" || !payload.properties || typeof payload.properties !== "object") return undefined;
+
+  const requiredFields = new Set(Array.isArray(payload.required) ? payload.required.map(String) : []);
+  const fields = Object.entries(payload.properties).slice(0, 4).flatMap(([rawId, definition]) => {
+    if (!definition || typeof definition !== "object") return [];
+    const id = normalizeFollowUpFieldId(rawId);
+    if (!id) return [];
+    const label = boundedText(definition.title || humanizeFollowUpFieldId(rawId), 240);
+    if (!label) return [];
+    const enumOptions = followUpEnumOptions(definition);
+    const isArray = definition.type === "array";
+    const options = isArray ? followUpEnumOptions(definition.items) : enumOptions;
+    const type = options.length
+      ? isArray ? "checkbox" : options.length > 4 ? "select" : "radio"
+      : definition.type === "string" && (definition.format === "textarea" || Number(definition.maxLength) > 200)
+        ? "textarea"
+        : "text";
+    const defaultValue = followUpDefaultValue(definition, options);
+    const field = {
+      id,
+      type,
+      label,
+      required: requiredFields.has(rawId),
+      ...(boundedText(definition.description, 240) ? { placeholder: boundedText(definition.description, 240) } : {}),
+      ...(defaultValue !== undefined ? { defaultValue } : {}),
+      ...(options.length ? { options: options.slice(0, 12) } : {}),
+    };
+    return [field];
+  });
+  if (!fields.length) return undefined;
+
+  const converted = AgentFollowUpSchema.safeParse({
+    version: 1,
+    title: boundedText(payload.title || "Choose an option", 100),
+    ...(boundedText(payload.description, 400) ? { description: boundedText(payload.description, 400) } : {}),
+    fields,
+    submitLabel: boundedText(payload.submitLabel || "Continue", 40),
+  });
+  return converted.success ? converted.data : undefined;
+}
+
+function normalizeFollowUpFieldId(value) {
+  const id = String(value || "").trim().toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+  return /^[a-z][a-z0-9_]{0,39}$/.test(id) ? id : "";
+}
+
+function humanizeFollowUpFieldId(value) {
+  const text = String(value || "").replace(/[_-]+/g, " ").trim();
+  return text ? text[0].toUpperCase() + text.slice(1) : "Your choice";
+}
+
+function followUpEnumOptions(definition) {
+  if (!definition || typeof definition !== "object") return [];
+  if (Array.isArray(definition.enum)) {
+    return definition.enum
+      .filter((value) => ["string", "number", "boolean"].includes(typeof value))
+      .map((value) => ({ value: String(value).slice(0, 120), label: String(value).slice(0, 160) }));
+  }
+  if (Array.isArray(definition.oneOf)) {
+    return definition.oneOf.flatMap((option) => {
+      if (!option || typeof option !== "object" || option.const === undefined) return [];
+      return [{
+        value: String(option.const),
+        label: boundedText(option.title || option.const, 160),
+        ...(boundedText(option.description, 240) ? { description: boundedText(option.description, 240) } : {}),
+      }];
+    });
+  }
+  return [];
+}
+
+function followUpDefaultValue(definition, options) {
+  const rawDefault = definition?.default;
+  if (rawDefault === undefined) return undefined;
+  const values = (Array.isArray(rawDefault) ? rawDefault : [rawDefault]).map(String);
+  const allowed = new Set(options.map((option) => option.value));
+  const normalized = values.filter((value) => !options.length || allowed.has(value)).map((value) => value.slice(0, 120));
+  if (!normalized.length) return undefined;
+  return Array.isArray(rawDefault) ? normalized : normalized[0];
+}
+
+function boundedText(value, maxLength) {
+  return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
 
 function createAgentModel() {

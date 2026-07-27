@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite build --watch",
     "build": "vite build",
-    "typecheck": "node --check src/content.js && node --check src/background.js"
+    "test": "node --test src/transcript.test.js src/cart-build-lock.test.js",
+    "typecheck": "node --check src/content.js && node --check src/background.js && node --check src/offscreen.js && node --check src/transcript.js && node --check src/cart-build-lock.js"
   },
   "devDependencies": {
     "vite": "^6.3.5"
