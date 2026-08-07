@@ -2,6 +2,9 @@ import { config } from "./config.js";
 import { connectSwiggyFood } from "./swiggy-mcp.js";
 import { runFoodCartAgent } from "./swiggy-agent.js";
 import { publishAgentEvent } from "./agent-events.js";
+import { cartReflectsItems, resolveMenuItemId } from "./cart-verification.js";
+
+export { cartReflectsItems } from "./cart-verification.js";
 
 export async function buildPersonalizedCart(food, threadId, swiggySessionId, preferredAddressId, streamId, agentContext = {}) {
   if (!swiggySessionId && !config.swiggyMcpAccessToken) throw new Error("Connect a real Swiggy account before building a cart.");
@@ -14,7 +17,7 @@ export async function buildPersonalizedCart(food, threadId, swiggySessionId, pre
     if (!addressId) throw new Error("Swiggy returned a saved address without an addressId. Refresh your saved addresses and try again.");
     const selectedAddress = normalizeAddress(address);
     const addressSummary = [selectedAddress.type?.toLowerCase() === "saved address" ? "" : selectedAddress.type, selectedAddress.receiverName, selectedAddress.addressString].filter(Boolean).join(" · ");
-    return await buildVerifiedSuggestion(mcp, { food, threadId, addressId, addressSummary, streamId, agentContext });
+    return await buildVerifiedSuggestion(mcp, { food, threadId, addressId, addressSummary, streamId, agentContext: { ...agentContext, deviceId: swiggySessionId } });
   } finally {
     await mcp.close().catch(() => {});
   }
@@ -30,7 +33,7 @@ export async function customizePersonalizedCart(currentSuggestion, instruction, 
     const selectedAddress = normalizeAddress(address);
     const addressSummary = [selectedAddress.type?.toLowerCase() === "saved address" ? "" : selectedAddress.type, selectedAddress.receiverName, selectedAddress.addressString].filter(Boolean).join(" · ");
     const food = { dish: currentSuggestion.dish || currentSuggestion.item, context: "ready_to_eat" };
-    return await buildVerifiedSuggestion(mcp, { food, threadId, addressId: currentSuggestion.addressId, addressSummary, streamId, instruction, currentSuggestion, agentContext });
+    return await buildVerifiedSuggestion(mcp, { food, threadId, addressId: currentSuggestion.addressId, addressSummary, streamId, instruction, currentSuggestion, agentContext: { ...agentContext, deviceId: swiggySessionId } });
   } finally {
     await mcp.close().catch(() => {});
   }
@@ -42,7 +45,7 @@ async function buildVerifiedSuggestion(mcp, { food, threadId, addressId, address
   const temporalContext = currentTemporalContext(timeZone);
   const agentResult = await runFoodCartAgent(mcp, {
     food, addressId, addressSummary, streamId, threadId, instruction, currentSuggestion,
-    personalContext, temporalContext,
+    personalContext, temporalContext, deviceId: agentContext.deviceId,
   });
   if (!currentSuggestion && !agentResult.cartUpdated) {
     throw new Error(`The cart agent could not find and add an orderable ${food.dish} match within its search budget. No Swiggy cart was changed.`);
@@ -54,20 +57,16 @@ async function buildVerifiedSuggestion(mcp, { food, threadId, addressId, address
   let couponData = await loadCoupons(mcp, couponRestaurantId, addressId);
   let availablePromos = normalizeFoodCoupons(couponData, coupon, promoSelectionMode);
   if (!coupon && promoSelectionMode === "auto") {
-    const preferred = availablePromos.find((promo) => promo.bestMatch && promo.selectable);
-    if (preferred) {
-      try {
-        const appliedCart = await callStep(mcp, "apply_food_coupon", { couponCode: preferred.code, addressId });
-        const refreshedCart = await callStep(mcp, "get_food_cart", { addressId });
-        const verifiedCart = resolveAppliedCouponDiscount(refreshedCart) > 0 ? refreshedCart : appliedCart;
-        if (resolveAppliedCouponDiscount(verifiedCart) > 0) {
-          cart = verifiedCart;
-          coupon = resolveCouponCode(verifiedCart) || preferred.code;
-        }
-        couponData = await loadCoupons(mcp, couponRestaurantId, addressId);
-        availablePromos = normalizeFoodCoupons(couponData, coupon, promoSelectionMode);
-      } catch { /* The verified cart remains usable without a coupon. */ }
+    const applied = await applyBestVerifiedCoupon(mcp, {
+      promos: availablePromos,
+      addressId,
+    });
+    if (applied) {
+      cart = applied.cart;
+      coupon = applied.coupon;
     }
+    couponData = await loadCoupons(mcp, couponRestaurantId, addressId);
+    availablePromos = normalizeFoodCoupons(couponData, coupon, promoSelectionMode);
   }
   const verifiedAgentRationale = reconcileCouponRationale(
     agentResult.rationale,
@@ -410,6 +409,9 @@ export function publicPayment(payment) {
 
 export function currentTemporalContext(requestedTimeZone, now = new Date()) {
   let timeZone = String(requestedTimeZone || "Asia/Kolkata").trim() || "Asia/Kolkata";
+  // ICU accepts the older Asia/Calcutta alias. Store the current IANA name so
+  // prompts, server logs, and observability metadata all agree.
+  if (timeZone === "Asia/Calcutta") timeZone = "Asia/Kolkata";
   try {
     new Intl.DateTimeFormat("en-IN", { timeZone }).format(now);
   } catch {
@@ -686,20 +688,41 @@ async function refreshSuggestion(mcp, currentSuggestion, verifiedCart) {
 async function reapplyPreferredCoupon(mcp, suggestion) {
   const couponData = await loadCoupons(mcp, suggestion.restaurantId, suggestion.addressId);
   const promos = normalizeFoodCoupons(couponData, suggestion.coupon, suggestion.promoSelectionMode);
-  const preferred = suggestion.promoSelectionMode === "manual"
-    ? promos.find((promo) => promo.code === suggestion.coupon && promo.selectable)
-    : promos.find((promo) => promo.bestMatch && promo.selectable);
-  if (!preferred) return;
-  try { await callStep(mcp, "apply_food_coupon", { couponCode: preferred.code, addressId: suggestion.addressId }); }
-  catch { /* Cart remains valid even when a previously eligible promo changes. */ }
+  if (suggestion.promoSelectionMode === "manual") {
+    const preferred = promos.find((promo) => promo.code === suggestion.coupon && promo.selectable);
+    if (!preferred) return;
+    try { await callStep(mcp, "apply_food_coupon", { couponCode: preferred.code, addressId: suggestion.addressId }); }
+    catch { /* Cart remains valid even when a previously eligible promo changes. */ }
+    return;
+  }
+  await applyBestVerifiedCoupon(mcp, { promos, addressId: suggestion.addressId });
 }
 
-function resolveMenuItemId(item) {
-  const value = firstValue(item, [
-    "itemId", "item_id", "menuItemId", "menu_item_id", "id", "info.id",
-    "item.id", "item.itemId", "item.item_id", "item.info.id",
-  ]);
-  return value === undefined ? "" : String(value);
+export async function applyBestVerifiedCoupon(mcp, { promos = [], addressId } = {}) {
+  if (!mcp || !addressId) return undefined;
+  const candidates = rankedSelectablePromos(promos);
+  for (const promo of candidates) {
+    try {
+      const appliedCart = await callStep(mcp, "apply_food_coupon", { couponCode: promo.code, addressId });
+      const refreshedCart = await callStep(mcp, "get_food_cart", { addressId });
+      const verifiedCart = resolveAppliedCouponDiscount(refreshedCart) > 0 ? refreshedCart : appliedCart;
+      if (resolveAppliedCouponDiscount(verifiedCart) > 0) {
+        return { cart: verifiedCart, coupon: resolveCouponCode(verifiedCart) || promo.code };
+      }
+    } catch {
+      // Swiggy can mark a coupon as applicable in the listing and still reject
+      // it during apply. Try the next selectable offer before giving up.
+    }
+  }
+  return undefined;
+}
+
+function rankedSelectablePromos(promos = []) {
+  return [...(Array.isArray(promos) ? promos : [])]
+    .filter((promo) => promo?.code && promo.selectable)
+    .sort((left, right) => Number(right.bestMatch) - Number(left.bestMatch)
+      || couponValue(right) - couponValue(left)
+      || Number(left.minimumOrder || 0) - Number(right.minimumOrder || 0));
 }
 
 function cartItemPayload(item, template) {
@@ -914,37 +937,6 @@ function sameMenuItemName(left, right) {
 function sameCartConfiguration(left, right) {
   return ["variants", "variations", "variantsV2", "addons"].every((key) =>
     JSON.stringify(left?.[key] || []) === JSON.stringify(right?.[key] || []));
-}
-
-export function cartReflectsItems(cart, expectedItems) {
-  const expected = cartItemQuantities(expectedItems);
-  if (!expected.size) return false;
-  return collectArraysAtKeys(cart, new Set(["items", "cartItems", "orderItems"])).some((items) => {
-    const actual = cartItemQuantities(items);
-    if (actual.size !== expected.size) return false;
-    return [...expected].every(([itemId, quantity]) => actual.get(itemId) === quantity);
-  });
-}
-
-function cartItemQuantities(items) {
-  const quantities = new Map();
-  for (const item of Array.isArray(items) ? items : []) {
-    const itemId = resolveMenuItemId(item);
-    if (!itemId) continue;
-    const quantity = finiteNumber(item.quantity ?? item.qty ?? item.count ?? item.item?.quantity ?? item.item?.qty) || 1;
-    quantities.set(itemId, (quantities.get(itemId) || 0) + quantity);
-  }
-  return quantities;
-}
-
-function collectArraysAtKeys(value, keys, found = [], seen = new Set()) {
-  if (!value || typeof value !== "object" || seen.has(value)) return found;
-  seen.add(value);
-  for (const [key, child] of Object.entries(value)) {
-    if (keys.has(key) && Array.isArray(child)) found.push(child);
-    collectArraysAtKeys(child, keys, found, seen);
-  }
-  return found;
 }
 
 async function verifyCartMutation(mcp, { addressId, restaurantName, expectedItems, mutationResult }) {

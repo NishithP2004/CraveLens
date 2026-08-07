@@ -5,9 +5,9 @@ export async function getTranscriptContext({
   videoId,
   timestamp,
   captionTracks,
-  documentRef = document,
-  fetchImpl = fetch,
-  preferredLanguage = navigator.language,
+  documentRef = globalThis.document,
+  fetchImpl = globalThis.fetch,
+  preferredLanguage = globalThis.navigator?.language || "en",
   windowSeconds = DEFAULT_WINDOW_SECONDS,
   maxCharacters = DEFAULT_MAX_CHARACTERS,
 } = {}) {
@@ -24,7 +24,15 @@ export async function getTranscriptContext({
   transcriptUrl.searchParams.set("fmt", "json3");
   const response = await fetchImpl(transcriptUrl.href, { credentials: "include" });
   if (!response.ok) throw new Error(`YouTube captions request failed (${response.status})`);
-  const cues = normalizeCaptionEvents(await response.json());
+  const responseText = await response.text();
+  if (!responseText.trim()) return undefined;
+  let payload;
+  try {
+    payload = JSON.parse(responseText);
+  } catch {
+    throw new Error("YouTube returned an invalid captions payload");
+  }
+  const cues = normalizeCaptionEvents(payload);
   return buildTranscriptContext(cues, Number(timestamp), { windowSeconds, maxCharacters });
 }
 

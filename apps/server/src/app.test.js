@@ -1,11 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SystemMessage } from "@langchain/core/messages";
 import { AgentFollowUpSchema, CartCustomizationSchema, CartMutationSchema, CouponSelectionSchema, FoodVerificationSchema, OrchestrateRequestSchema } from "@cravelens/shared";
 import { isSuggestionExpired, orchestrationFlightKey, runSingleFlight } from "./app.js";
-import { appendSystemInstruction, createSearchBudgetGuard, invokeModelWithToolChoiceRetry, isToolChoiceMismatchError, isTransientModelError, normalizeAgentFollowUpPayload, normalizeToolSchema, replaceSystemInstruction, shouldFinalizeCartAgent, splitAgentResponse } from "./swiggy-agent.js";
+import { appendSystemInstruction, createSearchBudgetGuard, directMenuSearchPlan, discoverDirectMenuSearch, finalCartAgentResponseContent, hasQuickAddMenuCandidate, invokeModelWithToolChoiceRetry, isOutputParseFailedError, isToolChoiceMismatchError, isTransientModelError, localCartPhaseRequest, normalizeAgentFollowUpPayload, normalizeToolSchema, recordCartToolCompletion, recoverFailedGenerationToolCall, replaceSystemInstruction, shouldFinalizeCartAgent, shouldRetryMissingToolCall, splitAgentResponse, verifyPendingCartMutation, withActiveToolChoice, withRequiredToolReminder } from "./swiggy-agent.js";
 import { unwrap } from "./swiggy-mcp.js";
 import { claimThreadStatus, getThread, saveThread } from "./store.js";
-import { cartReflectsItems, configuredMenuItemPayload, currentTemporalContext, normalizeAddress, normalizeCartReceipt, normalizeFoodCoupons, normalizeMenuCatalog, normalizeMenuOptionGroups, normalizePaymentOptions, normalizePaymentStatus, normalizePendingPayment, reconcileCouponRationale, resolveAppliedCouponDiscount, resolveCouponCode, resolveDeliveryEta, resolveDietaryType, resolveItemDescription, resolveItemImage, resolveProductRating, resolveRestaurantLocation, resolveRestaurantLogo, resolveRestaurantName, resolveRestaurantNameWithRetry, resolveRestaurantRating } from "./swiggy.js";
+import { applyBestVerifiedCoupon, cartReflectsItems, configuredMenuItemPayload, currentTemporalContext, normalizeAddress, normalizeCartReceipt, normalizeFoodCoupons, normalizeMenuCatalog, normalizeMenuOptionGroups, normalizePaymentOptions, normalizePaymentStatus, normalizePendingPayment, reconcileCouponRationale, resolveAppliedCouponDiscount, resolveCouponCode, resolveDeliveryEta, resolveDietaryType, resolveItemDescription, resolveItemImage, resolveProductRating, resolveRestaurantLocation, resolveRestaurantLogo, resolveRestaurantName, resolveRestaurantNameWithRetry, resolveRestaurantRating } from "./swiggy.js";
 
 describe("CraveLens contracts", () => {
   it("accepts a verified dish with a detailed visual description", () => expect(FoodVerificationSchema.parse({
@@ -81,6 +81,94 @@ describe("CraveLens contracts", () => {
     expect(OrchestrateRequestSchema.parse({ ...base, personalContext: "Non-veg except Thursdays", timeZone: "Asia/Kolkata" })).toMatchObject({
       personalContext: "Non-veg except Thursdays", timeZone: "Asia/Kolkata",
     });
+  });
+  it("retries an early model response that stops before calling a Swiggy tool", () => {
+    const tools = [{ name: "get_addresses" }];
+    expect(shouldRetryMissingToolCall({ response: { content: "I could not find ramen" }, tools })).toBe(true);
+    expect(shouldRetryMissingToolCall({ response: { tool_calls: [{ name: "get_addresses" }] }, tools })).toBe(false);
+    expect(shouldRetryMissingToolCall({ response: {}, tools, runComplete: true })).toBe(false);
+    expect(shouldRetryMissingToolCall({ response: {}, tools, retryCount: 2 })).toBe(false);
+  });
+  it("distinguishes a submitted cart mutation from a verified cart", () => {
+    const state = { cartMutationAttempted: false, cartUpdated: false, couponsChecked: true, verificationPending: false };
+    const expectedItems = [{ itemId: "ramen-1", quantity: 2 }];
+    recordCartToolCompletion(state, { toolName: "update_food_cart", result: { success: true }, expectedItems });
+    expect(state).toMatchObject({ cartMutationAttempted: true, cartUpdated: false, couponsChecked: false, verificationPending: true });
+    expect(recordCartToolCompletion(state, { toolName: "get_food_cart", result: { cart: { items: [] } }, expectedItems })).toEqual({ cartVerified: false });
+    expect(state).toMatchObject({ cartUpdated: false, verificationPending: true });
+    expect(recordCartToolCompletion(state, { toolName: "get_food_cart", result: { cart: { items: [{ itemId: "ramen-1", quantity: 2 }] } }, expectedItems })).toEqual({ cartVerified: true });
+    expect(state).toMatchObject({ cartUpdated: true, verificationPending: false });
+  });
+  it("deterministically verifies a pending cart mutation when the local model stops early", async () => {
+    const state = { cartMutationAttempted: true, cartUpdated: false, couponsChecked: false, verificationPending: true };
+    const expectedItems = [{ itemId: "ramen-1", quantity: 1 }];
+    const calls = [];
+    const mcp = {
+      async call(name, args) {
+        calls.push({ name, args });
+        return calls.length === 1
+          ? { cart: { items: [] } }
+          : { cart: { items: [{ itemId: "ramen-1", quantity: 1 }] } };
+      },
+    };
+
+    const result = await verifyPendingCartMutation({
+      mcp,
+      state,
+      addressId: "home",
+      expectedItems,
+      delaysMs: [0],
+    });
+
+    expect(result.cartVerified).toBe(true);
+    expect(calls).toEqual([
+      { name: "get_food_cart", args: { addressId: "home" } },
+      { name: "get_food_cart", args: { addressId: "home" } },
+    ]);
+    expect(state).toMatchObject({ cartUpdated: true, verificationPending: false });
+  });
+  it("keeps tools enabled for OpenAI-compatible agents and finalizes without another model call", () => {
+    const request = { tools: [{ name: "get_addresses" }], toolChoice: "none" };
+    expect(withActiveToolChoice(request)).toMatchObject({ toolChoice: "auto" });
+    expect(withActiveToolChoice(request, { required: true })).toMatchObject({ toolChoice: "required" });
+    expect(withActiveToolChoice({ ...request, toolChoice: "required" }, { forceAuto: true })).toMatchObject({ toolChoice: "auto" });
+    expect(withActiveToolChoice({ tools: [] })).toEqual({ tools: [] });
+    expect(finalCartAgentResponseContent({ cartUpdated: true, verificationPending: false }, "cart_verified")).toContain("cart was updated and verified");
+    expect(finalCartAgentResponseContent({}, "model_call_limit")).toContain("reasoning limit");
+  });
+  it("keeps the hosted tool surface for local models while requiring a tool call", () => {
+    const request = {
+      systemPrompt: "Prepare a cart.",
+      tools: [{ name: "get_food_orders" }, { name: "search_menu" }, { name: "update_food_cart" }, { name: "get_food_cart" }],
+    };
+    const mutation = localCartPhaseRequest(request, { mutationCandidateAvailable: true }, true);
+    expect(mutation.toolChoice).toBe("required");
+    expect(mutation.tools).toEqual(request.tools);
+    expect(mutation.systemPrompt).toBe("Prepare a cart.");
+    const verification = localCartPhaseRequest(request, { cartMutationAttempted: true, verificationPending: true }, true);
+    expect(verification.tools).toEqual(request.tools);
+    expect(localCartPhaseRequest(request, {}, true).tools).toEqual(request.tools);
+    expect(localCartPhaseRequest(request, { mutationCandidateAvailable: true }, false)).toBe(request);
+    const retry = withRequiredToolReminder({ messages: [{ role: "user", content: "Find ramen" }] });
+    expect(retry.messages).toHaveLength(2);
+    expect(retry.messages.at(-1).content).toContain("did not invoke a tool");
+    expect(hasQuickAddMenuCandidate({ items: [{ id: "ramen-1", name: "Ramen", price: 199 }] })).toBe(true);
+    expect(hasQuickAddMenuCandidate({ items: [] })).toBe(false);
+  });
+  it("starts cart discovery with an unscoped direct menu search", async () => {
+    const call = vi.fn(async () => ({ items: [{ id: "ramen-1", name: "Miso ramen", price: 199 }] }));
+    const budget = createSearchBudgetGuard({ search_menu: 5 });
+    const result = await discoverDirectMenuSearch({ mcp: { call }, food: { dish: " ramen " }, addressId: "home", searchBudget: budget });
+    expect(call).toHaveBeenCalledWith("search_menu", { addressId: "home", query: "ramen" });
+    expect(result.items).toHaveLength(1);
+    expect(budget.check("search_menu", { addressId: "home", query: "ramen" })).toMatchObject({ allowed: false, reason: "DUPLICATE_SEARCH" });
+    const modelBudget = createSearchBudgetGuard({ search_menu: 5 });
+    modelBudget.remember("search_menu", { addressId: "home", query: "ramen" });
+    expect(modelBudget.check("search_menu", { addressId: "home", query: "ramen" })).toMatchObject({ allowed: false, reason: "DUPLICATE_SEARCH", remaining: 5 });
+    expect(modelBudget.check("search_menu", { addressId: "home", query: "udon" })).toMatchObject({ allowed: true, remaining: 4 });
+    expect(directMenuSearchPlan({ dish: "Ramen", cuisine: "Japanese", ingredients: ["noodles", "broth"], description: "A steaming bowl of noodles" })).toEqual([
+      "Ramen", "Japanese Ramen", "noodles broth", "Ramen noodles broth", "A steaming bowl of noodles",
+    ]);
   });
   it("accepts legacy requests containing a full delivery address", () => expect(OrchestrateRequestSchema.parse({ videoId: "198AWISrLgl", timestamp: 76, triggerConfidence: .8, verification: { isFood: true, dish: "ramen", cuisine: "Japanese", ingredients: [], confidence: .9, context: "ready_to_eat" }, location: "Nishith P: ".padEnd(400, "A") }).location.length).toBe(400));
   it("accepts a bounded cart customization instruction", () => {
@@ -188,7 +276,8 @@ HUMAN_INPUT_UI:
       async (request) => {
         attempts += 1;
         if (attempts < 3) throw mismatch;
-        expect(request.systemPrompt).toContain("Retry now without calling or naming a tool");
+        expect(request.systemPrompt).toBe("Finalize the cart.");
+        expect(request.tools).toEqual([]);
         return { content: "CART_RATIONALE:\nReady\nHUMAN_INPUT_UI:\nNONE" };
       },
       { onRetry: ({ attempt }) => retries.push(attempt) },
@@ -203,6 +292,62 @@ HUMAN_INPUT_UI:
       throw new Error("401 invalid API key");
     })).rejects.toThrow("401 invalid API key");
     expect(unrelatedAttempts).toBe(1);
+  });
+  it("recovers a valid Groq tool call embedded in failed_generation", async () => {
+    const mismatch = new Error('400 litellm.BadRequestError: GroqException - {"error":{"message":"Tool choice is none, but model called a tool","code":"tool_use_failed","failed_generation":"{\\"name\\": \\"get_food_orders\\", \\"arguments\\": {}}"}}');
+    const tools = [{ name: "get_food_orders" }, { name: "search_menu" }];
+    const recovered = recoverFailedGenerationToolCall(mismatch, tools);
+    expect(recovered).toMatchObject({ name: "get_food_orders", args: {} });
+    expect(recoverFailedGenerationToolCall(mismatch, [{ name: "search_menu" }])).toBeUndefined();
+    const recoveredCalls = [];
+    const onRecoveredToolCall = (call) => recoveredCalls.push(call);
+    const response = await invokeModelWithToolChoiceRetry({ tools }, async () => { throw mismatch; }, { onRecoveredToolCall });
+    expect(response.tool_calls).toEqual([expect.objectContaining({ name: "get_food_orders", args: {} })]);
+    expect(recoveredCalls).toEqual([expect.objectContaining({ name: "get_food_orders" })]);
+  });
+  it("never replays a cart mutation from a rejected provider generation", () => {
+    const mismatch = new Error('400 {"code":"tool_use_failed","failed_generation":"{\\"name\\": \\"update_food_cart\\", \\"arguments\\": {}}"}');
+    expect(recoverFailedGenerationToolCall(mismatch, [{ name: "update_food_cart" }])).toBeUndefined();
+  });
+  it("does not recover rejected provider tool calls with invalid arguments", () => {
+    const mismatch = new Error('400 {"code":"tool_use_failed","failed_generation":"{\\"name\\": \\"get_food_order_details\\", \\"arguments\\": {\\"restaurantId\\": \\"511273\\"}}"}');
+    const tools = [{
+      name: "get_food_order_details",
+      schema: {
+        type: "object",
+        required: ["orderId", "addressId"],
+        properties: { orderId: { type: "string" }, addressId: { type: "string" } },
+      },
+    }];
+    expect(recoverFailedGenerationToolCall(mismatch, tools)).toBeUndefined();
+  });
+  it("normalizes safe Groq tool namespaces and rejects unregistered tools", () => {
+    const tools = [{ name: "get_food_orders" }];
+    const namespaced = new Error('400 {"code":"tool_use_failed","message":"Tool choice is none, but model called a tool","failed_generation":"{\\"name\\": \\"tool.get_food_orders\\", \\"arguments\\": {}}"}');
+    const hallucinated = new Error('400 {"code":"tool_use_failed","message":"Tool choice is none, but model called a tool","failed_generation":"{\\"name\\": \\"repo_browser.open_file\\", \\"arguments\\": {}}"}');
+    expect(recoverFailedGenerationToolCall(namespaced, tools)).toMatchObject({ name: "get_food_orders", args: {} });
+    expect(recoverFailedGenerationToolCall(hallucinated, tools)).toBeUndefined();
+  });
+  it("recovers one unambiguous no-argument tool from Groq output_parse_failed prose", async () => {
+    const parseFailure = new Error('400 {"error":{"code":"output_parse_failed","message":"Parsing failed. See failed_generation.","failed_generation":"We need to proceed. Call get_food_orders, then inspect the result."}}');
+    const tools = [
+      { name: "get_food_orders", schema: { type: "object", properties: {} } },
+      { name: "search_menu", schema: { type: "object", required: ["query"], properties: { query: { type: "string" } } } },
+    ];
+    expect(isOutputParseFailedError(parseFailure)).toBe(true);
+    expect(recoverFailedGenerationToolCall(parseFailure, tools)).toMatchObject({ name: "get_food_orders", args: {} });
+    const response = await invokeModelWithToolChoiceRetry({ tools }, async () => { throw parseFailure; });
+    expect(response.tool_calls).toEqual([expect.objectContaining({ name: "get_food_orders", args: {} })]);
+
+    const ambiguous = new Error('400 {"error":{"code":"output_parse_failed","failed_generation":"Call get_food_orders and call search_menu."}}');
+    expect(recoverFailedGenerationToolCall(ambiguous, [
+      tools[0],
+      { name: "search_menu", schema: { type: "object", properties: {} } },
+    ])).toBeUndefined();
+    const negated = new Error('400 {"error":{"code":"output_parse_failed","failed_generation":"Do not call get_addresses."}}');
+    expect(recoverFailedGenerationToolCall(negated, tools)).toBeUndefined();
+    const mutation = new Error('400 {"error":{"code":"output_parse_failed","failed_generation":"Call flush_food_cart."}}');
+    expect(recoverFailedGenerationToolCall(mutation, [{ name: "flush_food_cart", schema: { type: "object", properties: {} } }])).toBeUndefined();
   });
   it("retries wrapped transient provider failures with bounded backoff", async () => {
     const providerError = Object.assign(new Error("Service Unavailable, the authentication database is temporarily unreachable."), {
@@ -237,19 +382,16 @@ HUMAN_INPUT_UI:
       { attempt: 2, reason: "transient_model_error", delayMs: 1500 },
     ]);
   });
-  it("changes only LangChain systemMessage across consecutive retry instructions", () => {
+  it("uses only LangChain systemMessage when appending an instruction", () => {
     const initialMessage = new SystemMessage("Base prompt");
     const finalized = appendSystemInstruction({
       systemPrompt: initialMessage.text,
       systemMessage: initialMessage,
     }, "Finalize without tools.");
-    expect(finalized.systemPrompt).toBe("Base prompt");
+    expect(finalized.systemPrompt).toBeUndefined();
     expect(finalized.systemMessage.text).toContain("Finalize without tools.");
-
-    const retried = appendSystemInstruction(finalized, "Retry with final text only.");
-    expect(retried.systemPrompt).toBe(finalized.systemMessage.text);
-    expect(retried.systemMessage.text).toContain("Retry with final text only.");
-    expect(retried.systemPrompt).not.toBe(retried.systemMessage.text);
+    expect(finalized.systemMessage).not.toBe(initialMessage);
+    expect("systemPrompt" in finalized && "systemMessage" in finalized).toBe(false);
   });
   it("replaces the tool-oriented system message without changing both LangChain fields", () => {
     const initialMessage = new SystemMessage("Use tools to build a cart.");
@@ -257,7 +399,7 @@ HUMAN_INPUT_UI:
       systemPrompt: initialMessage.text,
       systemMessage: initialMessage,
     }, "Tools are disabled. Return final text.");
-    expect(finalized.systemPrompt).toBe(initialMessage.text);
+    expect(finalized.systemPrompt).toBeUndefined();
     expect(finalized.systemMessage.text).toBe("Tools are disabled. Return final text.");
   });
   it("deduplicates scoped searches and enforces per-tool budgets", () => {
@@ -513,6 +655,7 @@ HUMAN_INPUT_UI:
       timeZone: "Asia/Kolkata",
       dayOfWeek: "Friday",
     });
+    expect(currentTemporalContext("Asia/Calcutta", new Date("2026-07-23T20:00:00.000Z")).timeZone).toBe("Asia/Kolkata");
     expect(currentTemporalContext("Not/AZone", new Date("2026-07-23T20:00:00.000Z")).timeZone).toBe("Asia/Kolkata");
   });
   it("normalizes promo codes, the auto-selected best match, and manual overrides", () => {
@@ -525,6 +668,36 @@ HUMAN_INPUT_UI:
     const manual = normalizeFoodCoupons(raw, "SAVE50", "manual");
     expect(manual.find((promo) => promo.code === "SAVE50")).toMatchObject({ selected: true, bestMatch: false });
     expect(manual.find((promo) => promo.code === "SAVE80")).toMatchObject({ selected: false, bestMatch: true });
+  });
+  it("tries the next selectable coupon when Swiggy rejects the listed best coupon", async () => {
+    const calls = [];
+    const mcp = {
+      async call(name, args) {
+        calls.push({ name, args });
+        if (name === "apply_food_coupon" && args.couponCode === "TRYNEW") {
+          throw new Error("Coupon is not applicable in this restaurant");
+        }
+        if (name === "apply_food_coupon") {
+          return { offers: { coupon_applied: { coupon_code: args.couponCode, coupon_discount: 50 } } };
+        }
+        if (name === "get_food_cart") {
+          return { offers: { coupon_applied: { coupon_code: "SWIGGYLIFE", coupon_discount: 50 } } };
+        }
+        throw new Error(`Unexpected tool ${name}`);
+      },
+    };
+    const result = await applyBestVerifiedCoupon(mcp, {
+      addressId: "home",
+      promos: [
+        { code: "TRYNEW", selectable: true, bestMatch: true, discountAmount: 100 },
+        { code: "SWIGGYLIFE", selectable: true, bestMatch: false, discountAmount: 50 },
+        { code: "SNACKIT", selectable: true, bestMatch: false, discountAmount: 39 },
+      ],
+    });
+    expect(result).toMatchObject({ coupon: "SWIGGYLIFE" });
+    expect(calls.map((call) => call.name === "apply_food_coupon" ? call.args.couponCode : call.name)).toEqual([
+      "TRYNEW", "SWIGGYLIFE", "get_food_cart",
+    ]);
   });
   it("falls back to MCP text content when structuredContent is empty and parses Swiggy coupon text", () => {
     const text = `Found 3 coupons (2 applicable):

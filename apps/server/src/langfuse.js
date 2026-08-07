@@ -1,4 +1,4 @@
-import "./config.js";
+import { config } from "./config.js";
 import { CallbackHandler } from "@langfuse/langchain";
 import { LangfuseSpanProcessor } from "@langfuse/otel";
 import { NodeSDK } from "@opentelemetry/sdk-node";
@@ -20,7 +20,7 @@ export function initializeLangfuse() {
       sdk = new NodeSDK({
         spanProcessors: [
           new LangfuseSpanProcessor({
-            mask: ({ data }) => redactSensitiveData(data),
+            mask: ({ data }) => redactSensitiveData(!config.localTraceContent && containsLocalMarker(data) ? redactLocalContent(data) : data),
             mediaUploadEnabled: false,
           }),
         ],
@@ -79,4 +79,17 @@ function redactSensitiveData(value, depth = 0) {
     if (/authorization|cookie|token|secret|password/i.test(key)) return [key, "[redacted]"];
     return [key, redactSensitiveData(child, depth + 1)];
   }));
+}
+
+function containsLocalMarker(value, depth = 0) {
+  if (!value || depth > 8) return false;
+  if (typeof value !== "object") return false;
+  if (value.local === true || value?.metadata?.local === true || value?.traceMetadata?.local === true) return true;
+  return Object.values(value).some((child) => containsLocalMarker(child, depth + 1));
+}
+
+function redactLocalContent(value, depth = 0) {
+  if (!value || typeof value !== "object" || depth > 8) return value;
+  if (Array.isArray(value)) return value.map((item) => redactLocalContent(item, depth + 1));
+  return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, /^(?:input|output|prompt|completion|messages?|content)$/i.test(key) ? "[local-content-not-captured]" : redactLocalContent(child, depth + 1)]));
 }

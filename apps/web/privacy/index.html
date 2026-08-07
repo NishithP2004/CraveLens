@@ -29,8 +29,8 @@
       <header class="policy-hero">
         <span class="kicker">PRIVACY, IN PLAIN LANGUAGE</span>
         <h1>Privacy Policy</h1>
-        <p>CraveLens uses the minimum data needed to recognize food in YouTube videos and prepare a Swiggy cart that you can review. Food-frame analysis happens on your device, and an order is never placed without your explicit confirmation.</p>
-        <div class="policy-meta"><span>Effective July 8, 2026</span><span>Last updated July 8, 2026</span></div>
+        <p>CraveLens uses the minimum data needed to recognize food in YouTube videos and prepare a Swiggy cart that you can review. Food-frame analysis happens on your device, Swiggy customer details are used only for the order flow you request, and an order is never placed without your explicit confirmation.</p>
+        <div class="policy-meta"><span>Effective July 8, 2026</span><span>Last updated August 7, 2026</span></div>
       </header>
 
       <div class="policy-layout">
@@ -63,7 +63,7 @@
           <section id="data">
             <h2>2. Data we process</h2>
             <h3>Video and website context</h3>
-            <p>The extension accesses the active YouTube video so it can sample frames, read the video identifier and title, record the playback timestamp where food was detected, and retrieve a short window of available YouTube captions around that timestamp. Sampled frames and caption context are processed locally in an offscreen extension document by the bundled food detector and a locally loaded Gemma model. Frames and captions are not sent to our server, Swiggy, or the provider of the cart-planning AI model.</p>
+            <p>The extension accesses the active YouTube video so it can sample frames, read the video identifier and title, record the playback timestamp where food was detected, and retrieve a short window of available YouTube captions around that timestamp. Sampled frames and caption context are processed locally in an offscreen extension document by the bundled food detector and the configured local VLM, such as Gemini Nano, browser-downloaded Gemma 3n, or an Ollama vision model. Frames and captions are not sent to our server, Swiggy, or the provider of any hosted cart-planning AI model.</p>
             <p>When food is confidently identified, CraveLens sends our supporting service the YouTube video identifier, title, playback timestamp, detector confidence, and a structured food description such as the dish, cuisine, likely ingredients, confidence, and dining context. The surrounding caption text is not included.</p>
 
             <h3>Swiggy account and delivery information</h3>
@@ -82,21 +82,21 @@
             <ul>
               <li>detect and identify visible food in the current YouTube video;</li>
               <li>avoid duplicate suggestions for the same dish or video moment;</li>
-              <li>connect the Swiggy account you authorize and select a delivery address;</li>
+              <li>connect the Swiggy account you authorize, select a delivery address, and consummate the order flow you request;</li>
               <li>use relevant order history and preferences to find a suitable restaurant and menu item;</li>
               <li>prepare, verify, and display a cart, charges, delivery estimate, and applicable discount;</li>
               <li>place an order only after your explicit confirmation;</li>
               <li>operate, secure, troubleshoot, and prevent misuse of the service; and</li>
               <li>comply with legal obligations.</li>
             </ul>
-            <p>We do not use or transfer user data for personalized advertising, unrelated profiling, lending, or determining creditworthiness.</p>
+            <p>We do not use Swiggy customer details for marketing, selling, leasing, monetization, bartering, exchanging, unrelated profiling, lending, or determining creditworthiness. If a Swiggy transaction fails, is abandoned, or is not confirmed, we do not use the related customer details for unrelated purposes.</p>
           </section>
 
           <section id="sharing">
             <h2>4. When data is shared</h2>
             <p>We do not sell user data. We disclose data only as needed for the following approved purposes:</p>
             <ul>
-              <li><strong>Swiggy:</strong> to authenticate the connection you request and retrieve addresses, orders, restaurants, menus, carts, offers, and order results.</li>
+              <li><strong>Swiggy:</strong> to authenticate the connection you request and retrieve addresses, orders, restaurants, menus, carts, offers, order support details, and order results.</li>
               <li><strong>Cart-planning AI provider:</strong> to process the identified food description, selected-address summary, and relevant Swiggy results so the agent can choose and verify a personalized cart. Video frames and live device coordinates are not provided to this service.</li>
               <li><strong>Hosting and infrastructure providers:</strong> to operate and secure the supporting service and its database.</li>
               <li><strong>Legal or safety disclosures:</strong> if required by law or reasonably necessary to protect users, CraveLens, or the public.</li>
@@ -108,7 +108,7 @@
           <section id="storage">
             <h2>5. Storage and retention</h2>
             <p>Extension settings, session identifiers, detected-food history, and prepared-cart history are stored locally in your Chrome profile or the YouTube site storage used by the extension. You can remove this local information by clearing extension/site data or uninstalling CraveLens.</p>
-            <p>The supporting service stores OAuth credentials in access-restricted server storage and may retain detection records and prepared-cart records in its database. We retain information only while it is reasonably needed to provide the service, maintain security and records, resolve disputes, or satisfy legal obligations. Retention periods can vary by data type and operational need. You may request deletion using the contact details below.</p>
+            <p>The supporting service stores OAuth credentials and provider keys encrypted in Redis, stores only hashes of rotating device refresh tokens, and may retain detection records and prepared-cart records in its database. We retain information only while it is reasonably needed to provide the service, maintain security and records, resolve disputes, satisfy legal obligations, or conclude orders you approved. Retention periods can vary by data type and operational need. You may request deletion using the contact details below.</p>
           </section>
 
           <section id="choices">
@@ -126,7 +126,7 @@
 
           <section id="security">
             <h2>7. Security</h2>
-            <p>We use reasonable technical and organizational safeguards designed to protect information, including OAuth authorization rather than collecting a Swiggy password and access-restricted storage for server-side credentials. No method of storage or transmission is completely secure, so we cannot guarantee absolute security.</p>
+            <p>We use reasonable technical and organizational safeguards designed to protect information, including OAuth authorization rather than collecting a Swiggy password, encrypted Redis storage for server-side credentials, and short-lived device access tokens for extension requests. If we become aware of a security incident involving customer data connected to the Swiggy integration, we will act promptly and notify appropriate parties as required. No method of storage or transmission is completely secure, so we cannot guarantee absolute security.</p>
           </section>
 
           <section id="children">
@@ -150,7 +150,7 @@
     <footer class="site-footer">
       <a class="brand" href="#top"><span class="brand-mark"><i></i><i></i></span><span>CraveLens</span></a>
       <p>See it. Crave it. Get it.</p>
-      <div class="footer-links"><a href="/privacy/">Privacy</a><a href="/#faq">Terms</a><a href="mailto:me@nishithp.page">Say hello</a></div>
+      <div class="footer-links"><a href="/privacy/">Privacy</a><a href="/terms/">Terms</a><a href="mailto:me@nishithp.page">Say hello</a></div>
       <div class="social-links" aria-label="CraveLens social links">
         <a href="https://www.facebook.com/profile.php?id=61591659457183" target="_blank" rel="noopener noreferrer" aria-label="CraveLens on Facebook">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 8.6V6.8c0-.9.6-1.1 1-1.1h2.5V2h-3.5c-3.9 0-4.8 2.9-4.8 4.8v1.8H7v3.8h2.9V22h4.4v-9.6h3.3l.5-3.8h-3.4Z"/></svg>

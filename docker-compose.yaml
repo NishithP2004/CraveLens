@@ -8,6 +8,20 @@ services:
       MONGO_INITDB_ROOT_USERNAME: admin
       MONGO_INITDB_ROOT_PASSWORD: admin
 
+  redis:
+    image: redis:8.8.1-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-cravelens-dev-redis}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-cravelens-dev-redis}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   server:
     image: nishithp/cravelens-server
     restart: unless-stopped
@@ -18,9 +32,16 @@ services:
       MONGODB_DATABASE: cravelens
       PORT: 8787
       LOCAL_MODEL_DIRECTORY: /app/apps/server/models
+      REDIS_URL: redis://:${REDIS_PASSWORD:-cravelens-dev-redis}@redis:6379/0
     env_file:
       - ./.env
     volumes:
       - ./apps/server/models:/app/apps/server/models:ro
     depends_on:
-      - db
+      db:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+volumes:
+  redis_data:
