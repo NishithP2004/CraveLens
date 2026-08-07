@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <link rel="stylesheet" href="./popup.css">
     <link rel="stylesheet" href="./popup-glass.css">
+    <link rel="stylesheet" href="./model-settings.css">
     <title>CraveLens</title>
 </head>
 
@@ -30,6 +31,10 @@
             <div><strong id="connectionTitle">Connecting to Swiggy…</strong><small id="connectionDetail">Secure sign-in opens automatically</small></div>
             <span class="status-spark" aria-hidden="true">✦</span>
         </section>
+        <div class="swiggy-powered" aria-label="Powered by Swiggy">
+            <span>Powered by</span>
+            <img src="../provider-icons/swiggy.png" alt="Swiggy">
+        </div>
         <button id="connect" class="secondary connect-button" hidden>Connect Swiggy <span aria-hidden="true">↗</span></button>
 
         <details class="settings-card context-card" name="popup-context" open>
@@ -69,6 +74,109 @@
                     <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.6 7.3A6 6 0 1 1 4 11"/><path d="M4.6 3.8v3.5h3.5"/></svg>
                     Reset detection defaults
                 </button>
+            </div>
+        </details>
+
+        <details class="settings-card context-card model-card" name="popup-context">
+            <summary class="context-summary">
+                <span class="section-heading"><span>03</span><h2>VLM configuration</h2></span>
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 7.5 5 5 5-5" /></svg>
+            </summary>
+            <div class="context-content model-fields">
+                <label id="vlmProviderLabel" class="field-label" for="vlmProvider">Frame verification model</label>
+                <select id="vlmProvider">
+                    <option value="auto">Auto · browser-local first</option>
+                    <!-- Server-installed Gemma 4 VLM artifacts are hidden for now.
+                    <option value="litert-gemma4">Gemma 4 E2B · local WebGPU</option>
+                    <option value="litert-gemma4-e4b">Gemma 4 E4B · local WebGPU</option>
+                    -->
+                    <option value="gemini-nano">Gemini Nano · Chrome built-in</option>
+                    <option value="litert-gemma3n">Gemma 3n · local WebGPU</option>
+                    <option value="ollama">Ollama vision model</option>
+                </select>
+                <label class="field-label ollama-vlm-field" for="vlmOllamaBaseUrl" hidden>Ollama host</label>
+                <div class="ollama-host-row ollama-vlm-field" hidden>
+                    <input id="vlmOllamaBaseUrl" type="url" maxlength="1000" spellcheck="false" placeholder="http://localhost:11434">
+                    <button id="testVlmOllama" class="ollama-test-button" type="button">Test</button>
+                </div>
+                <small id="vlmOllamaConnection" class="ollama-connection ollama-vlm-field" hidden aria-live="polite"></small>
+                <label id="vlmModelLabel" class="field-label ollama-vlm-field" for="vlmModel" hidden>Installed Ollama VLM</label>
+                <select id="vlmModel" class="ollama-vlm-field" hidden></select>
+                <small id="vlmAvailability" class="hint">Availability is checked locally; frames are never tunnelled to the server.</small>
+                <section id="vlmLiteRtDownload" class="litert-download" hidden aria-live="polite">
+                    <div class="litert-download-heading"><b id="vlmLiteRtDownloadTitle">VLM download</b><span id="vlmLiteRtDownloadPercent">Waiting</span></div>
+                    <div class="litert-download-track" aria-hidden="true"><span id="vlmLiteRtDownloadProgress"></span></div>
+                    <small id="vlmLiteRtDownloadDetail">The selected VLM downloads privately to this browser after saving.</small>
+                    <div class="litert-download-actions">
+                        <button id="cancelVlmLiteRtDownload" class="litert-download-cancel" type="button" hidden>Cancel download</button>
+                        <button id="removeVlmLiteRtModel" class="litert-download-cancel" type="button" hidden>Remove cached VLM</button>
+                    </div>
+                </section>
+            </div>
+        </details>
+
+        <details class="settings-card context-card model-card" name="popup-context">
+            <summary class="context-summary">
+                <span class="section-heading"><span>04</span><h2>Agentic orchestration</h2></span>
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 7.5 5 5 5-5" /></svg>
+            </summary>
+            <div class="context-content model-fields">
+                <label id="agentProviderLabel" class="field-label" for="agentProvider">Cart reasoning model</label>
+                <select id="agentProvider">
+                    <option value="auto">Auto · LiteRT Gemma 4 first</option>
+                    <option value="litert">LiteRT Gemma 4 · local WebGPU</option>
+                    <option value="ollama">Ollama · local</option>
+                    <option value="openai-compatible">OpenAI-compatible · remote</option>
+                    <option value="google">Google Gemini · remote</option>
+                </select>
+                <label class="field-label agent-ollama-model-field" for="agentOllamaBaseUrl" hidden>Ollama host</label>
+                <div class="ollama-host-row agent-ollama-model-field" hidden>
+                    <input id="agentOllamaBaseUrl" type="url" maxlength="1000" spellcheck="false" placeholder="http://localhost:11434">
+                    <button id="testAgentOllama" class="ollama-test-button" type="button">Test</button>
+                </div>
+                <small id="agentOllamaConnection" class="ollama-connection agent-ollama-model-field" hidden aria-live="polite"></small>
+                <label id="agentOllamaModelLabel" class="field-label agent-ollama-model-field" for="agentOllamaModel" hidden>Installed Ollama model</label>
+                <select id="agentOllamaModel" class="agent-ollama-model-field" hidden></select>
+                <label class="field-label agent-litert-model-field" for="agentLiteRtModel" hidden>LiteRT model</label>
+                <select id="agentLiteRtModel" class="agent-litert-model-field" hidden>
+                    <option value="gemma-4-E2B-it-web">Gemma 4 E2B · faster</option>
+                    <option value="gemma-4-E4B-it-web">Gemma 4 E4B · stronger reasoning</option>
+                    <option value="gemma-4-12B-it-web">Gemma 4 12B · higher quality</option>
+                    <option value="gemma-4-26B-A4B-it-web">Gemma 4 26B A4B · high memory</option>
+                    <option value="gemma-4-31B-it-web">Gemma 4 31B · highest memory</option>
+                </select>
+                <section id="agentLiteRtDownload" class="litert-download agent-litert-model-field" hidden aria-live="polite">
+                    <div class="litert-download-heading"><b id="agentLiteRtDownloadTitle">Model download</b><span id="agentLiteRtDownloadPercent">Waiting</span></div>
+                    <div class="litert-download-track" aria-hidden="true"><span id="agentLiteRtDownloadProgress"></span></div>
+                    <small id="agentLiteRtDownloadDetail">The selected model downloads privately to this browser after saving.</small>
+                    <div class="litert-download-actions">
+                        <button id="cancelLiteRtDownload" class="litert-download-cancel" type="button" hidden>Cancel download</button>
+                        <button id="removeLiteRtModel" class="litert-download-cancel" type="button" hidden>Remove cached model</button>
+                    </div>
+                </section>
+                <div id="agentContextLengthField" class="context-length-field local-context-field" hidden>
+                    <div class="context-length-heading">
+                        <label class="field-label" for="agentContextTokens">Context length</label>
+                        <output id="agentContextTokensValue" for="agentContextTokens">16k</output>
+                    </div>
+                    <div class="context-length-control">
+                        <div class="context-length-rail" aria-hidden="true"><span class="context-length-progress"></span><span class="context-length-thumb"></span></div>
+                        <input id="agentContextTokens" type="range" min="4096" max="32768" step="4096">
+                        <div class="context-length-ticks" aria-hidden="true"><span>4k</span><span>8k</span><span>16k</span><span>32k</span></div>
+                    </div>
+                    <small class="hint">Controls how much context the selected local orchestration model can keep in memory.</small>
+                </div>
+                <label class="thinking-row" for="agentThinkingEnabled">
+                    <span><b>Thinking mode</b><small>Give the selected model extra reasoning before it chooses a tool.</small></span>
+                    <input id="agentThinkingEnabled" type="checkbox" role="switch">
+                </label>
+                <label class="field-label agent-model-field" for="agentModel">Model name</label>
+                <input id="agentModel" class="agent-model-field" maxlength="200" placeholder="Optional provider default">
+                <label class="field-label hosted-openai-field" for="agentBaseUrl" hidden>OpenAI-compatible base URL</label>
+                <input id="agentBaseUrl" class="hosted-openai-field" type="url" maxlength="1000" placeholder="https://api.openai.com/v1" hidden>
+                <label class="field-label hosted-key-field" for="agentApiKey" hidden>API key (write-only)</label>
+                <input id="agentApiKey" class="hosted-key-field" type="password" maxlength="1000" autocomplete="new-password" placeholder="Leave blank to keep the configured key" hidden>
+                <small id="agentAvailability" class="hint">Local failures pause the run and require approval before any hosted fallback.</small>
             </div>
         </details>
 

@@ -6,9 +6,12 @@ import cors from "cors";
 import { CartCustomizationSchema, CartMutationSchema, CouponSelectionSchema, DetectionSchema, OrchestrateRequestSchema } from "@cravelens/shared";
 import { claimThreadStatus, getThread, getVideo, patchThread, saveDetection, saveThread } from "./store.js";
 import { buildPersonalizedCart, checkUPIPayment, confirmUPIPayment, customizePersonalizedCart, getRestaurantMenuItems, getSavedAddresses, mutatePersonalizedCart, placeOrder, publicPayment, selectPersonalizedCoupon } from "./swiggy.js";
-import { completeSwiggyAuthorization, failSwiggyAuthorization, getSwiggyAuthorizationStatus, startSwiggyAuthorization } from "./swiggy-auth.js";
+import { completeSwiggyAuthorization, disconnectSwiggy, failSwiggyAuthorization, getSwiggyAuthorizationStatus, startSwiggyAuthorization } from "./swiggy-auth.js";
 import { config } from "./config.js";
 import { publishAgentEvent } from "./agent-events.js";
+import { createDeviceSession, requireDevice, revokeDeviceSession, rotateDeviceSession } from "./device-auth.js";
+import { deleteModelCredential, getPublicModelSettings, saveModelSettings } from "./model-settings.js";
+import { decideFallback } from "./fallback-approval.js";
 
 export const app = express();
 const orchestrationFlights = new Map();
@@ -43,26 +46,35 @@ app.use(express.json({ limit: "5mb" }));
 app.use("/models", express.static(config.localModelDirectory, { fallthrough: false, immutable: true, maxAge: "1y" }));
 app.get("/health", (_req, res) => res.json({ ok: true, service: "cravelens", time: new Date().toISOString() }));
 app.get("/api/local-model/status", (_req, res) => {
-  const path = join(config.localModelDirectory, "gemma-3n-E2B-it-int4-Web.litertlm");
-  const available = existsSync(path);
-  res.json({ available, model: "Gemma 3n E2B", bytes: available ? statSync(path).size : 0 });
+  const files = ["gemma-4-E2B-it-web.litertlm", "gemma-4-E4B-it-web.litertlm", "gemma-4-E2B-it-web.task", "gemma-4-E4B-it-web.task"];
+  const models = files.map((file) => { const path = join(config.localModelDirectory, file); const available = existsSync(path); return { file, available, bytes: available ? statSync(path).size : 0 }; });
+  res.json({ available: models.some((model) => model.available), model: "Gemma 4", models });
 });
-app.post("/api/swiggy/auth/start", async (_req, res, next) => { try { res.json(await startSwiggyAuthorization()); } catch (error) { next(error); } });
-app.get("/api/swiggy/auth/status/:sessionId", async (req, res, next) => { try { res.json(await getSwiggyAuthorizationStatus(req.params.sessionId)); } catch (error) { next(error); } });
-app.get("/api/swiggy/addresses", async (req, res, next) => { try { res.json({ addresses: await getSavedAddresses(readSwiggySession(req)) }); } catch (error) { next(error); } });
+app.post("/api/device/session", async (_req, res, next) => { try { res.status(201).json(await createDeviceSession()); } catch (error) { next(error); } });
+app.post("/api/device/session/refresh", async (req, res, next) => { try { res.json(await rotateDeviceSession(req.body?.refreshToken)); } catch (error) { next(error); } });
+app.post("/api/device/session/revoke", async (req, res, next) => { try { await revokeDeviceSession(req.body?.refreshToken); res.status(204).end(); } catch (error) { next(error); } });
 app.get("/api/swiggy/auth/callback", async (req, res) => {
-  const sessionId = String(req.query.sessionId || "");
+  const state = String(req.query.state || "");
   try {
     if (req.query.error) throw new Error(String(req.query.error_description || req.query.error));
     const code = String(req.query.code || "");
     if (!code) throw new Error("Swiggy did not return an authorization code");
-    await completeSwiggyAuthorization(sessionId, code);
+    await completeSwiggyAuthorization(state, code);
     res.type("html").send(authResultPage(true, "Swiggy connected", "You can close this tab and return to CraveLens."));
   } catch (error) {
-    failSwiggyAuthorization(sessionId, error instanceof Error ? error.message : "Authorization failed");
+    await failSwiggyAuthorization(state, error instanceof Error ? error.message : "Authorization failed");
     res.status(400).type("html").send(authResultPage(false, "Couldn’t connect Swiggy", error instanceof Error ? error.message : "Authorization failed"));
   }
 });
+app.use(["/api/swiggy", "/api/orchestrate", "/api/model-settings"], requireDevice);
+app.post("/api/swiggy/auth/start", async (req, res, next) => { try { res.json(await startSwiggyAuthorization(req.deviceId)); } catch (error) { next(error); } });
+app.get("/api/swiggy/auth/status", async (req, res, next) => { try { res.json(await getSwiggyAuthorizationStatus(req.deviceId)); } catch (error) { next(error); } });
+app.delete("/api/swiggy/auth", async (req, res, next) => { try { await disconnectSwiggy(req.deviceId); res.status(204).end(); } catch (error) { next(error); } });
+app.get("/api/swiggy/addresses", async (req, res, next) => { try { res.json({ addresses: await getSavedAddresses(readSwiggySession(req)) }); } catch (error) { next(error); } });
+app.get("/api/model-settings", async (req, res, next) => { try { res.json(await getPublicModelSettings(req.deviceId)); } catch (error) { next(error); } });
+app.put("/api/model-settings", async (req, res, next) => { try { res.json(await saveModelSettings(req.deviceId, req.body)); } catch (error) { next(error); } });
+app.delete("/api/model-settings/credentials/:provider", async (req, res, next) => { try { await deleteModelCredential(req.deviceId, req.params.provider); res.status(204).end(); } catch (error) { next(error); } });
+app.post("/api/orchestrate/:runId/fallback", async (req, res, next) => { try { res.json(await decideFallback(req.deviceId, req.params.runId, req.body?.decision)); } catch (error) { next(error); } });
 app.get("/api/videos/:videoId/detections", async (req, res, next) => { try { const data = await getVideo(req.params.videoId); res.json({ cached: Boolean(data), detections: data?.detections || [], verificationCount: data?.verificationCount || 0 }); } catch (error) { next(error); } });
 app.post("/api/videos/:videoId/detections", async (req, res, next) => { try { const detection = DetectionSchema.parse(req.body); await saveDetection(req.params.videoId, detection); res.status(202).json({ accepted: true }); } catch (error) { next(error); } });
 app.post("/api/orchestrate", async (req, res, next) => {
@@ -271,14 +283,18 @@ app.post("/api/orchestrate/:threadId/confirm-payment", async (req, res, next) =>
   } catch (error) { next(error); }
 });
 app.use((error, _req, res, _next) => {
-  console.error(error);
+  const message = safeErrorMessage(error instanceof Error ? error.message : "Unexpected error");
+  console.error("[api]", { message, code: error?.code, statusCode: error?.statusCode });
   const status = error?.name === "ZodError" ? 400 : Number(error?.statusCode) || 500;
-  res.status(status).json({ error: error instanceof Error ? error.message : "Unexpected error", code: error?.code });
+  res.status(status).json({ error: message, code: error?.code, ...(error?.fallback ? { fallback: error.fallback } : {}) });
 });
 
+function safeErrorMessage(value) {
+  return String(value).replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]").replace(/\b(?:sk|pk)-[A-Za-z0-9_-]{12,}\b/g, "[redacted-key]").slice(0, 1000);
+}
+
 function readSwiggySession(req) {
-  const session = req.get("x-swiggy-session-id");
-  return session && /^[\w-]{20,80}$/.test(session) ? session : undefined;
+  return req.deviceId;
 }
 
 export function isSuggestionExpired(suggestion, now = Date.now()) {

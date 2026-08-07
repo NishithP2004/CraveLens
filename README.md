@@ -7,8 +7,8 @@
 1. Samples frames from the active YouTube video without uploading them.
 2. Runs the bundled `best_dynamic.onnx` YOLO food detector in an ONNX Runtime Web Worker. Only detector-positive frames proceed to the more expensive VLM stage.
 3. Selects a representative, sharp keyframe from a short frame burst.
-4. Runs Gemma 3n locally with MediaPipe Tasks GenAI to return an `isFood` verdict plus the dish, cuisine, ingredients, confidence, and context.
-5. Continues only when Gemma returns valid structured JSON, `isFood: true`, and confidence of at least 0.65. Failed, malformed, non-food, and low-confidence responses do not show a craving prompt or create a cart.
+4. Runs the configured local VLM—Gemini Nano, browser-downloaded Gemma 3n, or an Ollama vision model—to return an `isFood` verdict plus the dish, cuisine, ingredients, confidence, and context.
+5. Continues only when the configured VLM returns valid structured JSON, `isFood: true`, and confidence of at least 0.65. Failed, malformed, non-food, and low-confidence responses do not show a craving prompt or create a cart.
 6. Records the confirmed dish, frame timestamp, and visual signature in per-video `localStorage` history to suppress repeated scenes, duplicate dishes, unnecessary VLM work, and duplicate carts.
 7. Sends only the structured dish description, selected saved-address ID, and video metadata to the Node.js backend.
 8. Runs a LangChain `createAgent()` ReAct loop with authenticated Swiggy MCP tools to inspect order history, search orderable menu items, respect observed dietary constraints, build the cart, and apply the best valid coupon.
@@ -28,12 +28,13 @@ flowchart TB
     Offscreen["Offscreen document<br/>local inference coordinator"]
     Worker["Module Web Worker<br/>best_dynamic.onnx via ONNX Runtime WASM<br/>YOLO decode + NMS"]
     Burst["Frame burst and keyframe selector<br/>RGB histogram clustering + sharpness"]
-    VLM["Gemma 3n VLM<br/>MediaPipe Tasks GenAI / WebGPU"]
+    VLM["Gemini Nano / Gemma 3n / Ollama VLM<br/>Browser-local verification"]
     Gate{"Valid JSON?<br/>isFood = true?<br/>confidence ≥ 0.65?"}
     History[("YouTube localStorage<br/>per-video confirmed dishes,<br/>timestamps and signatures")]
     Carts[("YouTube sessionStorage<br/>per-tab prepared carts,<br/>payment state and shelf state")]
-    Debug["Debug UI<br/>ONNX boxes and confidence,<br/>Gemma isFood verdict, latency and errors"]
-    LocalPrefs[("Chrome storage<br/>session ID, selected address,<br/>preferences and debug setting")]
+    Debug["Debug UI<br/>ONNX boxes and confidence,<br/>VLM isFood verdict, latency and errors"]
+    LocalPrefs[("Chrome storage<br/>device tokens, selected address,<br/>preferences, model settings and debug setting")]
+    ModelCache[("Browser Cache Storage<br/>downloaded LiteRT / Gemma 3n model bytes")]
 
     Content -->|"sample frame"| Background
     Background --> Offscreen
@@ -60,27 +61,29 @@ flowchart TB
     Content <--> Background
     Popup <--> LocalPrefs
     Content <--> LocalPrefs
+    Offscreen <--> ModelCache
   end
 
   subgraph API["Node.js / Express backend — localhost:8787"]
     direction TB
     Routes["HTTP API<br/>OAuth, addresses, detections,<br/>orchestration and decision endpoints"]
     Events["Socket.IO event gateway<br/>stream-scoped agent progress rooms"]
-    ModelHost["Static local-model endpoint<br/>Gemma LiteRT model"]
+    Inference["Socket.IO /inference namespace<br/>authenticated browser model bridge"]
     OAuth["Swiggy OAuth 2.1 + PKCE<br/>official MCP SDK auth provider"]
     Orchestrator["Cart orchestration service<br/>address validation, customization,<br/>deterministic edits and receipt normalization"]
-    Agent["LangChain createAgent() ReAct loop<br/>Gemini or ChatOpenAI"]
+    Agent["LangChain createAgent() ReAct loop<br/>local browser model or hosted fallback"]
     ToolPolicy["MCP tool policy<br/>allowlisted preparation tools only<br/>place_food_order withheld from agent"]
     Decision["Confirmation and payment gate<br/>reject, COD order or UPI handoff"]
-    Store["Storage adapter<br/>MongoDB or in-memory fallback"]
+    Store["Storage adapters<br/>MongoDB app data + Redis sessions, credentials,<br/>settings and inference routing"]
 
     Routes --> OAuth
     Routes --- Events
-    Routes --- ModelHost
+    Routes --- Inference
     Routes --> Orchestrator
     Orchestrator --> Agent
     Agent --> ToolPolicy
     Routes <--> Store
+    Inference <--> Store
     Routes --> Decision
   end
 
@@ -101,18 +104,22 @@ flowchart TB
   end
 
   subgraph Models["Model services"]
-    AgentModel["Agent LLM<br/>Gemini or OpenAI-compatible endpoint"]
+    BrowserLLM["Browser-hosted orchestration LLM<br/>LiteRT Gemma 4 or Ollama"]
+    AgentModel["Optional hosted fallback/default<br/>Gemini or OpenAI-compatible endpoint"]
     Langfuse["Optional Langfuse<br/>agent trace export"]
   end
 
   User --> Popup
   User --> Content
   Popup -->|"open authorization URL"| Consent
-  Background <-->|"auth, model and orchestration HTTP"| Routes
-  ModelHost -->|"Gemma model bytes"| VLM
+  Background <-->|"auth, settings and orchestration HTTP"| Routes
+  Background <-->|"authenticated local inference requests"| Inference
+  Inference <-->|"model calls, chunks, results and cancellation"| BrowserLLM
+  BrowserLLM -.->|"runs in extension / Ollama, not tunnelled"| Offscreen
   Content -->|"VLM-confirmed dish JSON + addressId + video metadata<br/>no video frame"| Background
   Events -->|"WebSocket: sanitized lifecycle and tool events"| Content
-  Agent <-->|"reasoning and tool calls"| AgentModel
+  Agent <-->|"reasoning and tool calls"| Inference
+  Agent <-->|"hosted default or approved fallback"| AgentModel
   Agent -.->|"when configured"| Langfuse
   ToolPolicy <-->|"get addresses/history, search menu,<br/>update/verify cart, coupons"| MCP
   Orchestrator -->|"normalized receipt + rationale"| Content
@@ -125,7 +132,7 @@ flowchart TB
 
   classDef local fill:#173d2b,stroke:#55c98a,color:#fff
   classDef safety fill:#4a251b,stroke:#ff7043,color:#fff
-  class Offscreen,Worker,VLM,Burst local
+  class Offscreen,Worker,VLM,Burst,ModelCache,BrowserLLM local
   class ToolPolicy,Decision safety
 ```
 
@@ -158,8 +165,9 @@ CraveLens/
 - npm
 - Chrome or Chromium with WebGPU support
 - A Swiggy account supported by the Swiggy MCP server
-- A Gemini or OpenAI-compatible API key for the cart agent
+- Optional: a Gemini or OpenAI-compatible API key for hosted orchestration defaults or approved local fallback
 - Optional: MongoDB for persistent detection and orchestration storage
+- Redis for device sessions, encrypted credentials, settings, and browser-inference routing
 
 ## Local setup
 
@@ -177,7 +185,7 @@ Then:
 3. Choose **Load unpacked** and select `apps/extension/dist`.
 4. Open the CraveLens popup and complete Swiggy sign-in.
 5. Select a saved delivery address.
-6. Open a YouTube video or Short containing food and use **Scan current frame** (`Ctrl+Shift+Y`) to send the frame directly to Gemma 3n, bypassing the scheduled ONNX gate, or allow continuous ONNX-gated scanning.
+6. Open a YouTube video or Short containing food and use **Scan current frame** (`Ctrl+Shift+Y`) to send the frame directly to the configured VLM, bypassing the scheduled ONNX gate, or allow continuous ONNX-gated scanning.
 
 During extension development, `npm run dev` watches and rebuilds the extension. Reload the unpacked extension from `chrome://extensions` after a rebuild. Restart the Node process after server changes.
 
@@ -191,32 +199,15 @@ apps/extension/public/models/food-detector/best_dynamic.onnx
 
 It accepts a dynamic `[1, 3, 640, 640]` tensor and produces `[1, 5, 8400]` detections. Frames are letterboxed before inference; decoded boxes are mapped back onto the YouTube video when debug mode is enabled.
 
-Gemma 3n is served by the local backend and loaded into the extension for on-device verification.
+Gemma 3n VLM verification does not need a server-installed model: selecting Gemma 3n downloads `gemma-3n-E2B-it-int4-Web.litertlm` directly from Google's Hugging Face repo into the extension's browser cache and runs it locally with WebGPU. For orchestration, selecting LiteRT downloads the chosen supported Gemma 4 text model directly into the browser cache after Settings are saved: E2B (1.9 GB), E4B (2.8 GB), 12B (5.6 GB), 26B A4B (14.7 GB), or 31B (17.9 GB). The browser-downloaded model bytes do not pass through the CraveLens server.
 
-1. Accept the Gemma model license.
-2. Place the model at:
-
-   ```text
-   apps/server/models/gemma-3n-E2B-it-int4-Web.litertlm
-   ```
-
-3. Confirm availability:
-
-   ```bash
-   curl http://localhost:8787/api/local-model/status
-   ```
-
-See `apps/server/models/README.md` for model-specific notes. The browser must support WebGPU; first load can take time because the model is large.
+Server-installed Gemma 4 E2B/E4B VLM `.task` artifacts are temporarily hidden from the VLM Settings UI. `apps/server/models` remains available for those optional artifacts when this path is re-enabled. The browser must support WebGPU; first load can take time because the model is large.
 
 ### Docker Compose
 
-The repository Compose file runs MongoDB and the published CraveLens server image. It mounts the same canonical model directory used by local development:
+The repository Compose file runs MongoDB, `redis:8.8.1-alpine`, and the published CraveLens server image. Redis is private to the Compose network, password protected, health checked, and persisted with append-only storage.
 
-```text
-apps/server/models/gemma-3n-E2B-it-int4-Web.litertlm
-```
-
-After creating `.env` and placing the model there, start the services with:
+After creating `.env`, start the services with:
 
 ```bash
 docker compose up -d
@@ -230,11 +221,15 @@ The host directory `./apps/server/models` is mounted read-only at `/app/apps/ser
 | --- | --- | --- | --- |
 | `PORT` | No | `8787` | Express server port |
 | `PUBLIC_BASE_URL` | Yes in production | `http://localhost:8787` | Public origin used for the OAuth callback |
-| `LOCAL_MODEL_DIRECTORY` | No | Server model directory | Directory containing the Gemma LiteRT model |
+| `LOCAL_MODEL_DIRECTORY` | No | Server model directory | Optional directory for server-hosted model artifacts; normal Gemma 3n/LiteRT downloads are browser-cache based |
+| `REDIS_URL` | Yes | `redis://localhost:6379/0` | Redis used for device sessions, encrypted OAuth/BYOK, settings and Socket.IO routing |
+| `CREDENTIAL_ENCRYPTION_KEY` | Yes | — | 32-byte hex/base64 AES-256-GCM envelope-encryption key |
+| `DEVICE_SESSION_SIGNING_KEY` | Yes | — | Signs 15-minute extension device access tokens |
 | `AGENT_MODEL_PROVIDER` | Yes | `gemini` | `gemini` or `openai` |
 | `AGENT_MODEL_NAME` | Yes | `gemini-2.5-flash` | Agent model name |
 | `AGENT_MODEL_API_KEY` | Yes | — | Agent provider API key |
 | `AGENT_MODEL_BASE_URL` | For custom OpenAI-compatible APIs | `https://api.openai.com/v1` | ChatOpenAI base URL |
+| `OLLAMA_BASE_URL` | No | `http://localhost:11434` | Default Ollama origin shown to extension users; each device may override it |
 | `LANGFUSE_PUBLIC_KEY` | No | — | Enables Langfuse tracing when paired with the secret key |
 | `LANGFUSE_SECRET_KEY` | No | — | Enables Langfuse tracing when paired with the public key |
 | `LANGFUSE_BASE_URL` | No | `https://cloud.langfuse.com` | Langfuse Cloud region or self-hosted instance |
@@ -274,10 +269,18 @@ CraveLens uses OAuth 2.1 with PKCE through the official MCP SDK instead of imple
 2. The backend performs MCP metadata discovery, dynamic client registration, and PKCE setup.
 3. The popup opens the returned Swiggy consent URL.
 4. Swiggy redirects to `http://localhost:8787/api/swiggy/auth/callback` during local development.
-5. The backend completes authorization with the MCP transport and persists the session locally.
+5. The backend atomically consumes OAuth `state`, completes authorization, and stores the credential encrypted in Redis with the provider expiry.
 6. The popup polls the status endpoint and then loads saved addresses.
 
-The extension stores only the opaque session identifier; it does not store the Swiggy access token. A 401 or 419 requires reauthorization. A deployed callback must use the configured HTTPS `PUBLIC_BASE_URL` and may require Swiggy allowlisting.
+The extension stores a rotating CraveLens device refresh token and keeps its 15-minute access token in `chrome.storage.session`; it never receives the Swiggy access token. Existing filesystem-backed sessions require a one-time reconnection. A deployed callback uses the fixed HTTPS `PUBLIC_BASE_URL` callback and may require Swiggy allowlisting.
+
+### Local models and Ollama
+
+The extension initiates an authenticated `/inference` WebSocket connection to the server. The server-side `RemoteBrowserChatModel` invokes LiteRT or Ollama through that connection; neither an Ollama endpoint nor a browser model is tunnelled or exposed publicly. The Settings page starts with `OLLAMA_BASE_URL` (default `http://localhost:11434`), lets the user override it per device, and immediately probes `/api/tags` and `/api/show`. A non-default host requires a one-time Chrome host-permission grant when **Test** is clicked. The configured Ollama service must allow this unpacked extension's exact `chrome-extension://<extension-id>` origin, for example `OLLAMA_ORIGINS=chrome-extension://<extension-id>`, before Ollama is restarted. Do not expose an unauthenticated Ollama service to the public internet.
+
+For hosted orchestration, `AGENT_MODEL_PROVIDER` selects the single server default (`gemini` or `openai`). In the extension, choose the matching Google Gemini or OpenAI-compatible entry and leave model, URL, and key blank to use that deployment configuration. A key entered in Settings is encrypted in Redis and takes precedence for that device; the inactive hosted provider requires such a user override. Hosted fallback from a local provider always requires explicit approval.
+
+For managed deployments use a TLS Redis URL and store the encryption/signing keys in the platform secret manager. Rotate an encryption key by decrypting with the old key and re-encrypting each credential before removing it. Local-model Langfuse traces are metadata-only unless `LANGFUSE_LOCAL_CONTENT=true` is explicitly enabled.
 
 ## Cart-agent workflow
 
@@ -299,12 +302,15 @@ The user—not the agent—decides whether to place the order.
 | Method | Endpoint | Description |
 | --- | --- | --- |
 | `GET` | `/health` | Service health check |
-| `GET` | `/api/local-model/status` | Local Gemma model availability |
-| `GET` | `/models/gemma-3n-E2B-it-int4-Web.litertlm` | Stream the locally installed Gemma model to the extension |
+| `GET` | `/api/local-model/status` | Optional server-hosted local model artifact availability |
+| `POST` | `/api/device/session` | Bootstrap a signed device session |
+| `POST` | `/api/device/session/refresh` | Rotate a device refresh token |
+| `GET` | `/models/:file` | Optional static server-hosted model artifact endpoint; hidden from the normal VLM Settings path |
 | `POST` | `/api/swiggy/auth/start` | Start OAuth/PKCE authorization |
-| `GET` | `/api/swiggy/auth/status/:sessionId` | Poll authorization state |
+| `GET` | `/api/swiggy/auth/status` | Poll authorization state for the authenticated device |
 | `GET` | `/api/swiggy/auth/callback` | OAuth redirect callback |
 | `GET` | `/api/swiggy/addresses` | Load normalized saved addresses |
+| `GET/PUT` | `/api/model-settings` | Read/update VLM and orchestration providers without returning secrets |
 | `GET` | `/api/videos/:videoId/detections` | Read cached video detections |
 | `POST` | `/api/orchestrate` | Build and verify a personalized cart |
 | `POST` | `/api/orchestrate/:threadId/customize` | Continue the cart-agent conversation with a free-form instruction |
@@ -317,7 +323,7 @@ The user—not the agent—decides whether to place the order.
 | `POST` | `/api/orchestrate/:threadId/confirm-payment` | Finalize a successfully paid UPI order |
 | `POST` | `/api/videos/:videoId/detections` | Save a detection window |
 
-Authenticated Swiggy API requests carry the opaque session in the `x-swiggy-session-id` header.
+Authenticated APIs use a short-lived `Authorization: Bearer <device-access-token>` header. Redis stores only hashes of rotating refresh tokens.
 
 ## Storage
 
@@ -335,7 +341,7 @@ The browser additionally stores the following per YouTube video in `localStorage
 
 Prepared cart suggestions, their ready/ordered state, and whether the **Carts for this video** shelf is hidden or visible are stored in per-tab `sessionStorage`. Cart suggestions include a 10-minute `expiresAt`; expired suggestions are removed from the client shelf and rejected by the server before order placement.
 
-The selected address, extension preferences, detector sensitivity, and debug setting are cached in extension `localStorage` and mirrored into Chrome extension storage for background and content-script reads.
+Device-session tokens, selected address, extension preferences, model settings, detector sensitivity, and debug setting are cached in extension storage for background and content-script reads. Swiggy OAuth credentials and BYOK provider keys stay server-side, encrypted in Redis.
 
 ## Debugging
 
@@ -345,7 +351,7 @@ Enable **Debug overlay** in the popup. The YouTube overlay reports:
 - ONNX detector scheduling and inference latency;
 - detector boxes, labels, and confidence scores;
 - temporary bounding boxes drawn over the video and removed when stale, paused, seeking, ended, or disabled;
-- Gemma 3n `isFood` verdict, dish, confidence, context, and inference time;
+- Configured VLM `isFood` verdict, dish, confidence, context, and inference time;
 - confirmed-food history and prepared-cart counts;
 - worker, model, messaging, and orchestration errors.
 
@@ -353,7 +359,6 @@ Useful checks:
 
 ```bash
 curl http://localhost:8787/health
-curl http://localhost:8787/api/local-model/status
 npm test
 npm run typecheck
 ```
@@ -376,9 +381,9 @@ While orchestration is running, the extension also opens a Socket.IO WebSocket a
 ## Current constraints
 
 - Food recognition quality depends on the visible frame and local model confidence.
-- The ONNX detector is a preliminary gate; only Gemma-confirmed food at confidence 0.65 or higher can create a craving prompt or cart.
+- The ONNX detector is a preliminary gate; only configured-VLM-confirmed food at confidence 0.65 or higher can create a craving prompt or cart.
 - Per-video history is local to the current YouTube browser origin/profile and can be cleared with browser site data.
-- Gemma inference requires a capable WebGPU device and sufficient memory.
+- Browser-local VLM and LiteRT inference require a capable WebGPU device and sufficient memory; Ollama models require a reachable local Ollama service.
 - Swiggy MCP client availability and account eligibility are controlled by Swiggy.
 - Checkout shows the live COD and UPI methods returned by Swiggy. UPI orders use Swiggy's QR handoff, payment-status polling, optional mid-flow cancellation, and one-time confirmation flow; availability remains account/cart dependent.
 - This is an experimental ordering assistant; always review the restaurant, address, items, dietary implications, and final amount before confirming.

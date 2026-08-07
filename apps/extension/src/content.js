@@ -9,6 +9,7 @@ import { formatTranscriptContext, getTranscriptContext } from "./transcript.js";
 
 const state = { running: false, navigationVersion: 0, lastTrigger: -120, lastPlaybackTime: null, replayPending: false, cache: [], videoId: "", modelStatus: "idle", lastResult: null, vlmStatus: "idle", vlmResult: null, error: "", agentSocket: null, agentEvents: [], foodHistory: [], carts: [], cartsHidden: false, themeMode: "system" };
 const cartBuildLock = createCartBuildLock();
+const fallbackDecisions = new Map();
 const VIDEO_STORE_PREFIX = "cravelens:video:";
 const CART_STORE_SUFFIX = ":session-carts";
 const DETECTOR_OVERLAY_TTL_MS = 350;
@@ -19,8 +20,18 @@ let detectorOverlayTimer;
 let detectorScanTimer;
 let paymentPollTimer;
 let paymentCountdownTimer;
+let initializeTimer;
+let extensionContextStopped = false;
 const api = (path, options = {}) => chrome.runtime.sendMessage({ type: "CRAVELENS_API", path, ...options }).then((r) => { if (!r.ok) throw new Error(r.error); return r.data; });
-const settings = () => chrome.storage.local.get({ enabled: true, debug: false, apiUrl: "http://localhost:8787", addressId: "", addressLabel: "", sensitivity: .38, scanIntervalMs: DEFAULT_SCAN_INTERVAL_MS, themeMode: "system", personalContext: "" });
+const settings = async () => {
+  if (extensionContextStopped || !chrome.runtime?.id) throw new Error("Extension context invalidated.");
+  try {
+    return await chrome.storage.local.get({ enabled: true, debug: false, apiUrl: "http://localhost:8787", addressId: "", addressLabel: "", sensitivity: .38, scanIntervalMs: DEFAULT_SCAN_INTERVAL_MS, themeMode: "system", personalContext: "" });
+  } catch (error) {
+    if (isExtensionContextInvalidated(error)) stopInvalidatedExtensionContext();
+    throw error;
+  }
+};
 const normalizeScanInterval = (value) => Math.max(MIN_SCAN_INTERVAL_MS, Math.min(MAX_SCAN_INTERVAL_MS, Number(value) || DEFAULT_SCAN_INTERVAL_MS));
 
 function getVideoId() {
@@ -91,7 +102,7 @@ async function trigger(video, confidence, signature, { forceVerification = false
   let vlmConfirmed = false;
   try {
     const cfg = await settings();
-    console.info("[CraveLens] ONNX-positive frame accepted; preparing Gemma 3n keyframe");
+    console.info("[CraveLens] ONNX-positive frame accepted; preparing local VLM keyframe");
     const keyframe = await burst(video);
     const frameTimestamp = Number.isFinite(keyframe.timestamp) ? keyframe.timestamp : video.currentTime;
     if (!isCurrentNavigation(navigationVersion)) return;
@@ -107,13 +118,13 @@ async function trigger(video, confidence, signature, { forceVerification = false
       console.warn("[CraveLens] Transcript context unavailable; continuing with visual verification only:", error);
       return undefined;
     });
-    console.info("[CraveLens] Sending keyframe to Gemma 3n", {
+    console.info("[CraveLens] Sending keyframe to the configured VLM", {
       frameTimestamp,
       transcriptCues: transcriptContext
         ? transcriptContext.before.length + transcriptContext.at.length + transcriptContext.after.length
         : 0,
     });
-    console.info("[CraveLens] Gemma 3n input context", {
+    console.info("[CraveLens] VLM input context", {
       videoTitle: document.title.replace(" - YouTube", ""),
       frameTimestamp,
       captionTrackSource: liveCaptionTracks.length ? "live YouTube player" : "page metadata fallback",
@@ -128,7 +139,7 @@ async function trigger(video, confidence, signature, { forceVerification = false
       transcriptContext,
     });
     if (!isCurrentNavigation(navigationVersion)) return;
-    if (!local?.ok) { state.vlmStatus = "failed"; renderDebug(); throw new Error(local?.error || "Local Gemma 3n verification failed"); }
+    if (!local?.ok) { state.vlmStatus = "failed"; renderDebug(); throw new Error(local?.error || "Local VLM verification failed"); }
     state.vlmStatus = "ready"; state.vlmResult = { ...local.verification, inferenceMs: local.vlmInferenceMs, timestamp: frameTimestamp }; renderDebug();
     if (!local.verification.isFood || local.verification.confidence < .65) return local.verification;
     vlmConfirmed = true;
@@ -148,7 +159,7 @@ async function trigger(video, confidence, signature, { forceVerification = false
       state.foodHistory.push({ dish: local.verification.dish, dishKey, timestamp: frameTimestamp, confidence: local.verification.confidence, signature: signature || null, confirmedAt: Date.now() });
       persistVideoState();
     }
-    state.agentEvents = [{ message: `${local.verification.dish} confirmed by Gemma 3n`, state: "done" }, { message: "Connecting to the cart agent…", state: "active" }];
+    state.agentEvents = [{ message: `${local.verification.dish} confirmed by the configured VLM`, state: "done" }, { message: "Connecting to the cart agent…", state: "active" }];
     showToast({ loading: true, dish: local.verification.dish });
     renderAgentEvents();
     const streamId = crypto.randomUUID();
@@ -231,6 +242,10 @@ function closeAgentStream() {
 }
 
 function appendAgentEvent(payload) {
+  if (["completed", "failed"].includes(payload.event) && payload.details?.runId) fallbackDecisions.delete(payload.details.runId);
+  if (payload.event === "model:fallback-required" && payload.details?.runId) {
+    void requestHostedFallbackDecision(payload.details);
+  }
   const message = agentEventMessage(payload);
   if (!message) return;
   if (["tool_complete", "tool_failed"].includes(payload.event)) {
@@ -245,6 +260,23 @@ function appendAgentEvent(payload) {
   state.agentEvents.push({ message, tool: payload.event === "tool_call" ? payload.details?.tool : undefined, state: payload.event === "failed" ? "failed" : ["cart_ready", "completed", "tool_complete"].includes(payload.event) ? "done" : "active" });
   state.agentEvents = state.agentEvents.slice(-6);
   renderAgentEvents();
+}
+
+async function requestHostedFallbackDecision(details) {
+  const existingDecision = fallbackDecisions.get(details.runId);
+  const approved = existingDecision === undefined
+    ? window.confirm(`The local ${details.provider || "AI"} model stopped responding. Allow this cart run to send its model context to the configured ${details.hostedProvider || "hosted"} provider? No order will be placed without your normal confirmation.`)
+    : existingDecision;
+  fallbackDecisions.set(details.runId, approved);
+  try {
+    await api(`/api/orchestrate/${encodeURIComponent(details.runId)}/fallback`, { method: "POST", body: { decision: approved ? "approve" : "deny" } });
+    state.agentEvents.push({ message: approved ? "Hosted fallback approved for this run" : "Hosted fallback denied", state: approved ? "active" : "failed" });
+    renderAgentEvents();
+  } catch (error) {
+    fallbackDecisions.delete(details.runId);
+    state.agentEvents.push({ message: `Fallback decision failed: ${error.message}`, state: "failed" });
+    renderAgentEvents();
+  }
 }
 
 function agentEventMessage({ event, details = {} }) {
@@ -268,6 +300,8 @@ function agentEventMessage({ event, details = {} }) {
   if (event === "started") return "Personalization agent started";
   if (event === "tools_ready") return `${details.count || 0} Swiggy tools connected`;
   if (event === "reasoning_started") return "Planning the best cart for you";
+  if (event === "model:fallback-required") return "Waiting for approval before using a hosted model";
+  if (event === "model:fallback-approved") return `Hosted fallback approved · continuing with ${details.hostedProvider || "the configured provider"}`;
   if (event === "metadata_retry") return tools.metadata_retry;
   if (event === "tool_call") return tools[details.tool] || `Using ${String(details.tool || "Swiggy")}`;
   if (event === "tool_skipped") return details.reason === "DUPLICATE_SEARCH"
@@ -321,6 +355,7 @@ async function triggerScheduledDetection(video, confidence, signature) {
 }
 
 function scheduleDetectorScan(delay = DEFAULT_SCAN_INTERVAL_MS) {
+  if (extensionContextStopped) return;
   clearTimeout(detectorScanTimer);
   detectorScanTimer = setTimeout(runScheduledDetectorScan, normalizeScanInterval(delay));
 }
@@ -331,10 +366,14 @@ async function runScheduledDetectorScan() {
     await tick();
     delay = (await settings()).scanIntervalMs;
   } catch (error) {
+    if (isExtensionContextInvalidated(error)) {
+      stopInvalidatedExtensionContext();
+      return;
+    }
     state.error = error.message;
     renderDebug();
   } finally {
-    scheduleDetectorScan(delay);
+    if (!extensionContextStopped) scheduleDetectorScan(delay);
   }
 }
 
@@ -388,7 +427,7 @@ async function debugScan(forceDebug = false) {
     const result = { detections: [], allDetections: [], inferenceMs: 0, timestamp: video.currentTime, source: "manual · ONNX bypassed" };
     state.lastResult = result;
     renderDebug(forceDebug);
-    console.info("[CraveLens] Manual scan bypassing ONNX and invoking Gemma 3n directly");
+    console.info("[CraveLens] Manual scan bypassing ONNX and invoking the configured VLM directly");
     const verification = await trigger(video, 1, undefined, { forceVerification: true, throwOnError: true });
     if (!isCurrentNavigation(navigationVersion)) return result;
     return { ...result, verification };
@@ -403,7 +442,16 @@ async function debugScan(forceDebug = false) {
 }
 
 async function renderDebug(forceDebug = false) {
-  const cfg = await settings();
+  let cfg;
+  try {
+    cfg = await settings();
+  } catch (error) {
+    if (isExtensionContextInvalidated(error)) {
+      stopInvalidatedExtensionContext();
+      return;
+    }
+    throw error;
+  }
   state.themeMode = cfg.themeMode || state.themeMode;
   document.getElementById("cravelens-debug")?.remove();
   if (!cfg.debug && !forceDebug) return;
@@ -451,7 +499,7 @@ async function renderDebug(forceDebug = false) {
     #cravelens-debug .debug-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:7px}
     #cravelens-debug .debug-stat{display:flex;align-items:center;justify-content:space-between;gap:4px;padding:7px 8px;border:1px solid var(--debug-line);border-radius:10px;background:var(--debug-card);box-shadow:inset 0 1px 0 ${lightTheme ? "#fff" : "#ffffff0b"}}
     #cravelens-debug .debug-stat b{font:800 10px ui-monospace,SFMono-Regular,monospace}
-  </style><div class="debug-head"><div class="debug-brand"><span class="debug-brand-mark">◉</span><div><small>CRAVELENS</small><strong>Detection debug</strong></div></div><div class="debug-status ${state.error ? "bad" : ""}">${escapeHtml(state.error || `ONNX ${state.modelStatus}${state.running ? " · scanning" : ""}`)}</div></div><div class="debug-video"><span>Video</span><strong>${escapeHtml(state.videoId || "—")}</strong><time>@ ${currentSecond}s</time></div><dl class="debug-detector"><div class="debug-row"><dt>Detector</dt><dd>${escapeHtml(state.lastResult?.source || "—")}</dd><em>${detectorTime}</em></div><div class="debug-row"><dt>Food gate</dt><dd>${escapeHtml(food)}</dd><em></em></div><div class="debug-row"><dt>Boxes</dt><dd>${escapeHtml(top)}</dd><em></em></div></dl><section class="debug-gemma"><div class="debug-gemma-head"><span>Gemma 3n</span><time>${gemmaTime}</time></div>${gemmaResult}</section><div class="debug-stats"><div class="debug-stat"><span>Foods</span><b>${state.foodHistory.length}</b></div><div class="debug-stat"><span>Carts</span><b>${state.carts.length}</b></div><div class="debug-stat"><span>Frame</span><b>${state.vlmResult ? `${Math.floor(state.vlmResult.timestamp)}s` : `${currentSecond}s`}</b></div></div>`;
+  </style><div class="debug-head"><div class="debug-brand"><span class="debug-brand-mark">◉</span><div><small>CRAVELENS</small><strong>Detection debug</strong></div></div><div class="debug-status ${state.error ? "bad" : ""}">${escapeHtml(state.error || `ONNX ${state.modelStatus}${state.running ? " · scanning" : ""}`)}</div></div><div class="debug-video"><span>Video</span><strong>${escapeHtml(state.videoId || "—")}</strong><time>@ ${currentSecond}s</time></div><dl class="debug-detector"><div class="debug-row"><dt>Detector</dt><dd>${escapeHtml(state.lastResult?.source || "—")}</dd><em>${detectorTime}</em></div><div class="debug-row"><dt>Food gate</dt><dd>${escapeHtml(food)}</dd><em></em></div><div class="debug-row"><dt>Boxes</dt><dd>${escapeHtml(top)}</dd><em></em></div></dl><section class="debug-gemma"><div class="debug-gemma-head"><span>Configured VLM</span><time>${gemmaTime}</time></div>${gemmaResult}</section><div class="debug-stats"><div class="debug-stat"><span>Foods</span><b>${state.foodHistory.length}</b></div><div class="debug-stat"><span>Carts</span><b>${state.carts.length}</b></div><div class="debug-stat"><span>Frame</span><b>${state.vlmResult ? `${Math.floor(state.vlmResult.timestamp)}s` : `${currentSecond}s`}</b></div></div>`;
   document.body.append(panel);
 }
 
@@ -513,9 +561,9 @@ async function initialize() {
   } catch { /* local detection remains available */ }
 }
 
-document.addEventListener("yt-navigate-finish", initialize);
-document.addEventListener("yt-page-data-updated", initialize);
-window.addEventListener("popstate", initialize);
+document.addEventListener("yt-navigate-finish", queueInitialize);
+document.addEventListener("yt-page-data-updated", queueInitialize);
+window.addEventListener("popstate", queueInitialize);
 document.addEventListener("pause", (event) => { if (event.target instanceof HTMLVideoElement) removeDetectorOverlay(); }, true);
 document.addEventListener("seeking", (event) => { if (event.target instanceof HTMLVideoElement) { observePlaybackPosition(event.target); removeDetectorOverlay(); } }, true);
 document.addEventListener("timeupdate", (event) => { if (event.target instanceof HTMLVideoElement) observePlaybackPosition(event.target); }, true);
@@ -525,6 +573,33 @@ function removeToast() {
   clearTimeout(paymentPollTimer); clearInterval(paymentCountdownTimer);
   paymentPollTimer = undefined; paymentCountdownTimer = undefined;
   document.getElementById("cravelens-root")?.remove();
+}
+
+function queueInitialize() {
+  if (extensionContextStopped) return;
+  void initialize().catch((error) => {
+    if (isExtensionContextInvalidated(error)) stopInvalidatedExtensionContext();
+    else console.warn("[CraveLens] Page initialization failed:", error);
+  });
+}
+
+function isExtensionContextInvalidated(error) {
+  return !chrome.runtime?.id || /extension context invalidated/i.test(error?.message || String(error || ""));
+}
+
+function stopInvalidatedExtensionContext() {
+  if (extensionContextStopped) return;
+  extensionContextStopped = true;
+  clearInterval(initializeTimer);
+  clearTimeout(detectorScanTimer);
+  clearTimeout(detectorOverlayTimer);
+  clearTimeout(paymentPollTimer);
+  clearInterval(paymentCountdownTimer);
+  state.running = false;
+  state.agentSocket?.disconnect();
+  state.agentSocket = null;
+  document.getElementById("cravelens-debug")?.remove();
+  document.getElementById("cravelens-detection-overlay")?.remove();
 }
 function resolvedInterfaceTheme(mode = state.themeMode) {
   return mode === "dark" || mode === "light"
@@ -559,7 +634,7 @@ function renderCartHistory() {
     const cartName = cart.detectedDish || cart.item;
     return `<details data-thread="${escapeHtml(cart.threadId)}"><summary><span>${escapeHtml(cartName)}</span><small>${formatTimestamp(cart.frameTimestamp)} · ${escapeHtml(cartStatusLabel(cart))}</small></summary><div class="cart"><b>${escapeHtml(cart.item)}</b><span>${escapeHtml(cart.restaurant)}</span><div><strong>${currency(cart.finalAmount ?? cart.price)}</strong><span class="cart-actions"><button class="history-order" data-thread="${escapeHtml(cart.threadId)}" ${action.disabled ? "disabled" : ""}>${action.label}</button><button class="history-delete" data-thread="${escapeHtml(cart.threadId)}" aria-label="Delete ${escapeHtml(cartName)} cart" title="Delete cart"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/></svg></button></span></div></div></details>`;
   }).join("");
-  shadow.innerHTML = `<style>:host{all:initial}${historyThemeCss}.panel,.reveal{position:fixed;left:20px;top:92px;z-index:2147483646;border-radius:18px;background:#12120ff2;color:#f6f2e8;border:1px solid #ffffff18;box-shadow:0 18px 60px #0008;font:13px/1.4 Inter,Arial,sans-serif}.panel{width:310px;max-height:calc(100vh - 130px);overflow:auto}.reveal{padding:11px 15px;color:#ff7043;font-size:10px;font-weight:900;letter-spacing:1.2px;cursor:pointer}.head{position:sticky;top:0;padding:14px 16px;background:#191915;color:#ff7043;font-size:10px;font-weight:900;letter-spacing:1.5px}.head b{float:right;color:#f6f2e8}.head button{float:right;display:grid;place-items:center;width:26px;height:26px;margin:-6px 0 -6px 10px;border:0;border-radius:8px;padding:0;background:#ffffff10;color:#bbb6aa;cursor:pointer}.head button:hover{background:#ffffff1c;color:white}.head svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}details{border-top:1px solid #ffffff10}summary{padding:13px 16px;cursor:pointer;list-style:none}summary span,summary small{display:block}summary span{font-weight:750}summary small{color:#969288;margin-top:2px;font-size:10px}.cart{display:grid;gap:4px;padding:0 16px 15px;color:#aaa69c}.cart>b{color:#f6f2e8}.cart>div{display:flex;align-items:center;justify-content:space-between;margin-top:7px}.cart-actions{display:flex;align-items:center;gap:6px}.cart button{border:0;border-radius:9px;padding:8px 11px;background:#ff603d;color:white;font-weight:750;cursor:pointer}.cart button:disabled{background:#315b3d;color:#bde7c7;cursor:default}.cart .history-delete{display:grid;place-items:center;width:31px;height:31px;padding:0;border:1px solid #ffffff12;background:#ffffff09;color:#9e988e}.cart .history-delete:hover{border-color:#ff6b5155;background:#4b211b;color:#ff9a84}.cart .history-delete:disabled{border-color:#ffffff12;background:#ffffff09;color:#68645d;cursor:wait}.history-delete svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}</style>${state.cartsHidden ? `<button class="reveal">SHOW VIDEO CARTS · ${state.carts.length}</button>` : `<section class="panel"><div class="head">CARTS FOR THIS VIDEO <button class="hide" aria-label="Hide video carts" title="Hide video carts"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button><b>${state.carts.length}</b></div>${carts}</section>`}`;
+  shadow.innerHTML = `<style>:host{all:initial}${historyThemeCss}.panel,.reveal{position:fixed;left:20px;top:92px;z-index:2147483646;border-radius:18px;background:#12120ff2;color:#f6f2e8;border:1px solid #ffffff18;box-shadow:0 18px 60px #0008;font:13px/1.4 Inter,Arial,sans-serif}.panel{width:310px;max-height:calc(100vh - 130px);overflow:auto}.reveal{padding:11px 15px;color:#ff7043;font-size:10px;font-weight:900;letter-spacing:1.2px;cursor:pointer}.head{position:sticky;top:0;padding:14px 16px;background:#191915;color:#ff7043;font-size:10px;font-weight:900;letter-spacing:1.5px}.head-main{display:flex;align-items:center;justify-content:space-between;gap:10px}.head-title{display:flex;align-items:center;flex-wrap:wrap;gap:7px;min-width:0}.head b{color:#f6f2e8}.head button{display:grid;place-items:center;width:26px;height:26px;border:0;border-radius:8px;padding:0;background:#ffffff10;color:#bbb6aa;cursor:pointer}.head button:hover{background:#ffffff1c;color:white}.head svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.swiggy-powered{display:inline-flex;align-items:center;gap:4px;margin:0;padding:3px 5px;border:1px solid #fc801933;border-radius:999px;background:#2f1b0d;color:#ffad63;font-size:6px;font-weight:900;letter-spacing:.45px}.swiggy-powered img{display:block;width:auto;height:11px;object-fit:contain}:host([data-theme="light"]) .swiggy-powered{border-color:#fc80192b;background:#fff4ec;color:#a74900}details{border-top:1px solid #ffffff10}summary{padding:13px 16px;cursor:pointer;list-style:none}summary span,summary small{display:block}summary span{font-weight:750}summary small{color:#969288;margin-top:2px;font-size:10px}.cart{display:grid;gap:4px;padding:0 16px 15px;color:#aaa69c}.cart>b{color:#f6f2e8}.cart>div{display:flex;align-items:center;justify-content:space-between;margin-top:7px}.cart-actions{display:flex;align-items:center;gap:6px}.cart button{border:0;border-radius:9px;padding:8px 11px;background:#ff603d;color:white;font-weight:750;cursor:pointer}.cart button:disabled{background:#315b3d;color:#bde7c7;cursor:default}.cart .history-delete{display:grid;place-items:center;width:31px;height:31px;padding:0;border:1px solid #ffffff12;background:#ffffff09;color:#9e988e}.cart .history-delete:hover{border-color:#ff6b5155;background:#4b211b;color:#ff9a84}.cart .history-delete:disabled{border-color:#ffffff12;background:#ffffff09;color:#68645d;cursor:wait}.history-delete svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}</style>${state.cartsHidden ? `<button class="reveal">SHOW VIDEO CARTS · ${state.carts.length}</button>` : `<section class="panel"><div class="head"><div class="head-main"><span class="head-title"><span>CARTS FOR THIS VIDEO</span>${swiggyPoweredHtml()}</span><span><button class="hide" aria-label="Hide video carts" title="Hide video carts"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button><b>${state.carts.length}</b></span></div></div>${carts}</section>`}`;
   document.body.append(root);
   shadow.querySelectorAll(".history-order").forEach((button) => button.addEventListener("click", () => {
     const cart = state.carts.find((item) => item.threadId === button.dataset.thread);
@@ -650,7 +725,7 @@ function showToast(view) {
   applyThemeToHost(root);
   if (view.suggestion || view.cart) root.dataset.thread = (view.suggestion || view.cart).threadId;
   const shadow = root.attachShadow({ mode: "open" });
-  shadow.innerHTML = `<style>${toastCss}${productCss}${cartUiExtraCss}${agentEventCss}${paymentCss}${interfaceThemeCss}</style><aside><div class="brand"><span>◉</span> CRAVELENS</div>${view.loading ? `<div class="scan"><i></i></div><h3>That looked delicious.</h3><p class="loading-copy">${escapeHtml(view.dish)} was confirmed as food. Building a cart…</p><ol id="agent-events" class="agent-events"></ol>` : view.updating ? updatingCartHtml(view) : view.error ? `<h3>Couldn’t build your cart</h3><p>${escapeHtml(view.error)}</p><button class="quiet">Dismiss</button>` : suggestionHtml(view.suggestion, view)}</aside>`;
+  shadow.innerHTML = `<style>${toastCss}${productCss}${cartUiExtraCss}${agentEventCss}${paymentCss}${interfaceThemeCss}</style><aside>${brandRowHtml()}${view.loading ? `<div class="scan"><i></i></div><h3>That looked delicious.</h3><p class="loading-copy">${escapeHtml(view.dish)} was confirmed as food. Building a cart…</p><ol id="agent-events" class="agent-events"></ol>` : view.updating ? updatingCartHtml(view) : view.error ? `<h3>Couldn’t build your cart</h3><p>${escapeHtml(view.error)}</p><button class="quiet">Dismiss</button>` : suggestionHtml(view.suggestion, view)}</aside>`;
   document.body.append(root);
   if (view.loading || view.updating) renderAgentEvents();
   shadow.querySelector(".quiet")?.addEventListener("click", removeToast);
@@ -852,6 +927,18 @@ function dietaryIconHtml(type) {
 
 function genericFoodIconHtml() {
   return `<span class="menu-image-fallback" role="img" aria-label="Food item image unavailable"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M9 25h30c-.8 9.3-6.1 14-15 14S9.8 34.3 9 25Z"/><path d="M17 42h14M17 19c-3-3.8 3-5 0-9m8 9c-3-3.8 3-5 0-9m8 9c-3-3.8 3-5 0-9"/></svg></span>`;
+}
+
+function swiggyPoweredHtml() {
+  return `<div class="swiggy-powered" aria-label="Powered by Swiggy"><span>Powered by</span><img src="${escapeHtml(swiggyLogoUrl())}" alt="Swiggy"></div>`;
+}
+
+function brandRowHtml() {
+  return `<div class="brand-row"><div class="brand"><span>◉</span> CRAVELENS</div>${swiggyPoweredHtml()}</div>`;
+}
+
+function swiggyLogoUrl() {
+  return chrome.runtime.getURL("provider-icons/swiggy.png");
 }
 
 function customizationHtml(s, error = "", draftInstruction = "", agentPrompt = "", agentFollowUp) {
@@ -1209,7 +1296,7 @@ async function showPaymentToast(cart, payment) {
   const shadow = root.attachShadow({ mode: "open" });
   const appLink = safePaymentUrl(payment.upiString);
   const bridgeLink = safePaymentUrl(payment.bridgeUrl);
-  shadow.innerHTML = `<style>${toastCss}${productCss}${paymentCss}${interfaceThemeCss}</style><aside class="payment-view"><div class="brand"><span>◉</span> CRAVELENS</div><div class="eyebrow">UPI payment</div><h3>Scan to pay ${currency(payment.amount || cart.finalAmount)}</h3><p class="payment-lede">Open any UPI app on your phone and scan this secure Swiggy QR.</p><div class="qr-shell"><span>Generating QR…</span></div><div class="payment-status" role="status"><i></i><span>Waiting for payment</span><b class="payment-countdown"></b></div><p class="payment-note">Keep this window open. Your order is confirmed only after Swiggy reports the payment as successful.</p><div class="payment-actions">${appLink ? `<a class="upi-link" href="${escapeHtml(appLink)}">Open UPI app</a>` : ""}${bridgeLink ? `<a class="quiet-link" href="${escapeHtml(bridgeLink)}" target="_blank" rel="noopener noreferrer">Open payment page</a>` : ""}<button class="cancel-payment">Cancel UPI payment</button><button class="quiet">Close</button></div></aside>`;
+  shadow.innerHTML = `<style>${toastCss}${productCss}${paymentCss}${interfaceThemeCss}</style><aside class="payment-view">${brandRowHtml()}<div class="eyebrow">UPI payment</div><h3>Scan to pay ${currency(payment.amount || cart.finalAmount)}</h3><p class="payment-lede">Open any UPI app on your phone and scan this secure Swiggy QR.</p><div class="qr-shell"><span>Generating QR…</span></div><div class="payment-status" role="status"><i></i><span>Waiting for payment</span><b class="payment-countdown"></b></div><p class="payment-note">Keep this window open. Your order is confirmed only after Swiggy reports the payment as successful.</p><div class="payment-actions">${appLink ? `<a class="upi-link" href="${escapeHtml(appLink)}">Open UPI app</a>` : ""}${bridgeLink ? `<a class="quiet-link" href="${escapeHtml(bridgeLink)}" target="_blank" rel="noopener noreferrer">Open payment page</a>` : ""}<button class="cancel-payment">Cancel UPI payment</button><button class="quiet">Close</button></div></aside>`;
   document.body.append(root);
   shadow.querySelector(".quiet")?.addEventListener("click", removeToast);
   shadow.querySelector(".cancel-payment")?.addEventListener("click", (event) => cancelUPIPayment(cart, root, event.currentTarget));
@@ -1292,7 +1379,7 @@ function showOrderSuccess(cart, order) {
   applyThemeToHost(root);
   const shadow = root.attachShadow({ mode: "open" });
   const eta = orderEta(order);
-  shadow.innerHTML = `<style>${toastCss}${paymentCss}${interfaceThemeCss}</style><aside class="success-view"><div class="brand"><span>◉</span> CRAVELENS</div><div class="success-mark">✓</div><h3>Order confirmed</h3><p>${escapeHtml(cart.item)} is on its way${eta ? ` · ${escapeHtml(eta)}` : ""}.</p><button class="quiet">Done</button></aside>`;
+  shadow.innerHTML = `<style>${toastCss}${paymentCss}${interfaceThemeCss}</style><aside class="success-view">${brandRowHtml()}<div class="success-mark">✓</div><h3>Order confirmed</h3><p>${escapeHtml(cart.item)} is on its way${eta ? ` · ${escapeHtml(eta)}` : ""}.</p><button class="quiet">Done</button></aside>`;
   document.body.append(root); shadow.querySelector(".quiet")?.addEventListener("click", removeToast);
 }
 
@@ -1300,7 +1387,7 @@ function showNoticeToast(title, detail) {
   removeToast(); const root = document.createElement("div"); root.id = "cravelens-root";
   applyThemeToHost(root);
   const shadow = root.attachShadow({ mode: "open" });
-  shadow.innerHTML = `<style>${toastCss}${paymentCss}${interfaceThemeCss}</style><aside class="success-view"><div class="brand"><span>◉</span> CRAVELENS</div><div class="notice-mark">!</div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(detail)}</p><button class="quiet">Done</button></aside>`;
+  shadow.innerHTML = `<style>${toastCss}${paymentCss}${interfaceThemeCss}</style><aside class="success-view">${brandRowHtml()}<div class="notice-mark">!</div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(detail)}</p><button class="quiet">Done</button></aside>`;
   document.body.append(root); shadow.querySelector(".quiet")?.addEventListener("click", removeToast);
 }
 
@@ -1321,7 +1408,10 @@ const productCss = `.product-head{display:flex;gap:13px;align-items:flex-start}.
 const cartUiExtraCss = `.cart-limit-warning{margin-top:10px;padding:8px 9px;border:1px solid #d66b473f;border-radius:9px;background:#411f17;color:#ffac95;font-size:9px;font-weight:750}.item-remove:disabled{opacity:.35;cursor:not-allowed}.menu-search{display:grid;grid-template-columns:minmax(0,1fr) 38px;gap:7px;margin:11px 0 4px}.menu-search input{box-sizing:border-box;width:100%;min-width:0;height:38px;padding:0 11px;border:1px solid #ffffff18;border-radius:11px;background:#0e0e0c;color:#f4f0e6;font:10px Inter,Arial,sans-serif;outline:none}.menu-search input::placeholder{color:#77736b}.menu-search input:focus{border-color:#ff7043;box-shadow:0 0 0 2px #ff70431c}.menu-search button{display:grid;place-items:center;width:38px;height:38px;padding:0;border:1px solid #ff704344;border-radius:11px;background:#342018;color:#ff9677}.menu-search svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}.menu-mutation-status{display:none;margin:8px 0 0;padding:7px 8px;border-radius:8px;background:#223729;color:#a9ddb4;font-size:8.5px}.menu-mutation-status.visible{display:block}.menu-mutation-status.error{background:#442019;color:#ffab96}.menu-state:empty{display:none}.menu-filters{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:9px}.menu-filters>div{display:flex;gap:5px}.menu-filters button,.menu-filters select{height:28px;border:1px solid #ffffff14;border-radius:8px;background:#ffffff08;color:#aaa69d;font:700 8px Inter,Arial,sans-serif}.menu-filters button{display:flex;align-items:center;gap:4px;padding:0 7px}.menu-filters button.active{border-color:#ff70435c;background:#3b2119;color:#ff9a7c}.menu-filters .dietary-icon{width:9px;height:9px;margin:0}.menu-filters .dietary-icon i{width:4px;height:4px}.menu-filters label{display:flex;align-items:center;gap:5px;color:#817d74;font-size:8px}.menu-filters select{max-width:125px;padding:0 6px;outline:none}.menu-item-rating{display:inline-flex!important;align-items:center;gap:2px;margin-top:3px;padding:2px 5px;border-radius:6px;background:#143c32;color:#66d5b3;font-size:8px;font-weight:800}.menu-item-rating small{display:inline!important;max-height:none!important;margin:0!important;padding:0!important;overflow:visible!important;color:inherit!important;font-size:7px!important}.menu-add.customize{white-space:nowrap}.menu-options{max-height:min(82vh,720px);overflow:hidden}.menu-options>form{box-sizing:border-box;max-height:min(82vh,720px);padding:18px;overflow-y:auto}.menu-options>form>p{margin:5px 0 12px}.option-groups{display:grid;gap:10px}.option-groups fieldset{margin:0;padding:10px;border:1px solid #ffffff10;border-radius:12px;background:#ffffff04}.option-groups legend{display:flex;align-items:baseline;justify-content:space-between;gap:12px;width:100%;padding:0 2px 7px;color:#eee9de;font-weight:800}.option-groups legend small{color:#8d897f;font-size:7.5px;font-weight:650}.option-groups label{display:flex;align-items:center;gap:8px;padding:8px 2px;border-top:1px solid #ffffff0b;cursor:pointer}.option-groups label.unavailable{opacity:.4;cursor:not-allowed}.option-groups input{position:absolute;opacity:0;pointer-events:none}.option-groups label>span{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;flex:1}.option-groups label b{font-size:9.5px}.option-groups label small{color:#9b978d;font-size:8px}.option-groups label>i{display:grid;place-items:center;width:14px;height:14px;flex:none;border:1.5px solid #6f6b63;border-radius:4px}.option-groups input[type="radio"]+span+i{border-radius:50%}.option-groups input:checked+span+i{border-color:#ff7043;background:#ff7043;box-shadow:inset 0 0 0 3px #211711}.option-groups input:focus-visible+span+i{outline:2px solid #ff9a7c;outline-offset:2px}.option-error{min-height:14px;margin:8px 0 0!important;color:#ff947b!important;font-size:8.5px}.menu-options .dialog-actions{position:sticky;bottom:-18px;margin:10px -18px -18px;padding:12px 18px 18px;background:#151512eF;backdrop-filter:blur(8px)}`;
 const agentEventCss = `.scan{margin-bottom:12px}.loading-copy{color:#aaa79d;margin:7px 0 15px}.food-update{display:grid;place-items:center;width:72px;height:72px;margin:2px 0 15px;border-radius:22px;background:#2b1c15;color:#ff8a64}.food-update svg{width:48px;height:48px;overflow:visible}.food-update .bowl,.food-update .steam{fill:none;stroke:currentColor;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}.food-update .bowl{transform-origin:32px 42px;animation:bowl-rock 1.4s ease-in-out infinite}.food-update .steam{animation:steam-rise 1.4s ease-in-out infinite}.food-update .steam-two{animation-delay:.28s}.agent-events{list-style:none;margin:-5px 0 0;padding:5px 6px 7px;display:grid;gap:8px;max-height:190px;overflow:auto}.agent-events li{display:flex;align-items:center;gap:9px;color:#aaa79d;font-size:12px;transition:.2s}.agent-events li i{width:8px;height:8px;flex:none;border-radius:50%;background:#68665f}.agent-events li.active{color:#f5f0e4}.agent-events li.active i{background:#ff7043;box-shadow:0 0 0 4px #ff704326;animation:pulse 1.2s infinite}.agent-events li.done i{background:#62c87a}.agent-events li.failed{color:#ff8b76}.agent-events li.failed i{background:#ff6040}@keyframes pulse{50%{opacity:.35;transform:scale(.75)}}@keyframes steam-rise{0%,100%{opacity:.25;transform:translateY(3px)}50%{opacity:1;transform:translateY(-3px)}}@keyframes bowl-rock{0%,100%{transform:rotate(-2deg)}50%{transform:rotate(2deg)}}@media(prefers-reduced-motion:reduce){.food-update .bowl,.food-update .steam,.agent-events li.active i{animation:none}}`;
 const paymentCss = `.payment-choice{min-width:0;margin:14px 0;padding:0;border:0}.payment-choice legend{width:100%;margin-bottom:9px;color:#88867e;font-size:10px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase}.payment-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.payment-options label{position:relative;display:grid;grid-template-columns:30px minmax(0,1fr) 14px;align-items:center;gap:9px;min-height:62px;padding:10px;border:1px solid #ffffff12;border-radius:14px;background:#ffffff07;cursor:pointer;transition:.18s}.payment-options label:hover{border-color:#ff704370;background:#ff70430c}.payment-options input{position:absolute;opacity:0}.payment-options label:has(input:checked){border-color:#ff7043;background:#ff704314;box-shadow:0 0 0 2px #ff70431e}.payment-icon{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;background:#ffffff0c;color:#ff8663;font-size:15px;font-weight:900}.payment-options b,.payment-options small{display:block}.payment-options b{font-size:11px}.payment-options small{margin-top:2px;color:#918d84;font-size:8.5px;line-height:1.25}.payment-options label>i{width:12px;height:12px;border:1px solid #77736a;border-radius:50%}.payment-options label:has(input:checked)>i{border:3px solid #ff7043;background:#fff}.payment-choice.unavailable{padding:11px 12px;border:1px solid #7e3027;border-radius:12px;background:#431c18}.payment-choice.unavailable p{margin:0;color:#ffb5a7;font-size:11px}.order:disabled{opacity:.5;cursor:not-allowed}.payment-view{text-align:center}.payment-view .brand{text-align:left}.payment-lede{max-width:310px;margin:8px auto 15px;color:#aaa69d;font-size:12px}.qr-shell{display:grid;place-items:center;width:244px;height:244px;margin:0 auto;padding:8px;border-radius:20px;background:#fff;color:#4b4942;font-size:12px}.qr-shell img{display:block;width:228px;height:228px;border-radius:11px}.payment-status{display:flex;align-items:center;gap:8px;margin:13px auto 0;padding:10px 12px;border-radius:12px;background:#ffffff08;color:#d9d4ca;text-align:left;font-size:11px}.payment-status i{width:8px;height:8px;flex:none;border-radius:50%;background:#ff7043;box-shadow:0 0 0 4px #ff704326;animation:pulse 1.2s infinite}.payment-status span{flex:1}.payment-status b{font-variant-numeric:tabular-nums;color:#ff9a7c}.payment-status.paid i{background:#67d982;box-shadow:0 0 0 4px #67d98222;animation:none}.payment-status.failed i{background:#ff6040;animation:none}.payment-note{margin:11px 4px;color:#7f7c74;font-size:10px;line-height:1.45}.payment-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:13px}.payment-actions a{display:inline-flex;align-items:center;justify-content:center;border-radius:12px;padding:11px 14px;text-decoration:none;font-size:11px;font-weight:750}.upi-link{background:#ff603d;color:#fff}.quiet-link{background:#ffffff0c;color:#d9d4c8}.cancel-payment{width:100%;border:1px solid #ff6f5a55;background:#431c18;color:#ffab9d}.cancel-payment:hover{background:#59231d}.cancel-payment:disabled{opacity:.55;cursor:wait}.payment-actions .quiet{width:100%}.success-view{text-align:center}.success-mark,.notice-mark{display:grid;place-items:center;width:58px;height:58px;margin:2px auto 16px;border-radius:18px;font-size:28px}.success-mark{background:#285c38;color:#9cf0ad}.notice-mark{background:#4e271f;color:#ff9a7c}.success-view p{margin:8px 0 19px;color:#aaa79d}.success-view .quiet{width:100%}@media(max-width:460px){aside{right:10px!important;bottom:10px!important;width:calc(100vw - 20px)!important;max-height:calc(100vh - 20px)!important}.payment-options{grid-template-columns:1fr}}`;
-const toastCss = `:host{all:initial}aside{position:fixed;right:24px;bottom:28px;width:400px;max-height:calc(100vh - 56px);overflow:auto;box-sizing:border-box;padding:22px;border-radius:26px;background:linear-gradient(160deg,#171713,#0e0e0c);color:#f8f5ea;box-shadow:0 28px 90px #000a;font:14px/1.45 Inter,Arial,sans-serif;z-index:2147483647;border:1px solid #ffffff17}.brand{font-size:10px;letter-spacing:2.4px;color:#ff7043;font-weight:900;margin-bottom:17px}.brand span{font-size:16px}.eyebrow{font-size:11px;color:#8f8d84;margin-bottom:5px}.title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.title-row h3,h3{font:600 25px/1.12 Georgia,serif;margin:0 0 5px}.restaurant{color:#c7c3b8;margin:0}.deal{flex:none;padding:6px 8px;border-radius:9px;background:#183c23;color:#9cf0ad;font-size:10px;font-weight:900}.receipt{margin-top:18px;padding:15px;border-radius:16px;background:#ffffff08;border:1px solid #ffffff0d}.section-title{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:#88867e;margin-bottom:10px}.receipt-row{display:flex;justify-content:space-between;gap:15px;margin:7px 0}.receipt-row>div{min-width:0}.receipt-row b{font-weight:650}.receipt-row small{display:block;color:#8f8d85;font-size:11px;margin-top:2px}.receipt-row.muted{color:#aaa79d;font-size:12px}.receipt-row.discount{color:#8ce49f}.receipt-row.total{font-size:17px;margin:12px 0 1px}.rule{height:1px;background:#ffffff12;margin:11px 0}.delivery{display:flex;gap:11px;margin:14px 0;padding:12px 13px;border-radius:14px;background:#211b14}.delivery>span{color:#ff7043}.delivery small{display:block;color:#9d978d;font-size:9px;letter-spacing:1.2px}.delivery b{display:block;font-size:12px;margin:2px 0}.delivery em{display:block;color:#aaa49a;font-size:11px;font-style:normal}details{border-top:1px solid #ffffff10;padding-top:11px}summary{cursor:pointer;color:#c9c4b9;font-size:12px;font-weight:700}.markdown{color:#aaa79e;font-size:12px;line-height:1.55;max-height:170px;overflow:auto;padding-right:4px}.markdown p{margin:8px 0}.markdown ul,.markdown ol{padding-left:18px;margin:8px 0}.markdown code{color:#ff9a7c}.actions{display:flex;gap:9px;margin:17px -4px -4px;padding:12px 4px 4px;border-top:1px solid #ffffff0d}button{border:0;border-radius:13px;padding:12px 16px;font-weight:750;cursor:pointer}.quiet{background:#ffffff0c;color:#d9d4c8}.order{flex:1;background:linear-gradient(135deg,#ff744d,#ff5234);color:#fff;box-shadow:0 8px 24px #ff593733}.scan{height:3px;background:#ffffff12;overflow:hidden;margin-bottom:5px;}.scan i{display:block;width:45%;height:100%;background:#ff6338;animation:s 1s infinite}@keyframes s{from{transform:translateX(-100%)}to{transform:translateX(260%)}}`;
+const toastCss = `:host{all:initial}aside{position:fixed;right:24px;bottom:28px;width:400px;max-height:calc(100vh - 56px);overflow:auto;box-sizing:border-box;padding:22px;border-radius:26px;background:linear-gradient(160deg,#171713,#0e0e0c);color:#f8f5ea;box-shadow:0 28px 90px #000a;font:14px/1.45 Inter,Arial,sans-serif;z-index:2147483647;border:1px solid #ffffff17}.brand-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;margin-bottom:16px}.brand{font-size:10px;letter-spacing:2.4px;color:#ff7043;font-weight:900;margin:0}.brand span{font-size:16px}.swiggy-powered{display:inline-flex;align-items:center;gap:6px;margin:0;padding:5px 8px;border:1px solid #fc801933;border-radius:999px;background:#2f1b0d;color:#ffad63;font-size:8px;font-weight:900;letter-spacing:.75px;text-transform:uppercase}.swiggy-powered img{display:block;width:auto;height:15px;flex:none;object-fit:contain}.eyebrow{font-size:11px;color:#8f8d84;margin-bottom:5px}.title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.title-row h3,h3{font:600 25px/1.12 Georgia,serif;margin:0 0 5px}.restaurant{color:#c7c3b8;margin:0}.deal{flex:none;padding:6px 8px;border-radius:9px;background:#183c23;color:#9cf0ad;font-size:10px;font-weight:900}.receipt{margin-top:18px;padding:15px;border-radius:16px;background:#ffffff08;border:1px solid #ffffff0d}.section-title{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:#88867e;margin-bottom:10px}.receipt-row{display:flex;justify-content:space-between;gap:15px;margin:7px 0}.receipt-row>div{min-width:0}.receipt-row b{font-weight:650}.receipt-row small{display:block;color:#8f8d85;font-size:11px;margin-top:2px}.receipt-row.muted{color:#aaa79d;font-size:12px}.receipt-row.discount{color:#8ce49f}.receipt-row.total{font-size:17px;margin:12px 0 1px}.rule{height:1px;background:#ffffff12;margin:11px 0}.delivery{display:flex;gap:11px;margin:14px 0;padding:12px 13px;border-radius:14px;background:#211b14}.delivery>span{color:#ff7043}.delivery small{display:block;color:#9d978d;font-size:9px;letter-spacing:1.2px}.delivery b{display:block;font-size:12px;margin:2px 0}.delivery em{display:block;color:#aaa49a;font-size:11px;font-style:normal}details{border-top:1px solid #ffffff10;padding-top:11px}summary{cursor:pointer;color:#c9c4b9;font-size:12px;font-weight:700}.markdown{color:#aaa79e;font-size:12px;line-height:1.55;max-height:170px;overflow:auto;padding-right:4px}.markdown p{margin:8px 0}.markdown ul,.markdown ol{padding-left:18px;margin:8px 0}.markdown code{color:#ff9a7c}.actions{display:flex;gap:9px;margin:17px -4px -4px;padding:12px 4px 4px;border-top:1px solid #ffffff0d}button{border:0;border-radius:13px;padding:12px 16px;font-weight:750;cursor:pointer}.quiet{background:#ffffff0c;color:#d9d4c8}.order{flex:1;background:linear-gradient(135deg,#ff744d,#ff5234);color:#fff;box-shadow:0 8px 24px #ff593733}.scan{height:3px;background:#ffffff12;overflow:hidden;margin-bottom:5px;}.scan i{display:block;width:45%;height:100%;background:#ff6338;animation:s 1s infinite}@keyframes s{from{transform:translateX(-100%)}to{transform:translateX(260%)}}`;
 
 settings().then((value) => updateInterfaceTheme(value.themeMode)).catch(() => {});
-initialize(); renderDebug(); setInterval(initialize, 1000); scheduleDetectorScan();
+queueInitialize();
+void renderDebug().catch((error) => { if (isExtensionContextInvalidated(error)) stopInvalidatedExtensionContext(); });
+initializeTimer = setInterval(queueInitialize, 1000);
+scheduleDetectorScan();

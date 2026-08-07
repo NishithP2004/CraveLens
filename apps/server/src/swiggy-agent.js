@@ -1,20 +1,20 @@
 import { webcrypto } from "node:crypto";
 import { createAgent, createMiddleware, tool } from "langchain";
-import { ChatGoogle } from "@langchain/google";
 import { MemorySaver } from "@langchain/langgraph";
-import { ChatOpenAI } from "@langchain/openai";
-import { SystemMessage } from "@langchain/core/messages";
-import { config } from "./config.js";
+import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { publishAgentEvent } from "./agent-events.js";
 import { AgentFollowUpSchema } from "@cravelens/shared";
 import { createLangfuseHandler } from "./langfuse.js";
+import { resolveAgentModel } from "./model-provider.js";
+import { requestFallbackApproval } from "./fallback-approval.js";
+import { cartReflectsItems } from "./cart-verification.js";
+import { normalizeMenuCatalog } from "./swiggy.js";
 
 // LangGraph's UUID implementation uses the Web Crypto global. Node 20 exposes
 // it by default; provide the standards-compatible Node implementation on 18.
 globalThis.crypto ??= webcrypto;
 
 const SAFE_TOOLS = new Set([
-  "get_addresses",
   "get_food_orders",
   "get_food_order_details",
   "search_restaurants",
@@ -26,51 +26,90 @@ const SAFE_TOOLS = new Set([
   "fetch_food_coupons",
   "apply_food_coupon",
 ]);
+const PROSE_RECOVERABLE_READ_TOOLS = new Set([
+  "get_food_orders", "get_food_order_details", "search_restaurants",
+  "search_menu", "get_restaurant_menu", "get_food_cart", "fetch_food_coupons",
+]);
 const ADDRESS_TOOLS = new Set([
   "search_restaurants", "search_menu", "get_restaurant_menu", "get_food_cart",
   "update_food_cart", "fetch_food_coupons", "apply_food_coupon", "flush_food_cart",
 ]);
 const conversationMemory = new MemorySaver();
 const AGENT_MAX_MODEL_CALLS = 16;
+const LOCAL_AGENT_MAX_MODEL_CALLS = 20;
 const TOOL_CHOICE_MISMATCH_MAX_RETRIES = 2;
 const TRANSIENT_MODEL_MAX_RETRIES = 3;
 const TRANSIENT_MODEL_RETRY_DELAYS_MS = [500, 1_500, 3_000];
+const MISSING_TOOL_CALL_MAX_RETRIES = 2;
 const SEARCH_TOOL_LIMITS = {
   search_menu: 5,
   search_restaurants: 2,
   get_restaurant_menu: 2,
 };
 
-export function shouldFinalizeCartAgent({ modelCallCount = 0, cartUpdated = false, couponsChecked = false, verificationPending = false } = {}) {
-  return modelCallCount >= AGENT_MAX_MODEL_CALLS
+export function shouldFinalizeCartAgent({ modelCallCount = 0, modelCallLimit = AGENT_MAX_MODEL_CALLS, cartUpdated = false, couponsChecked = false, verificationPending = false } = {}) {
+  return modelCallCount >= modelCallLimit
     || (cartUpdated && couponsChecked && !verificationPending);
 }
 
-export async function runFoodCartAgent(mcp, { food, addressId, addressSummary, streamId, threadId, instruction, currentSuggestion, personalContext = "", temporalContext }) {
-  if (!["gemini", "openai"].includes(config.agentModelProvider)) throw new Error(`Unsupported agent provider: ${config.agentModelProvider}`);
-  if (!config.agentModelApiKey) throw new Error("AGENT_MODEL_API_KEY is required for Swiggy cart orchestration.");
-
+export async function runFoodCartAgent(mcp, { food, addressId, addressSummary, streamId, threadId, deviceId, instruction, currentSuggestion, personalContext = "", temporalContext }) {
   const runId = crypto.randomUUID().slice(0, 8);
+  const resolvedModel = await resolveAgentModel(deviceId, {
+    runId,
+    onApprovalRequired: (fallback) => agentLog(runId, streamId, "model:fallback-required", fallback),
+    onFallbackActivated: (fallback) => agentLog(runId, streamId, "model:fallback-approved", fallback),
+  });
   let selectedRestaurantName = currentSuggestion?.restaurant;
   let selectedRestaurantId = currentSuggestion?.restaurantId;
   let appliedCouponCode = currentSuggestion?.coupon;
   let cartMutationItems = currentSuggestion?.cartMutationItems;
   const loopState = {
     modelCallCount: 0,
+    modelCallLimit: resolvedModel.local ? LOCAL_AGENT_MAX_MODEL_CALLS : AGENT_MAX_MODEL_CALLS,
+    cartMutationAttempted: false,
     cartUpdated: false,
     couponsChecked: false,
     verificationPending: false,
+    mutationCandidateAvailable: false,
+    menuSearchExhausted: false,
   };
   const searchBudget = createSearchBudgetGuard();
+  const menuSearchPlan = instruction ? [] : directMenuSearchPlan(food);
+  let nextMenuSearchPlanIndex = 1;
   const startedAt = performance.now();
-  agentLog(runId, streamId, "started", { dish: food.dish, context: food.context, model: config.agentModelName });
+  agentLog(runId, streamId, "started", { dish: food.dish, context: food.context, provider: resolvedModel.provider, model: resolvedModel.model, local: resolvedModel.local, thinkingEnabled: resolvedModel.thinkingEnabled === true, observedAtUtc: temporalContext?.iso, observedAtLocal: temporalContext?.localDateTime, timeZone: temporalContext?.timeZone, ...(resolvedModel.contextTokens ? { contextTokens: resolvedModel.contextTokens } : {}) });
+  const directMenuSearch = instruction ? undefined : await discoverDirectMenuSearch({ mcp, food, addressId, query: menuSearchPlan[0], runId, streamId });
+  if (menuSearchPlan[0]) searchBudget.remember("search_menu", { addressId, query: menuSearchPlan[0] });
+  if (resolvedModel.local && hasQuickAddMenuCandidate(directMenuSearch)) {
+    loopState.mutationCandidateAvailable = true;
+    agentLog(runId, streamId, "local_cart_mutation_phase", { sourceTool: "direct_menu_search" });
+  }
   const definitions = (await mcp.listTools()).filter((definition) => SAFE_TOOLS.has(definition.name));
   agentLog(runId, streamId, "tools_ready", { count: definitions.length, tools: definitions.map((definition) => definition.name) });
   const tools = definitions.map((definition) => tool(
     async (input) => {
       const args = { ...(input || {}) };
       if (ADDRESS_TOOLS.has(definition.name)) args.addressId = addressId;
-      const searchDecision = searchBudget.check(definition.name, args);
+      if (resolvedModel.local && definition.name === "search_menu") {
+        // Search results from the restaurant search endpoint are not a trusted
+        // menu scope. Use direct dish/synonym discovery until Swiggy returns a
+        // menu item that can safely be placed in a cart.
+        delete args.restaurantIdOfAddedItem;
+        delete args.restaurant_id_of_added_item;
+      }
+      let searchDecision = searchBudget.check(definition.name, args);
+      if (!searchDecision.allowed && definition.name === "search_menu" && searchDecision.reason === "DUPLICATE_SEARCH") {
+        const replacementQuery = menuSearchPlan[nextMenuSearchPlanIndex];
+        if (replacementQuery) {
+          nextMenuSearchPlanIndex += 1;
+          const requestedQuery = args.query;
+          args.query = replacementQuery;
+          searchDecision = searchBudget.check(definition.name, args);
+          agentLog(runId, streamId, "search_query_rewritten", { requestedQuery, query: replacementQuery, remaining: searchDecision.remaining });
+        } else {
+          loopState.menuSearchExhausted = true;
+        }
+      }
       if (!searchDecision.allowed) {
         agentLog(runId, streamId, "tool_skipped", {
           tool: definition.name,
@@ -103,16 +142,25 @@ export async function runFoodCartAgent(mcp, { food, addressId, addressSummary, s
       agentLog(runId, streamId, "tool_call", { tool: definition.name, args: safeToolArgs(args) });
       try {
         const result = await mcp.call(definition.name, args);
-        if (definition.name === "update_food_cart") {
-          loopState.cartUpdated = true;
-          loopState.couponsChecked = false;
-          loopState.verificationPending = true;
+        const completion = recordCartToolCompletion(loopState, {
+          toolName: definition.name,
+          result,
+          expectedItems: cartMutationItems,
+        });
+        if (completion.cartVerified !== undefined) {
+          agentLog(runId, streamId, "cart_verification", {
+            verified: completion.cartVerified,
+            expectedItemCount: Array.isArray(cartMutationItems) ? cartMutationItems.length : 0,
+          });
         }
-        if (definition.name === "fetch_food_coupons") loopState.couponsChecked = true;
-        if (definition.name === "apply_food_coupon") loopState.verificationPending = true;
-        if (definition.name === "get_food_cart" && loopState.cartUpdated) loopState.verificationPending = false;
         if (["update_food_cart", "get_food_cart"].includes(definition.name)) {
           selectedRestaurantName = findToolRestaurantName(result) || selectedRestaurantName;
+        }
+        if (resolvedModel.local && !loopState.cartMutationAttempted
+          && ["search_menu", "get_restaurant_menu"].includes(definition.name)
+          && hasQuickAddMenuCandidate(result)) {
+          loopState.mutationCandidateAvailable = true;
+          agentLog(runId, streamId, "local_cart_mutation_phase", { sourceTool: definition.name });
         }
         agentLog(runId, streamId, "tool_complete", { tool: definition.name, durationMs: elapsed(toolStartedAt) });
         return JSON.stringify(result);
@@ -130,53 +178,74 @@ export async function runFoodCartAgent(mcp, { food, addressId, addressSummary, s
   ));
 
   const agent = createAgent({
-    model: createAgentModel(),
+    model: resolvedModel.chatModel,
     tools,
     checkpointer: conversationMemory,
     middleware: [createMiddleware({
       name: "CraveLensCartLoopGuard",
       wrapModelCall: async (request, handler) => {
         loopState.modelCallCount += 1;
-        let modelRequest = request;
-        if (shouldFinalizeCartAgent(loopState)) {
-          const reason = loopState.modelCallCount >= AGENT_MAX_MODEL_CALLS ? "model_call_limit" : "cart_verified";
-          agentLog(runId, streamId, "finalizing", { reason, modelCallCount: loopState.modelCallCount });
-          modelRequest = replaceSystemInstruction({
-            ...request,
-            tools: [],
-          }, `You are finalizing a CraveLens Swiggy cart run. Tools are disabled for this turn, so never call or name a tool.
-Return immediately in exactly this format:
-CART_RATIONALE:
-<brief factual summary based only on completed tool results; clearly say if no cart was built>
-HUMAN_INPUT_UI:
-<a valid compact version-1 JSON form when user input is required, otherwise NONE>
-Use the CraveLens version-1 fields format shown in the main instructions. Never return JSON Schema with top-level type, properties, or required keys.
-Do not continue searching. Do not claim a cart was updated or verified unless the completed tool results prove it.`);
+        const isActiveLocalModel = () => resolvedModel.local
+          && (typeof resolvedModel.chatModel?.isUsingLocal !== "function" || resolvedModel.chatModel.isUsingLocal());
+        let modelRequest = withActiveToolChoice(localCartPhaseRequest(request, loopState, isActiveLocalModel()));
+        if (loopState.menuSearchExhausted) {
+          agentLog(runId, streamId, "finalizing", { reason: "menu_search_exhausted", modelCallCount: loopState.modelCallCount });
+          return new AIMessage(finalCartAgentResponseContent(loopState, "menu_search_exhausted"));
         }
-        return invokeModelWithToolChoiceRetry(modelRequest, handler, {
-          onRetry: ({ attempt, reason, delayMs }) => {
-            loopState.modelCallCount += 1;
-            agentLog(runId, streamId, "model_retry", {
-              attempt,
-              reason,
-              ...(delayMs ? { delayMs } : {}),
-            });
-          },
-        });
+        if (shouldFinalizeCartAgent(loopState)) {
+          const reason = loopState.modelCallCount >= loopState.modelCallLimit ? "model_call_limit" : "cart_verified";
+          agentLog(runId, streamId, "finalizing", { reason, modelCallCount: loopState.modelCallCount });
+          // The cart state is already authoritative here. Some OpenAI-compatible
+          // backends still emit tool calls when tool_choice is none, so avoid a
+          // redundant provider call and finish from the verified loop state.
+          return new AIMessage(finalCartAgentResponseContent(loopState, reason));
+        }
+        const onRetry = ({ attempt, reason, delayMs, finishReason, outputTokens }) => {
+          agentLog(runId, streamId, "model_retry", {
+            attempt,
+            reason,
+            ...(delayMs ? { delayMs } : {}),
+            ...(finishReason ? { finishReason } : {}),
+            ...(Number.isFinite(outputTokens) ? { outputTokens } : {}),
+          });
+        };
+        let missingToolRetries = 0;
+        for (;;) {
+          const response = await invokeModelWithToolChoiceRetry(modelRequest, handler, {
+            onRetry,
+            onRecoveredToolCall: (call) => agentLog(runId, streamId, "model_tool_call_recovered", { tool: call.name }),
+            shouldRequireToolChoice: isActiveLocalModel,
+          });
+          if (!shouldRetryMissingToolCall({ response, tools: modelRequest.tools, retryCount: missingToolRetries })) return response;
+          missingToolRetries += 1;
+          await onRetry({
+            attempt: missingToolRetries,
+            reason: "missing_required_tool_call",
+            delayMs: 0,
+            finishReason: response?.response_metadata?.finishReason,
+            outputTokens: response?.usage_metadata?.output_tokens,
+          });
+          const retryRequiresTool = isActiveLocalModel();
+          modelRequest = withRequiredToolReminder(withActiveToolChoice(modelRequest, {
+            required: retryRequiresTool,
+            forceAuto: !retryRequiresTool,
+          }));
+        }
       },
     })],
     systemPrompt: `You are CraveLens' Swiggy Food ReAct cart agent. You may prepare and optimize a real cart, but you must NEVER place an order.
 
 Complete the task through tool calls; do not merely describe what should be done.
 When the user sends a follow-up request, continue the existing cart conversation, inspect the current cart, and modify or replace it to satisfy the new instruction.
+For follow-up requests that add or include another item from the same restaurant, preserve all existing configured cart line items and submit the complete desired cartItems array: existing items plus the new item. Only replace, remove, or alter existing items when the user explicitly asks to replace, swap, remove, make-only, or otherwise change them.
 The user may provide a PERSONAL CONTEXT block and a trusted CURRENT DATETIME block. Apply time-dependent preferences using the supplied local day and datetime. Treat explicit current personal context as higher priority than inferred order-history patterns, while continuing to treat allergies and safety constraints as hard constraints.
-1. Call get_addresses first and use only addressId ${addressId} (${addressSummary}). Every location-sensitive tool must use that address.
+1. The server has already selected delivery address ${addressId} (${addressSummary}); every location-sensitive tool is pinned to it. Do not call or infer another address.
 2. Inspect get_food_orders and relevant get_food_order_details. Infer favorite dishes/restaurants at this location, vegetarian patterns, repeated special instructions, allergens, and items or ingredients to avoid. Treat allergy/avoidance evidence as a hard safety constraint; do not invent one.
-3. Search for the detected dish. Prefer search_menu because it returns orderable item IDs and full variants/add-ons. If a literal query fails, reason about close menu synonyms and retry. Ramen may appear as Japanese noodles, noodle bowl, tonkotsu, shoyu, miso ramen, or instant ramen; never stop after one empty literal match.
-3a. Search calls are deliberately bounded: at most 5 search_menu calls, 2 search_restaurants calls, and 2 get_restaurant_menu calls. Never repeat the same normalized query in the same restaurant scope. Before the budget is exhausted, choose the best orderable item already found and proceed to update_food_cart. If no orderable match exists, stop searching and return a HUMAN_INPUT_UI choice using the closest alternatives already found.
+3. An authoritative direct search_menu result is supplied with the task. Use its orderable items first. If it is empty, search distinct direct queries derived from the detected cuisine, ingredients, and description; do not pass restaurantIdOfAddedItem to search_menu. search_restaurants is only for finding alternatives, not a source of menu scopes.
+3a. Search calls are deliberately bounded: one direct search is already completed as free context, leaving at most 5 additional search_menu calls, 2 search_restaurants calls, and 2 get_restaurant_menu calls. Never repeat the same normalized direct query. Before the budget is exhausted, choose the best orderable item already found and proceed to update_food_cart. If no orderable match exists, stop searching and return a HUMAN_INPUT_UI choice using the closest alternatives already found.
 4. Optimize the cart jointly for preference fit and total delivered cost. Compare multiple OPEN, serviceable candidates using order history, dietary patterns, restaurant/item rating, distance, item price, fees, portion/value, and eligible payment-neutral discounts. Do not choose the cheapest option when it is a materially worse preference match; when candidates fit similarly, prefer the lower verified final payable amount. Briefly explain the cost/preference tradeoff in CART_RATIONALE.
 5. Select an orderable item configuration consistent with the profile. Preserve the exact variants/variantsV2 and addon shapes returned by Swiggy. Never select an ingredient that conflicts with an allergy or avoidance.
-6. Call update_food_cart with the exact current schema, including addressId, restaurantId, restaurantName, and cartItems. restaurantName must contain only the exact restaurant display name from Swiggy—never rationale, choices, or a follow-up question.
+6. Call update_food_cart with the exact current schema, including addressId, restaurantId, restaurantName, and cartItems. Treat cartItems as the complete desired cart for that restaurant, not merely a delta. restaurantName must contain only the exact restaurant display name from Swiggy—never rationale, choices, or a follow-up question.
 7. Call get_food_cart to verify the actual cart. If invalid, inspect the error/result and revise the item or configuration.
 8. Call fetch_food_coupons with the chosen restaurantId and addressId. Its returned entries are the authoritative coupon catalogue: surface every returned offer, even when a numeric discount field is absent, and never conclude that there are no coupons merely because you cannot derive a positive discount amount. Inspect best coupons, more offers, and payment offers, but only auto-apply applicable payment-neutral/COD-compatible offers. If the existing cart context has promoSelectionMode "manual" and its selected coupon remains applicable, preserve that explicit user choice. Otherwise apply the best eligible offer with apply_food_coupon using couponCode and addressId, then call get_food_cart again. Separately, offers.coupon_applied inside update_food_cart/get_food_cart with coupon_discount=0 is cart auto-suggestion metadata—not a fetch_food_coupons result and not an applied coupon—so never include it in the available coupon list or report savings from it.
 9. Stop only when the cart contains the intended configured item and has been verified. If the request cannot be completed without a user choice, keep the last valid cart and return a schema-driven follow-up form instead of guessing. Use only these field types: radio, checkbox, select, text, textarea. Use radio for one required choice, checkbox for multiple choices, select for a longer mutually exclusive list, and text/textarea only when predefined choices cannot capture the answer.
@@ -205,14 +274,20 @@ Keep using selected delivery address ${addressSummary} (${addressId}). Verify th
       : `Prepare a personalized Swiggy Food cart for this locally identified video dish:
 ${JSON.stringify(food)}
 ${preferenceContext}
-Selected delivery address: ${addressSummary} (${addressId}).`;
+Selected delivery address: ${addressSummary} (${addressId}).
+AUTHORITATIVE DIRECT MENU SEARCH (already completed; do not repeat this exact query):
+${compactAgentResult(directMenuSearch)}`;
     const langfuseHandler = createLangfuseHandler({
       sessionId: threadId,
       traceMetadata: {
-        provider: config.agentModelProvider,
-        model: config.agentModelName,
+        provider: resolvedModel.provider,
+        model: resolvedModel.model,
+        local: resolvedModel.local,
         streamId,
         runId,
+        observedAtUtc: temporalContext?.iso,
+        observedAtLocal: temporalContext?.localDateTime,
+        timeZone: temporalContext?.timeZone,
       },
     });
     const result = await agent.invoke({
@@ -222,6 +297,17 @@ Selected delivery address: ${addressSummary} (${addressId}).`;
       configurable: { thread_id: threadId },
       ...(langfuseHandler ? { callbacks: [langfuseHandler] } : {}),
     });
+    const postAgentVerification = await verifyPendingCartMutation({
+      mcp,
+      state: loopState,
+      addressId,
+      expectedItems: cartMutationItems,
+      runId,
+      streamId,
+    });
+    if (postAgentVerification.cart) {
+      selectedRestaurantName = findToolRestaurantName(postAgentVerification.cart) || selectedRestaurantName;
+    }
     const final = [...result.messages].reverse().find((message) => message.getType?.() === "ai" || message.type === "ai");
     agentLog(runId, streamId, "completed", { durationMs: elapsed(startedAt), messageCount: result.messages.length });
     const response = splitAgentResponse(textContent(final?.content));
@@ -238,6 +324,11 @@ Selected delivery address: ${addressSummary} (${addressId}).`;
     };
   } catch (error) {
     agentLog(runId, streamId, "failed", { durationMs: elapsed(startedAt), error: error instanceof Error ? error.message : String(error) });
+    if (resolvedModel.local && resolvedModel.fallbackAvailable && /^INFERENCE_/.test(error?.code || "") && !error?.fallbackRequested) {
+      const fallback = await requestFallbackApproval(deviceId, runId, { provider: resolvedModel.provider, model: resolvedModel.model, reason: error.code });
+      agentLog(runId, streamId, "model:fallback-required", fallback);
+      error.fallback = fallback;
+    }
     if (/recursion limit|GRAPH_RECURSION_LIMIT/i.test(error instanceof Error ? error.message : String(error))
       && loopState.cartUpdated && !loopState.verificationPending) {
       return {
@@ -261,6 +352,8 @@ export async function invokeModelWithToolChoiceRetry(request, handler, {
   transientMaxRetries = TRANSIENT_MODEL_MAX_RETRIES,
   transientRetryDelaysMs = TRANSIENT_MODEL_RETRY_DELAYS_MS,
   onRetry,
+  onRecoveredToolCall,
+  shouldRequireToolChoice,
   sleep = wait,
 } = {}) {
   let currentRequest = request;
@@ -270,13 +363,18 @@ export async function invokeModelWithToolChoiceRetry(request, handler, {
     try {
       return await handler(currentRequest);
     } catch (error) {
-      if (isToolChoiceMismatchError(error) && toolChoiceRetries < maxRetries) {
+      const toolProtocolFailure = isToolChoiceMismatchError(error) || isOutputParseFailedError(error);
+      if (toolProtocolFailure) {
+        const recovered = recoverFailedGenerationToolCall(error, currentRequest.tools);
+        if (recovered) {
+          await onRecoveredToolCall?.(recovered);
+          return new AIMessage({ content: "", tool_calls: [recovered] });
+        }
+      }
+      if (toolProtocolFailure && toolChoiceRetries < maxRetries) {
         toolChoiceRetries += 1;
-        await onRetry?.({ attempt: toolChoiceRetries, reason: "tool_choice_mismatch", delayMs: 0, error });
-        currentRequest = appendSystemInstruction(
-          currentRequest,
-          "The previous model generation attempted a tool call even though tools are disabled for this model turn. Retry now without calling or naming a tool. Respond only with the requested final text format.",
-        );
+        await onRetry?.({ attempt: toolChoiceRetries, reason: isOutputParseFailedError(error) ? "output_parse_failed" : "tool_choice_mismatch", delayMs: 0 });
+        if (shouldRequireToolChoice?.() === false) currentRequest = withActiveToolChoice(currentRequest, { forceAuto: true });
         continue;
       }
       if (isTransientModelError(error) && transientRetries < transientMaxRetries) {
@@ -291,34 +389,209 @@ export async function invokeModelWithToolChoiceRetry(request, handler, {
   }
 }
 
+export function recoverFailedGenerationToolCall(error, tools = []) {
+  const generation = failedGeneration(error);
+  if (!generation) return undefined;
+  if (typeof generation === "string") return isOutputParseFailedError(error) ? recoverProseToolCall(generation, tools) : undefined;
+  const call = Array.isArray(generation.tool_calls) ? generation.tool_calls[0]?.function || generation.tool_calls[0] : generation.function || generation;
+  const tool = resolveAvailableTool(call?.name, tools);
+  // A provider's rejected generation is not an authenticated instruction to
+  // mutate a cart. Only recover idempotent/read-only calls; the model gets a
+  // normal bounded retry for update_food_cart, coupon, and flush operations.
+  if (!tool || !PROSE_RECOVERABLE_READ_TOOLS.has(toolName(tool))) return undefined;
+  let args = call?.arguments ?? call?.args ?? {};
+  if (typeof args === "string") {
+    try { args = JSON.parse(args); } catch { return undefined; }
+  }
+  if (!args || typeof args !== "object" || Array.isArray(args) || !toolAcceptsArguments(tool, args)) return undefined;
+  return recoveredToolCall(toolName(tool), args);
+}
+
+function failedGeneration(error) {
+  const seen = new Set();
+  let current = error;
+  for (let depth = 0; current && depth < 6 && !seen.has(current); depth += 1) {
+    if (typeof current !== "object") break;
+    seen.add(current);
+    for (const value of [current.failed_generation, current.failedGeneration, current.error?.failed_generation, current.error?.failedGeneration]) {
+      const parsed = parseFailedGeneration(value);
+      if (parsed) return parsed;
+    }
+    const match = String(current.message || "").match(/"failed_generation"\s*:\s*"((?:\\.|[^"\\])*)"/);
+    if (match) {
+      try {
+        const parsed = parseFailedGeneration(JSON.parse(`"${match[1]}"`));
+        if (parsed) return parsed;
+      } catch { /* Ignore malformed provider diagnostics. */ }
+    }
+    current = current.cause;
+  }
+  return undefined;
+}
+
+function parseFailedGeneration(value) {
+  if (!value) return undefined;
+  if (typeof value === "object") return value;
+  const text = String(value).trim();
+  if (!text) return undefined;
+  try { return JSON.parse(text); } catch { return text; }
+}
+
+function recoverProseToolCall(generation, tools) {
+  const matches = (Array.isArray(tools) ? tools : []).filter((tool) => {
+    const name = toolName(tool);
+    if (!name || !PROSE_RECOVERABLE_READ_TOOLS.has(name) || !toolAllowsEmptyArguments(tool)) return false;
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = new RegExp(`\\b(?:call|use|invoke)\\s+(?:the\\s+)?(?:tool\\s+)?(?:tool\\.)?${escaped}(?![A-Za-z0-9_])`, "i").exec(generation);
+    if (!match) return false;
+    const prefix = generation.slice(Math.max(0, match.index - 16), match.index);
+    return !/(?:do\s+not|don't|never|avoid)\s*$/i.test(prefix);
+  });
+  return matches.length === 1 ? recoveredToolCall(toolName(matches[0]), {}) : undefined;
+}
+
+function resolveAvailableTool(value, tools) {
+  const supplied = String(value || "").trim();
+  if (!supplied) return undefined;
+  const candidates = [supplied];
+  for (const prefix of ["tool.", "function.", "functions."]) {
+    if (supplied.startsWith(prefix)) candidates.push(supplied.slice(prefix.length));
+  }
+  return (Array.isArray(tools) ? tools : []).find((tool) => candidates.includes(toolName(tool)));
+}
+
+function toolAllowsEmptyArguments(tool) {
+  const schema = tool?.schema || tool?.function?.parameters || tool?.parameters;
+  if (!schema) return false;
+  if (typeof schema.safeParse === "function") return schema.safeParse({}).success;
+  return schema.type === "object" && (!Array.isArray(schema.required) || schema.required.length === 0);
+}
+
+function toolAcceptsArguments(tool, args) {
+  const schema = tool?.schema || tool?.function?.parameters || tool?.parameters;
+  if (!schema) return true;
+  if (typeof schema.safeParse === "function") return schema.safeParse(args).success;
+  if (!Array.isArray(schema.required)) return true;
+  return schema.required.every((key) => Object.hasOwn(args, key));
+}
+
+function recoveredToolCall(name, args) {
+  return { id: `recovered_${crypto.randomUUID()}`, name, args };
+}
+
+function toolName(tool) {
+  return String(tool?.name || tool?.function?.name || "").trim();
+}
+
+export function localCartPhaseRequest(request, state = {}, local = false) {
+  if (!local || !Array.isArray(request?.tools)) return request;
+  // LiteRT-JS and some Ollama models do not reliably honor LangChain's
+  // provider-level tool-choice protocol. Keep the same Swiggy tool surface as
+  // hosted models, but ask the local connector to prefer an actual tool call.
+  return { ...request, toolChoice: "required" };
+}
+
+export function withRequiredToolReminder(request) {
+  const reminder = new HumanMessage("Your previous response did not invoke a tool. Do not explain or plan in prose. Invoke exactly one available tool now.");
+  return {
+    ...request,
+    messages: [...(Array.isArray(request?.messages) ? request.messages : []), reminder],
+  };
+}
+
+export function hasQuickAddMenuCandidate(result) {
+  try {
+    return normalizeMenuCatalog(result).some((item) => item.canQuickAdd && item.id && item.name);
+  } catch {
+    return false;
+  }
+}
+
+export function directMenuSearchPlan(food = {}) {
+  const dish = String(food?.dish || "").trim();
+  const cuisine = String(food?.cuisine || "").trim();
+  const ingredients = (Array.isArray(food?.ingredients) ? food.ingredients : [])
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .slice(0, 3);
+  const description = String(food?.description || "").trim().replace(/\s+/g, " ");
+  // Every fallback query is grounded in the VLM's own detection data. This
+  // avoids a brittle cuisine/dish alias catalogue while still guaranteeing a
+  // bounded set of distinct queries when a small local model repeats itself.
+  return [...new Set([
+    dish,
+    cuisine && `${cuisine} ${dish}`,
+    ingredients.length && ingredients.join(" "),
+    dish && ingredients.length && `${dish} ${ingredients.join(" ")}`,
+    description,
+  ].map((value) => String(value || "").trim()).filter(Boolean).map((value) => value.slice(0, 180)))].slice(0, 5);
+}
+
+export async function discoverDirectMenuSearch({ mcp, food, addressId, query: suppliedQuery, searchBudget, runId, streamId } = {}) {
+  const query = String(suppliedQuery || food?.dish || "").trim();
+  if (!mcp || !addressId || !query) return undefined;
+  const decision = searchBudget?.check("search_menu", { addressId, query }) || { allowed: true };
+  if (!decision.allowed) return undefined;
+  const startedAt = performance.now();
+  agentLog(runId || "preflight", streamId, "direct_menu_search", { query, remaining: decision.remaining });
+  try {
+    const result = await mcp.call("search_menu", { addressId, query });
+    agentLog(runId || "preflight", streamId, "direct_menu_search_complete", {
+      query,
+      durationMs: elapsed(startedAt),
+      quickAddCandidate: hasQuickAddMenuCandidate(result),
+    });
+    return result;
+  } catch (error) {
+    agentLog(runId || "preflight", streamId, "direct_menu_search_failed", {
+      query,
+      durationMs: elapsed(startedAt),
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { items: [], error: "Direct menu discovery was unavailable; try a direct dish synonym." };
+  }
+}
+
+function compactAgentResult(value, limit = 4_500) {
+  if (value === undefined) return "No direct result was available.";
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized.length <= limit) return serialized;
+    const items = normalizeMenuCatalog(value).slice(0, 8);
+    return JSON.stringify({ items, _cravelensTruncated: true });
+  } catch {
+    return "No usable direct result was available.";
+  }
+}
+
 export function appendSystemInstruction(request, instruction) {
   const suffix = `\n\n${String(instruction || "").trim()}`;
   if (request?.systemMessage && typeof request.systemMessage.concat === "function") {
+    const { systemPrompt: _systemPrompt, ...withoutSystemPrompt } = request;
     return {
-      ...request,
-      // Keep this synchronized with the current SystemMessage so LangChain sees
-      // only systemMessage as changed, including on consecutive retries.
-      systemPrompt: request.systemMessage.text,
+      ...withoutSystemPrompt,
       systemMessage: request.systemMessage.concat(suffix),
     };
   }
+  const { systemMessage: _systemMessage, ...withoutSystemMessage } = request || {};
   return {
-    ...request,
-    systemPrompt: `${request?.systemPrompt || ""}${suffix}`,
+    ...withoutSystemMessage,
+    systemPrompt: `${withoutSystemMessage.systemPrompt || ""}${suffix}`,
   };
 }
 
 export function replaceSystemInstruction(request, instruction) {
   const content = String(instruction || "").trim();
   if (request?.systemMessage) {
+    const { systemPrompt: _systemPrompt, ...withoutSystemPrompt } = request;
     return {
-      ...request,
-      systemPrompt: request.systemMessage.text,
+      ...withoutSystemPrompt,
       systemMessage: new SystemMessage(content),
     };
   }
+  const { systemMessage: _systemMessage, ...withoutSystemMessage } = request || {};
   return {
-    ...request,
+    ...withoutSystemMessage,
     systemPrompt: content,
   };
 }
@@ -326,14 +599,21 @@ export function replaceSystemInstruction(request, instruction) {
 export function createSearchBudgetGuard(limits = SEARCH_TOOL_LIMITS) {
   const counts = new Map();
   const seenQueries = new Set();
+  const queryKeyFor = (toolName, args = {}) => {
+    const query = String(args.query || "").trim().toLowerCase().replace(/\s+/g, " ");
+    const restaurantScope = String(args.restaurantIdOfAddedItem || args.restaurantId || "").trim();
+    return query ? `${toolName}:${restaurantScope}:${query}` : "";
+  };
   return {
+    remember(toolName, args = {}) {
+      const queryKey = queryKeyFor(toolName, args);
+      if (queryKey) seenQueries.add(queryKey);
+    },
     check(toolName, args = {}) {
       const limit = limits[toolName];
       if (!limit) return { allowed: true, remaining: undefined };
       const count = counts.get(toolName) || 0;
-      const query = String(args.query || "").trim().toLowerCase().replace(/\s+/g, " ");
-      const restaurantScope = String(args.restaurantIdOfAddedItem || args.restaurantId || "").trim();
-      const queryKey = query ? `${toolName}:${restaurantScope}:${query}` : "";
+      const queryKey = queryKeyFor(toolName, args);
       if (queryKey && seenQueries.has(queryKey)) {
         return {
           allowed: false,
@@ -363,10 +643,100 @@ export function isToolChoiceMismatchError(error) {
     || (/tool_use_failed/i.test(message) && /tool choice[\s\S]*none[\s\S]*called a tool/i.test(message));
 }
 
+export function isOutputParseFailedError(error) {
+  const message = modelErrorText(error);
+  return /output_parse_failed/i.test(message)
+    || /parsing failed[\s\S]*failed_generation/i.test(message);
+}
+
 export function isTransientModelError(error) {
   const message = modelErrorText(error);
   return /\b(?:429|500|502|503|504)\b/.test(message)
     || /service unavailable|temporar(?:y|ily) (?:unavailable|unreachable)|no_db_connection|rate.?limit|timed? ?out|econnreset|econnrefused|socket hang up/i.test(message);
+}
+
+export function shouldRetryMissingToolCall({ response, tools, runComplete = false, retryCount = 0, maxRetries = MISSING_TOOL_CALL_MAX_RETRIES } = {}) {
+  if (runComplete || retryCount >= maxRetries || !Array.isArray(tools) || tools.length === 0) return false;
+  return !(Array.isArray(response?.tool_calls) && response.tool_calls.length > 0)
+    && !(Array.isArray(response?.additional_kwargs?.tool_calls) && response.additional_kwargs.tool_calls.length > 0);
+}
+
+export function recordCartToolCompletion(state, { toolName, result, expectedItems } = {}) {
+  if (toolName === "update_food_cart") {
+    state.cartMutationAttempted = true;
+    state.cartUpdated = false;
+    state.couponsChecked = false;
+    state.verificationPending = true;
+  }
+  if (toolName === "fetch_food_coupons") state.couponsChecked = true;
+  if (toolName === "apply_food_coupon") state.verificationPending = true;
+  if (toolName !== "get_food_cart" || !state.cartMutationAttempted) return {};
+  const cartVerified = cartReflectsItems(result, expectedItems);
+  state.cartUpdated = cartVerified;
+  state.verificationPending = !cartVerified;
+  return { cartVerified };
+}
+
+export async function verifyPendingCartMutation({
+  mcp,
+  state,
+  addressId,
+  expectedItems,
+  runId,
+  streamId,
+  delaysMs = [250, 750, 1_250],
+} = {}) {
+  if (!mcp || !state?.cartMutationAttempted || state.cartUpdated || !state.verificationPending || !addressId) return {};
+  let lastCart;
+  for (let attempt = 0; attempt <= delaysMs.length; attempt += 1) {
+    if (attempt > 0) await wait(delaysMs[attempt - 1]);
+    const startedAt = performance.now();
+    agentLog(runId || "post-agent", streamId, "deterministic_verification", { tool: "get_food_cart", attempt: attempt + 1 });
+    try {
+      const cart = await mcp.call("get_food_cart", { addressId });
+      lastCart = cart;
+      const completion = recordCartToolCompletion(state, {
+        toolName: "get_food_cart",
+        result: cart,
+        expectedItems,
+      });
+      agentLog(runId || "post-agent", streamId, "cart_verification", {
+        verified: completion.cartVerified,
+        deterministic: true,
+        attempt: attempt + 1,
+        expectedItemCount: Array.isArray(expectedItems) ? expectedItems.length : 0,
+        durationMs: elapsed(startedAt),
+      });
+      if (completion.cartVerified) return { cart, cartVerified: true };
+    } catch (error) {
+      agentLog(runId || "post-agent", streamId, "tool_failed", {
+        tool: "get_food_cart",
+        deterministic: true,
+        attempt: attempt + 1,
+        durationMs: elapsed(startedAt),
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return { cart: lastCart, cartVerified: false };
+}
+
+export function withActiveToolChoice(request, { required = false, forceAuto = false } = {}) {
+  if (!Array.isArray(request?.tools) || request.tools.length === 0) return request;
+  const current = request.toolChoice;
+  if (forceAuto) return { ...request, toolChoice: "auto" };
+  return { ...request, toolChoice: required ? "required" : current && current !== "none" ? current : "auto" };
+}
+
+export function finalCartAgentResponseContent({ cartUpdated = false, verificationPending = false } = {}, reason = "cart_verified") {
+  const rationale = cartUpdated && !verificationPending
+    ? "The Swiggy cart was updated and verified. Final restaurant, item, discount, and payable details are taken from the verified cart response."
+    : cartUpdated
+      ? "The Swiggy cart was updated; final cart details will be verified from Swiggy before they are shown."
+      : reason === "model_call_limit"
+        ? "The cart agent reached its reasoning limit before an orderable item was added."
+        : "No verified cart change was completed.";
+  return `CART_RATIONALE:\n${rationale}\nHUMAN_INPUT_UI:\nNONE`;
 }
 
 function modelErrorText(error) {
@@ -529,23 +899,9 @@ function boundedText(value, maxLength) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
 
-function createAgentModel() {
-  if (config.agentModelProvider === "openai") {
-    return new ChatOpenAI({
-      model: config.agentModelName,
-      apiKey: config.agentModelApiKey,
-      temperature: 1,
-      maxTokens: 2048,
-      maxRetries: 0,
-      configuration: { baseURL: config.agentModelBaseUrl },
-    });
-  }
-  return new ChatGoogle(config.agentModelName, { apiKey: config.agentModelApiKey, temperature: 0.7, maxOutputTokens: 2048 });
-}
-
 function agentLog(runId, streamId, event, details = {}) {
   console.log(`[agent:${runId}] ${event}`, Object.keys(details).length ? details : "");
-  publishAgentEvent(streamId, event, details);
+  publishAgentEvent(streamId, event, { runId, ...details });
 }
 
 function elapsed(startedAt) { return Math.round(performance.now() - startedAt); }

@@ -970,6 +970,12 @@ export const interfaceThemeCss = `
     -webkit-backdrop-filter: blur(24px) saturate(135%);
     backdrop-filter: blur(24px) saturate(135%);
   }
+  :host([data-theme="light"]) .swiggy-powered {
+    border-color: #fc80192b;
+    background: #fff4ec;
+    color: #a74900;
+    box-shadow: inset 0 1px 0 #ffffff, 0 4px 12px #fc801914;
+  }
   :host([data-theme="light"]) .eyebrow,
   :host([data-theme="light"]) .section-title,
   :host([data-theme="light"]) .restaurant-copy p,

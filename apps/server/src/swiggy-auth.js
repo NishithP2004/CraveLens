@@ -1,123 +1,132 @@
 import crypto from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { config } from "./config.js";
+import { decryptJson, encryptJson, sha256 } from "./crypto-store.js";
+import { getRedis, redisKeys } from "./redis.js";
 
-const sessions = new Map();
+const OAUTH_TTL_SECONDS = 10 * 60;
+const activeClients = new Map();
 const restoring = new Map();
-const authStorePath = fileURLToPath(new URL("../../../.cravelens/swiggy-oauth.json", import.meta.url));
 
-// This is only the SDK's persistence/UI adapter. The MCP SDK performs discovery,
-// dynamic client registration, PKCE generation, validation, and token exchange.
 class SwiggyOAuthProvider {
-  constructor(redirectUrl, sessionId) {
+  constructor(redirectUrl, oauthState, saved = {}, onTokens) {
     this.redirectUrl = redirectUrl;
-    this.sessionId = sessionId;
-    this.clientMetadata = { redirect_uris: [redirectUrl], client_name: "CraveLens", grant_types: ["authorization_code"], response_types: ["code"], token_endpoint_auth_method: "none", scope: "mcp:tools" };
+    this.oauthState = oauthState;
+    this.clientInfo = saved.clientInformation;
+    this.oauthTokens = saved.tokens;
+    this.verifier = saved.verifier;
+    this.onTokens = onTokens;
+    this.clientMetadata = { redirect_uris: [redirectUrl], client_name: "CraveLens", grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none", scope: "mcp:tools" };
   }
+  state() { return this.oauthState; }
   clientInformation() { return this.clientInfo; }
-  saveClientInformation(value) { this.clientInfo = value; void persistSessions(); }
+  saveClientInformation(value) { this.clientInfo = value; }
   tokens() { return this.oauthTokens; }
-  saveTokens(value) { this.oauthTokens = value; void persistSessions(); }
+  async saveTokens(value) { this.oauthTokens = value; await this.onTokens?.(value); }
   redirectToAuthorization(url) { this.authorizationUrl = url.toString(); }
   saveCodeVerifier(value) { this.verifier = value; }
   codeVerifier() { if (!this.verifier) throw new Error("OAuth verifier is unavailable"); return this.verifier; }
 }
 
-export async function startSwiggyAuthorization() {
-  const sessionId = crypto.randomUUID();
-  const redirectUri = `${config.publicBaseUrl}/api/swiggy/auth/callback?sessionId=${encodeURIComponent(sessionId)}`;
+export async function startSwiggyAuthorization(deviceId) {
+  const redirectUri = `${config.publicBaseUrl.replace(/\/$/, "")}/api/swiggy/auth/callback`;
   if (!/^http:\/\/localhost(?::\d+)?\//.test(redirectUri) && !/^https:\/\//.test(redirectUri)) throw new Error("PUBLIC_BASE_URL must be localhost or HTTPS");
-  const provider = new SwiggyOAuthProvider(redirectUri, sessionId);
+  const state = crypto.randomBytes(32).toString("base64url");
+  const provider = new SwiggyOAuthProvider(redirectUri, state);
   const transport = new StreamableHTTPClientTransport(new URL(config.swiggyFoodMcpUrl), { authProvider: provider });
   const client = new Client({ name: "cravelens", version: "0.1.0" });
-  try { await client.connect(transport); } catch (error) {
-    if (!provider.authorizationUrl) throw error;
-  }
-  if (!provider.authorizationUrl) throw new Error("Swiggy did not initiate authorization");
-  sessions.set(sessionId, { provider, transport, client, connected: false, createdAt: Date.now() });
-  return { sessionId, authorizationUrl: provider.authorizationUrl };
+  try { await client.connect(transport); } catch (error) { if (!provider.authorizationUrl) throw error; }
+  await client.close().catch(() => {});
+  if (!provider.authorizationUrl || !provider.verifier) throw new Error("Swiggy did not initiate authorization");
+  const redis = await getRedis();
+  const pending = { deviceId, redirectUrl: redirectUri, verifier: provider.verifier, clientInformation: provider.clientInfo, createdAt: Date.now() };
+  await Promise.all([
+    redis.set(redisKeys.oauthState(sha256(state)), encryptJson(pending, `cravelens:oauth:${state}`), { EX: OAUTH_TTL_SECONDS }),
+    redis.hSet(redisKeys.device(deviceId), { swiggyOAuthStatus: "pending", updatedAt: String(Date.now()) }),
+  ]);
+  return { authorizationUrl: provider.authorizationUrl, expiresAt: Date.now() + OAUTH_TTL_SECONDS * 1000 };
 }
 
-export async function completeSwiggyAuthorization(sessionId, code) {
-  const session = sessions.get(sessionId);
-  if (!session || Date.now() - session.createdAt > 10 * 60_000) throw new Error("OAuth session expired; start sign-in again");
-  // finishAuth stores the exchanged tokens on the provider. The transport used
-  // to discover OAuth was already started by client.connect(), so it cannot be
-  // connected a second time. Close it and initialize a fresh authenticated pair.
-  await session.transport.finishAuth(code);
-  await session.client.close().catch(() => {});
-  const transport = new StreamableHTTPClientTransport(new URL(config.swiggyFoodMcpUrl), { authProvider: session.provider });
-  const client = new Client({ name: "cravelens", version: "0.1.0" });
-  await client.connect(transport);
-  session.transport = transport;
-  session.client = client;
-  session.connected = true;
-  await persistSessions();
+export async function completeSwiggyAuthorization(state, code) {
+  if (!state || !code) throw new Error("Swiggy returned an incomplete OAuth response");
+  const redis = await getRedis();
+  const encrypted = await redis.getDel(redisKeys.oauthState(sha256(state)));
+  if (!encrypted) throw new Error("OAuth state is invalid, expired, or has already been used");
+  const pending = decryptJson(encrypted, `cravelens:oauth:${state}`);
+  const provider = new SwiggyOAuthProvider(pending.redirectUrl, state, pending);
+  const exchangeTransport = new StreamableHTTPClientTransport(new URL(config.swiggyFoodMcpUrl), { authProvider: provider });
+  try {
+    await exchangeTransport.finishAuth(code);
+    if (!provider.oauthTokens?.access_token) throw new Error("Swiggy did not return an access token");
+    const expiresIn = Math.max(60, Number(provider.oauthTokens.expires_in || 5 * 24 * 60 * 60));
+    const credential = { redirectUrl: pending.redirectUrl, tokens: provider.oauthTokens, clientInformation: provider.clientInfo, createdAt: Date.now(), expiresAt: Date.now() + expiresIn * 1000 };
+    await Promise.all([
+      redis.set(redisKeys.swiggyCredential(pending.deviceId), encryptJson(credential, `cravelens:swiggy:${pending.deviceId}`), { EX: expiresIn }),
+      redis.hSet(redisKeys.device(pending.deviceId), { swiggyOAuthStatus: "connected", swiggyExpiresAt: String(credential.expiresAt), updatedAt: String(Date.now()) }),
+    ]);
+    activeClients.delete(pending.deviceId);
+    return pending.deviceId;
+  } catch (error) {
+    await redis.hSet(redisKeys.device(pending.deviceId), { swiggyOAuthStatus: "failed", swiggyOAuthError: error instanceof Error ? error.message.slice(0, 300) : "Authorization failed" });
+    throw error;
+  } finally { await exchangeTransport.close().catch(() => {}); }
 }
 
-export async function getSwiggyAuthorizationStatus(sessionId) {
-  const session = sessions.get(sessionId) || await restoreSession(sessionId);
-  if (!session) return { status: "missing" };
-  if (session.error) return { status: "failed", error: session.error };
-  return { status: session.connected ? "connected" : "pending" };
+export async function getSwiggyAuthorizationStatus(deviceId) {
+  const redis = await getRedis();
+  const [credentialExists, device] = await Promise.all([redis.exists(redisKeys.swiggyCredential(deviceId)), redis.hGetAll(redisKeys.device(deviceId))]);
+  if (credentialExists) return { status: "connected", expiresAt: Number(device.swiggyExpiresAt) || undefined };
+  if (device.swiggyOAuthStatus === "failed") return { status: "failed", error: device.swiggyOAuthError || "Authorization failed" };
+  return { status: device.swiggyOAuthStatus === "pending" ? "pending" : "missing" };
 }
 
-export function failSwiggyAuthorization(sessionId, error) {
-  const session = sessions.get(sessionId);
-  if (session) session.error = error;
+export async function failSwiggyAuthorization(state, message) {
+  if (!state) return;
+  const redis = await getRedis();
+  const encrypted = await redis.getDel(redisKeys.oauthState(sha256(state)));
+  if (!encrypted) return;
+  const pending = decryptJson(encrypted, `cravelens:oauth:${state}`);
+  await redis.hSet(redisKeys.device(pending.deviceId), { swiggyOAuthStatus: "failed", swiggyOAuthError: String(message).slice(0, 300) });
 }
 
-export async function getSwiggySession(sessionId) {
-  const session = sessions.get(sessionId) || await restoreSession(sessionId);
-  return session?.connected ? session : undefined;
+export async function disconnectSwiggy(deviceId) {
+  activeClients.delete(deviceId);
+  const redis = await getRedis();
+  await redis.del(redisKeys.swiggyCredential(deviceId));
+  await redis.hSet(redisKeys.device(deviceId), { swiggyOAuthStatus: "missing", swiggyExpiresAt: "" });
 }
 
-async function restoreSession(sessionId) {
-  if (!sessionId) return undefined;
-  if (restoring.has(sessionId)) return restoring.get(sessionId);
-  const operation = (async () => {
-    const stored = await readStoredSessions();
-    const saved = stored[sessionId];
-    if (!saved?.tokens || !saved?.clientInformation || !saved?.redirectUrl) return undefined;
-    const provider = new SwiggyOAuthProvider(saved.redirectUrl, sessionId);
-    provider.oauthTokens = saved.tokens;
-    provider.clientInfo = saved.clientInformation;
-    const transport = new StreamableHTTPClientTransport(new URL(config.swiggyFoodMcpUrl), { authProvider: provider });
-    const client = new Client({ name: "cravelens", version: "0.1.0" });
-    try {
-      await client.connect(transport);
-      const session = { provider, transport, client, connected: true, createdAt: saved.createdAt || Date.now() };
-      sessions.set(sessionId, session);
-      return session;
-    } catch {
-      await client.close().catch(() => {});
-      return undefined;
-    }
-  })().finally(() => restoring.delete(sessionId));
-  restoring.set(sessionId, operation);
+export async function getSwiggySession(deviceId) {
+  if (!deviceId) return undefined;
+  if (activeClients.has(deviceId)) return activeClients.get(deviceId);
+  if (restoring.has(deviceId)) return restoring.get(deviceId);
+  const operation = restoreSession(deviceId).finally(() => restoring.delete(deviceId));
+  restoring.set(deviceId, operation);
   return operation;
 }
 
-async function persistSessions() {
-  const stored = await readStoredSessions();
-  for (const [sessionId, session] of sessions) {
-    if (!session.provider.oauthTokens || !session.provider.clientInfo) continue;
-    stored[sessionId] = {
-      redirectUrl: session.provider.redirectUrl,
-      tokens: session.provider.oauthTokens,
-      clientInformation: session.provider.clientInfo,
-      createdAt: session.createdAt,
-    };
+async function restoreSession(deviceId) {
+  const redis = await getRedis();
+  const encrypted = await redis.get(redisKeys.swiggyCredential(deviceId));
+  if (!encrypted) return undefined;
+  const saved = decryptJson(encrypted, `cravelens:swiggy:${deviceId}`);
+  const provider = new SwiggyOAuthProvider(saved.redirectUrl, undefined, saved, async (tokens) => {
+    const expiresIn = Math.max(60, Number(tokens.expires_in || 5 * 24 * 60 * 60));
+    const refreshed = { ...saved, tokens, expiresAt: Date.now() + expiresIn * 1000 };
+    await redis.set(redisKeys.swiggyCredential(deviceId), encryptJson(refreshed, `cravelens:swiggy:${deviceId}`), { EX: expiresIn });
+    await redis.hSet(redisKeys.device(deviceId), { swiggyExpiresAt: String(refreshed.expiresAt), updatedAt: String(Date.now()) });
+  });
+  const transport = new StreamableHTTPClientTransport(new URL(config.swiggyFoodMcpUrl), { authProvider: provider });
+  const client = new Client({ name: "cravelens", version: "0.1.0" });
+  try {
+    await client.connect(transport);
+    const session = { provider, transport, client, connected: true, createdAt: saved.createdAt };
+    activeClients.set(deviceId, session);
+    return session;
+  } catch {
+    await client.close().catch(() => {});
+    await redis.del(redisKeys.swiggyCredential(deviceId));
+    return undefined;
   }
-  await mkdir(dirname(authStorePath), { recursive: true });
-  await writeFile(authStorePath, JSON.stringify(stored), { mode: 0o600 });
-}
-
-async function readStoredSessions() {
-  try { return JSON.parse(await readFile(authStorePath, "utf8")); }
-  catch { return {}; }
 }

@@ -11,7 +11,7 @@
     "dev:web": "npm run dev -w @cravelens/web",
     "build:web": "npm run build -w @cravelens/web",
     "build": "npm run build -w @cravelens/shared && npm run build -w @cravelens/server && npm run build -w @cravelens/extension",
-    "test": "npm run test -w @cravelens/server",
+    "test": "npm run test -w @cravelens/server && npm run test -w @cravelens/extension",
     "typecheck": "npm run typecheck -ws --if-present"
   },
   "devDependencies": {

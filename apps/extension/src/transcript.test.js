@@ -53,7 +53,7 @@ test("loads the preferred YouTube caption track around the selected frame", asyn
     documentRef,
     fetchImpl: async (url) => ({
       ok: true,
-      json: async () => ({ events: [
+      text: async () => JSON.stringify({ events: [
         { tStartMs: 8_000, dDurationMs: 1_000, segs: [{ utf8: "before" }] },
         { tStartMs: 9_500, dDurationMs: 1_000, segs: [{ utf8: "at" }] },
         { tStartMs: 11_000, dDurationMs: 1_000, segs: [{ utf8: "after" }] },
@@ -78,10 +78,29 @@ test("uses live-player caption tracks without relying on stale page metadata", a
     },
     fetchImpl: async () => ({
       ok: true,
-      json: async () => ({ events: [
+      text: async () => JSON.stringify({ events: [
         { tStartMs: 4_000, dDurationMs: 2_000, segs: [{ utf8: "live captions" }] },
       ] }),
     }),
   });
   assert.deepEqual(context.at.map((cue) => cue.text), ["live captions"]);
+});
+
+test("treats an empty YouTube captions response as unavailable transcript context", async () => {
+  const context = await getTranscriptContext({
+    videoId: "abc",
+    timestamp: 5,
+    captionTracks: [{ languageCode: "en", baseUrl: "https://www.youtube.com/api/timedtext?v=abc" }],
+    fetchImpl: async () => ({ ok: true, text: async () => "" }),
+  });
+  assert.equal(context, undefined);
+});
+
+test("reports malformed YouTube caption JSON without exposing a JSON parser error", async () => {
+  await assert.rejects(() => getTranscriptContext({
+    videoId: "abc",
+    timestamp: 5,
+    captionTracks: [{ languageCode: "en", baseUrl: "https://www.youtube.com/api/timedtext?v=abc" }],
+    fetchImpl: async () => ({ ok: true, text: async () => "{" }),
+  }), /YouTube returned an invalid captions payload/);
 });
