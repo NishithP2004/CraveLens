@@ -57,7 +57,7 @@ const observer = new IntersectionObserver((entries) => {
   });
 }, { threshold: 0.14 });
 
-document.querySelectorAll('.step-card, .feature-copy, .preference-card, .privacy > *, .faq').forEach((el) => {
+document.querySelectorAll('.story-heading, .story-panel, .story-tech, .creator-note, .step-card, .feature-copy, .preference-card, .privacy > *, .faq').forEach((el) => {
   el.classList.add('reveal');
   observer.observe(el);
 });

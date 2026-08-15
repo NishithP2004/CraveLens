@@ -169,3 +169,80 @@ main {
   background: #11120f91;
   border-color: #ffffff25;
 }
+
+.help-accordion {
+  margin-top: 8px;
+  border: 1px solid #9d9589a8;
+  border-radius: 14px;
+  background: #ffffff78;
+  overflow: hidden;
+}
+
+.help-accordion:first-child {
+  margin-top: 0;
+}
+
+.help-accordion > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 12px;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 850;
+  list-style: none;
+}
+
+.help-accordion > summary::-webkit-details-marker {
+  display: none;
+}
+
+.help-accordion > summary::after {
+  content: "⌄";
+  color: var(--coral);
+  font-size: 14px;
+  line-height: 1;
+  transition: transform .18s;
+}
+
+.help-accordion[open] > summary::after {
+  transform: rotate(180deg);
+}
+
+.help-accordion ol {
+  margin: 0;
+  padding: 0 12px 12px 27px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.help-accordion li + li {
+  margin-top: 5px;
+}
+
+.help-accordion code {
+  padding: 1px 4px;
+  border: 1px solid #9d958952;
+  border-radius: 5px;
+  background: #fff4ec;
+  color: var(--coral);
+  font: 8.5px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-wrap: anywhere;
+}
+
+.setup-card .hint {
+  padding: 0 12px 12px;
+}
+
+:root[data-theme="dark"] .help-accordion {
+  border-color: #ffffff25;
+  background: #11120f91;
+}
+
+:root[data-theme="dark"] .help-accordion code {
+  border-color: #ffffff1e;
+  background: #2b211c;
+}

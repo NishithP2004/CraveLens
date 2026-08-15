@@ -5,7 +5,7 @@ import { io } from "socket.io-client";
 import QRCode from "qrcode";
 import { createCartBuildLock } from "./cart-build-lock.js";
 import { historyThemeCss, interfaceThemeCss } from "./theme.js";
-import { formatTranscriptContext, getTranscriptContext } from "./transcript.js";
+import { formatTranscriptContext, getTranscriptContext, preloadTranscript } from "./transcript.js";
 
 const state = { running: false, navigationVersion: 0, lastTrigger: -120, lastPlaybackTime: null, replayPending: false, cache: [], videoId: "", modelStatus: "idle", lastResult: null, vlmStatus: "idle", vlmResult: null, error: "", agentSocket: null, agentEvents: [], foodHistory: [], carts: [], cartsHidden: false, themeMode: "system" };
 const cartBuildLock = createCartBuildLock();
@@ -22,6 +22,7 @@ let paymentPollTimer;
 let paymentCountdownTimer;
 let initializeTimer;
 let extensionContextStopped = false;
+let transcriptPreload;
 const api = (path, options = {}) => chrome.runtime.sendMessage({ type: "CRAVELENS_API", path, ...options }).then((r) => { if (!r.ok) throw new Error(r.error); return r.data; });
 const settings = async () => {
   if (extensionContextStopped || !chrome.runtime?.id) throw new Error("Extension context invalidated.");
@@ -554,11 +555,37 @@ async function initialize() {
   state.videoId = id; state.cache = []; state.lastTrigger = -120; state.lastPlaybackTime = null; state.replayPending = false; state.vlmStatus = "idle"; state.vlmResult = null;
   console.info(`[CraveLens] YouTube navigation detected; initialized video ${id}`);
   loadVideoState(); renderCartHistory();
+  preloadTranscriptForVideo(id, navigationVersion);
   scheduleDetectorScan(500);
   try {
     const detections = (await api(`/api/videos/${id}/detections`)).detections;
     if (isCurrentNavigation(navigationVersion) && state.videoId === id) state.cache = detections;
   } catch { /* local detection remains available */ }
+}
+
+async function preloadTranscriptForVideo(videoId, navigationVersion) {
+  transcriptPreload = (async () => {
+    try {
+      const liveCaptionTracks = await chrome.runtime.sendMessage({
+        type: "CRAVELENS_YOUTUBE_CAPTION_TRACKS",
+      }).then((response) => response?.tracks || []).catch(() => []);
+      if (!isCurrentNavigation(navigationVersion) || state.videoId !== videoId) return;
+      const result = await preloadTranscript({
+        videoId,
+        captionTracks: liveCaptionTracks,
+      });
+      if (result?.ok) console.info("[CraveLens] YouTube transcript cached", {
+        videoId,
+        cues: result.cues,
+        source: result.cached ? "sessionStorage" : liveCaptionTracks.length ? "caption tracks" : "timedtext capture",
+      });
+    } catch (error) {
+      if (isCurrentNavigation(navigationVersion)) {
+        console.warn("[CraveLens] YouTube transcript preload unavailable; will continue with visual verification:", error);
+      }
+    }
+  })();
+  return transcriptPreload;
 }
 
 document.addEventListener("yt-navigate-finish", queueInitialize);

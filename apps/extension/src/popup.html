@@ -180,6 +180,32 @@
             </div>
         </details>
 
+        <details class="settings-card context-card setup-card" name="popup-context">
+            <summary class="context-summary">
+                <span class="section-heading"><span>05</span><h2>Local AI setup</h2></span>
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 7.5 5 5 5-5" /></svg>
+            </summary>
+            <div class="context-content">
+                <details class="help-accordion">
+                    <summary>Enable Gemini Nano in Chrome</summary>
+                    <ol>
+                        <li>Use Chrome Canary or a Chrome build that exposes the built-in Language Model APIs.</li>
+                        <li>Open <code>chrome://flags</code>, search for built-in AI or Prompt API flags, and enable the Gemini Nano / language model flags available in your build.</li>
+                        <li>Restart Chrome, then open this popup again. CraveLens will use Gemini Nano only when Chrome exposes the required image-capable API.</li>
+                    </ol>
+                </details>
+                <details class="help-accordion">
+                    <summary>Allow CraveLens to use Ollama</summary>
+                    <ol>
+                        <li>Find the extension ID in <code>chrome://extensions</code> after loading CraveLens.</li>
+                        <li>Start Ollama with <code>OLLAMA_ORIGINS=chrome-extension://gehijhngicamfekokcbcdkjnjkmfofpn</code>.</li>
+                        <li>For local development, restart Ollama after changing the environment variable, then verify <code>http://localhost:11434/api/tags</code> works from the extension.</li>
+                    </ol>
+                    <p class="hint">Example: <code>OLLAMA_ORIGINS=chrome-extension://gehijhngicamfekokcbcdkjnjkmfofpn ollama serve</code></p>
+                </details>
+            </div>
+        </details>
+
         <footer><button id="save">Save settings <span aria-hidden="true">→</span></button>
             <p id="message"></p>
             <nav class="popup-links" aria-label="CraveLens links">

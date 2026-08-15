@@ -2,6 +2,8 @@
 
 **See it. Crave it. Get it.** CraveLens is a Chrome extension that recognizes food in YouTube videos on-device, identifies the dish with a local vision-language model, and asks a ReAct agent to prepare a personalized, discount-aware Swiggy cart. Nothing is ordered until the user explicitly confirms the final cart and payable amount.
 
+[![Watch the CraveLens demo](https://img.youtube.com/vi/CBFwNSKmt8o/maxresdefault.jpg)](https://youtu.be/CBFwNSKmt8o)
+
 ## What it does
 
 1. Samples frames from the active YouTube video without uploading them.
