@@ -987,22 +987,21 @@ export function normalizeFoodCoupons(value, appliedCode = "", selectionMode = "a
   const promos = [];
   const seen = new Set();
   for (const coupon of candidates) {
-    const code = String(firstValue(coupon, [
-      "couponCode", "coupon_code", "code", "offerCode", "offer_code",
-      "coupon.code", "coupon.couponCode", "coupon.coupon_code",
-    ]) || "").trim().toUpperCase();
+    const code = resolveCouponListCode(coupon);
     if (!code || seen.has(code)) continue;
     seen.add(code);
     const status = String(firstValue(coupon, ["status", "applicabilityStatus", "applicability_status"]) || "").toLowerCase();
     const explicitApplicable = firstValue(coupon, ["isApplicable", "is_applicable", "applicable", "isValid", "is_valid"]);
+    const subtitle = String(firstValue(coupon, ["subtitle", "subTitle"]) || "").trim();
+    const implicitIneligible = /(?:not.?applicable|invalid|locked|ineligible|expired|add\s*₹?\s*[\d,]+(?:\.\d+)?\s+more|minimum|above\s+rs?\.?\s*[\d,]+)/i.test(`${status} ${subtitle}`);
     const applicable = explicitApplicable === undefined
-      ? !/not.?applicable|invalid|locked|ineligible|expired/.test(status)
+      ? !implicitIneligible
       : !["false", "0", "no"].includes(String(explicitApplicable).trim().toLowerCase());
     const requiresOnlinePayment = booleanValue(firstValue(coupon, ["requiresOnlinePayment", "requires_online_payment", "onlinePaymentOnly", "online_payment_only"]));
     const ineligibilityReason = String(firstValue(coupon, [
       "ineligibilityReason", "ineligibility_reason", "nonApplicableReason", "non_applicable_reason",
       "errorMessage", "error_message", "message",
-    ]) || "").trim();
+    ]) || (!applicable ? subtitle : "")).trim();
     promos.push({
       code,
       title: String(firstValue(coupon, ["title", "name", "displayName", "display_name", "header", "offerTitle", "offer_title"]) || code).trim(),
@@ -1030,6 +1029,21 @@ export function normalizeFoodCoupons(value, appliedCode = "", selectionMode = "a
   return promos;
 }
 
+function resolveCouponListCode(coupon) {
+  const explicit = firstValue(coupon, [
+    "couponCode", "coupon_code", "code", "offerCode", "offer_code",
+    "coupon.code", "coupon.couponCode", "coupon.coupon_code",
+  ]);
+  if (explicit) return normalizeCouponListCode(explicit);
+  const title = firstValue(coupon, ["title"]);
+  const candidate = normalizeCouponListCode(title);
+  return /^[A-Z0-9][A-Z0-9_-]{2,39}$/.test(candidate) ? candidate : "";
+}
+
+function normalizeCouponListCode(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
 function collectCouponObjects(value, found = [], seen = new Set(), parentKey = "") {
   if (!value) return found;
   if (typeof value === "string") {
@@ -1044,10 +1058,7 @@ function collectCouponObjects(value, found = [], seen = new Set(), parentKey = "
   if (typeof value !== "object" || seen.has(value)) return found;
   seen.add(value);
   const isCartSuggestion = /^(?:coupon_?applied|applied_?coupon)$/i.test(parentKey);
-  if (!isCartSuggestion && !Array.isArray(value) && firstValue(value, [
-    "couponCode", "coupon_code", "code", "offerCode", "offer_code",
-    "coupon.code", "coupon.couponCode", "coupon.coupon_code",
-  ])) found.push(value);
+  if (!isCartSuggestion && !Array.isArray(value) && resolveCouponListCode(value)) found.push(value);
   for (const [key, child] of Object.entries(value)) collectCouponObjects(child, found, seen, key);
   return found;
 }

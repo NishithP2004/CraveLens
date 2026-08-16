@@ -373,8 +373,10 @@ export async function invokeModelWithToolChoiceRetry(request, handler, {
       }
       if (toolProtocolFailure && toolChoiceRetries < maxRetries) {
         toolChoiceRetries += 1;
-        await onRetry?.({ attempt: toolChoiceRetries, reason: isOutputParseFailedError(error) ? "output_parse_failed" : "tool_choice_mismatch", delayMs: 0 });
+        const unavailableTool = unavailableFailedGenerationToolName(error, currentRequest.tools);
+        await onRetry?.({ attempt: toolChoiceRetries, reason: unavailableTool ? "unavailable_tool_call" : isOutputParseFailedError(error) ? "output_parse_failed" : "tool_choice_mismatch", delayMs: 0 });
         if (shouldRequireToolChoice?.() === false) currentRequest = withActiveToolChoice(currentRequest, { forceAuto: true });
+        if (unavailableTool) currentRequest = withUnavailableToolReminder(currentRequest, unavailableTool);
         continue;
       }
       if (isTransientModelError(error) && transientRetries < transientMaxRetries) {
@@ -497,6 +499,27 @@ export function withRequiredToolReminder(request) {
     ...request,
     messages: [...(Array.isArray(request?.messages) ? request.messages : []), reminder],
   };
+}
+
+export function withUnavailableToolReminder(request, unavailableTool) {
+  const available = (Array.isArray(request?.tools) ? request.tools : [])
+    .map(toolName)
+    .filter(Boolean)
+    .join(", ");
+  const reminder = new HumanMessage(`Your previous response tried to call unavailable tool "${unavailableTool}". Do not call "${unavailableTool}". The selected delivery address is already pinned by the server and injected into location-sensitive tools. Invoke exactly one available tool instead${available ? `: ${available}` : "."}`);
+  return {
+    ...request,
+    messages: [...(Array.isArray(request?.messages) ? request.messages : []), reminder],
+  };
+}
+
+export function unavailableFailedGenerationToolName(error, tools = []) {
+  const generation = failedGeneration(error);
+  if (!generation || typeof generation === "string") return "";
+  const call = Array.isArray(generation.tool_calls) ? generation.tool_calls[0]?.function || generation.tool_calls[0] : generation.function || generation;
+  const name = String(call?.name || "").trim();
+  if (!name || resolveAvailableTool(name, tools)) return "";
+  return name;
 }
 
 export function hasQuickAddMenuCandidate(result) {
@@ -640,7 +663,8 @@ export function createSearchBudgetGuard(limits = SEARCH_TOOL_LIMITS) {
 export function isToolChoiceMismatchError(error) {
   const message = modelErrorText(error);
   return /tool choice is none,\s*but model called a tool/i.test(message)
-    || (/tool_use_failed/i.test(message) && /tool choice[\s\S]*none[\s\S]*called a tool/i.test(message));
+    || (/tool_use_failed/i.test(message) && /tool choice[\s\S]*none[\s\S]*called a tool/i.test(message))
+    || (/tool_use_failed/i.test(message) && /tool call validation failed/i.test(message) && /attempted to call tool/i.test(message));
 }
 
 export function isOutputParseFailedError(error) {

@@ -67,7 +67,28 @@
                 <label class="range-row"><span>Food sensitivity</span><output id="sensitivityValue"></output><input id="sensitivity"
                         type="range" min="0.35" max="0.8" step="0.01"></label>
                 <label class="range-row"><span>Model scan interval</span><output id="scanIntervalValue"></output><input id="scanIntervalMs"
-                        type="range" min="2000" max="30000" step="1000"></label>
+                        type="range" min="1000" max="30000" step="1000"></label>
+                <fieldset class="auto-detect-sites">
+                    <legend>Auto detection sites</legend>
+                    <label><span><b>YouTube</b><small>Scan videos and Shorts while they play</small></span><input id="autoDetectYouTube" type="checkbox"></label>
+                    <label><span><b>Instagram</b><small>Scan Reels while they play</small></span><input id="autoDetectInstagram" type="checkbox"></label>
+                    <label><span><b>Facebook</b><small>Scan Watch and video posts while they play</small></span><input id="autoDetectFacebook" type="checkbox"></label>
+                </fieldset>
+                <fieldset id="shortcutBehavior" class="shortcut-slider">
+                    <legend>Keyboard shortcut behavior</legend>
+                    <div class="shortcut-slider-track">
+                        <span class="shortcut-slider-thumb" aria-hidden="true"></span>
+                        <label>
+                            <input type="radio" name="shortcutBehavior" value="auto-supported">
+                            <span><b>Auto</b><small>Video sites</small></span>
+                        </label>
+                        <label>
+                            <input type="radio" name="shortcutBehavior" value="lasso-always">
+                            <span><b>Lasso</b><small>Always</small></span>
+                        </label>
+                    </div>
+                    <p id="shortcutBehaviorHint" class="shortcut-slider-hint"></p>
+                </fieldset>
                 <label class="debug-row"><span><b>Debug overlay</b><small>Show detection boxes on video</small></span><input id="debug" type="checkbox"></label>
                 <button id="scan" class="secondary"><span>Scan current frame</span><kbd>Ctrl Shift Y</kbd></button>
                 <button id="resetDetectionDefaults" class="reset-button" type="button">

@@ -3,7 +3,7 @@ import { LITERT_TEXT_MODELS, getLiteRtTextModel, getLiteRtVlmModelByProvider } f
 
 const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434";
 const DEFAULT_LOCAL_CONTEXT_TOKENS = 16_384;
-const defaults = { enabled: true, debug: false, apiUrl: "http://localhost:8787", addressId: "", addressLabel: "", sensitivity: 0.38, scanIntervalMs: 4000, personalContext: "", themeMode: "system", modelSettings: { version: 1, vlm: { provider: "auto" }, orchestration: { provider: "auto", contextTokens: DEFAULT_LOCAL_CONTEXT_TOKENS, thinkingEnabled: false }, ollama: { baseUrl: DEFAULT_OLLAMA_BASE_URL }, hostedFallback: "ask" } };
+const defaults = { enabled: true, debug: false, apiUrl: "http://localhost:8787", addressId: "", addressLabel: "", sensitivity: 0.38, scanIntervalMs: 4000, autoDetectYouTube: true, autoDetectInstagram: true, autoDetectFacebook: true, shortcutBehavior: "auto-supported", personalContext: "", themeMode: "system", modelSettings: { version: 1, vlm: { provider: "auto" }, orchestration: { provider: "auto", contextTokens: DEFAULT_LOCAL_CONTEXT_TOKENS, thinkingEnabled: false }, ollama: { baseUrl: DEFAULT_OLLAMA_BASE_URL }, hostedFallback: "ask" } };
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   const existing = await chrome.storage.local.get(Object.keys(defaults));
   await chrome.storage.local.set({ ...defaults, ...existing, ...(reason === "install" ? { debug: false } : {}) });
@@ -99,6 +99,14 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     });
     return true;
   }
+  if (message.type === "CRAVELENS_CAPTURE_VISIBLE_TAB") {
+    (async () => {
+      if (!sender.tab?.windowId) throw new Error("No active tab is available to capture");
+      const imageDataUrl = await chrome.tabs.captureVisibleTab(sender.tab.windowId, { format: "png" });
+      return { ok: true, imageDataUrl };
+    })().then(respond).catch((error) => respond({ ok: false, error: error.message }));
+    return true;
+  }
   if (message.type === "CRAVELENS_YOLO_DETECT") {
     (async () => {
       await ensureOffscreenDocument();
@@ -177,14 +185,22 @@ function ollamaApiUrl(baseUrl, path) { return new URL(path, `${normalizeOllamaBa
 
 chrome.commands.onCommand.addListener((command) => {
   if (command !== "scan-current-frame") return;
-  scanActiveYouTubeFrame().catch(() => {});
+  handleScanShortcut().catch((error) => console.warn("[CraveLens] Shortcut scan failed", error));
 });
 
-async function scanActiveYouTubeFrame() {
-  const { enabled } = { ...defaults, ...await chrome.storage.local.get(["enabled"]) };
+async function handleScanShortcut() {
+  const { enabled, shortcutBehavior } = { ...defaults, ...await chrome.storage.local.get(["enabled", "shortcutBehavior"]) };
   if (!enabled) return;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id || !isYouTubeVideoUrl(tab.url)) return;
+  if (!tab?.id || !isCaptureSupportedUrl(tab.url)) return;
+  if (shortcutBehavior !== "lasso-always" && isSupportedVideoUrl(tab.url)) {
+    await scanActiveSupportedFrame(tab);
+    return;
+  }
+  await startActiveTabLasso(tab);
+}
+
+async function scanActiveSupportedFrame(tab) {
   const message = { type: "CRAVELENS_DEBUG_SCAN", forceDebug: true };
   try {
     await chrome.tabs.sendMessage(tab.id, message);
@@ -195,6 +211,21 @@ async function scanActiveYouTubeFrame() {
       await chrome.tabs.reload(tab.id);
       await waitForTabLoad(tab.id);
     }
+    await waitForReceiver(tab.id);
+    await chrome.tabs.sendMessage(tab.id, message);
+  }
+}
+
+async function startActiveTabLasso(tab) {
+  if (!tab) [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id || !isCaptureSupportedUrl(tab.url)) return;
+  const message = { type: "CRAVELENS_START_LASSO" };
+  try {
+    await chrome.tabs.sendMessage(tab.id, message);
+  } catch (error) {
+    if (!/Receiving end does not exist|Could not establish connection/i.test(error.message)) throw error;
+    if (!chrome.scripting?.executeScript) throw new Error("Script injection is unavailable in this browser");
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
     await waitForReceiver(tab.id);
     await chrome.tabs.sendMessage(tab.id, message);
   }
@@ -260,10 +291,19 @@ async function discoverLiteRtProviders() {
   return LITERT_TEXT_MODELS.map((model) => ({ provider: "litert", model: model.id, capabilities: ["text", "tools"] }));
 }
 
-function isYouTubeVideoUrl(value) {
+function isSupportedVideoUrl(value) {
   try {
     const url = new URL(value);
-    return url.hostname.endsWith("youtube.com") && (url.pathname === "/watch" || url.pathname.startsWith("/shorts/"));
+    if (url.hostname.endsWith("youtube.com")) return url.pathname === "/watch" || url.pathname.startsWith("/shorts/");
+    if (url.hostname.endsWith("instagram.com")) return url.pathname.startsWith("/reel/") || url.pathname.startsWith("/reels/");
+    if (url.hostname.endsWith("facebook.com")) return url.pathname.startsWith("/watch") || url.pathname.includes("/videos/") || url.searchParams.has("v");
+    return false;
+  } catch { return false; }
+}
+
+function isCaptureSupportedUrl(value) {
+  try {
+    return ["http:", "https:"].includes(new URL(value).protocol);
   } catch { return false; }
 }
 
@@ -279,7 +319,7 @@ async function waitForReceiver(tabId) {
 
 function waitForTabLoad(tabId) {
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => { chrome.tabs.onUpdated.removeListener(listener); reject(new Error("YouTube reload timed out")); }, 15_000);
+    const timeout = setTimeout(() => { chrome.tabs.onUpdated.removeListener(listener); reject(new Error("Supported video page reload timed out")); }, 15_000);
     const listener = (updatedTabId, info) => {
       if (updatedTabId !== tabId || info.status !== "complete") return;
       clearTimeout(timeout); chrome.tabs.onUpdated.removeListener(listener); setTimeout(resolve, 300);

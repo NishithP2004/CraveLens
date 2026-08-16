@@ -1,0 +1,16 @@
+CraveLens turns visible food cravings from supported videos and webpages into ready-to-review Swiggy carts.
+
+While you watch YouTube, Instagram Reels, or Facebook videos, CraveLens can detect visible food and use Gemma 3n on your device to identify the dish, cuisine, ingredients, and dining context. On other webpages, use the keyboard shortcut to draw a rectangular lasso around the food you want checked. When a craving is confidently recognized, the AI cart agent searches Swiggy, considers your order history and preferences, selects a suitable restaurant and item, checks the cart total, and looks for applicable offers.
+
+Why install CraveLens?
+
+- Discover and order dishes without interrupting your video or browsing
+- Use auto-detection on YouTube, Instagram, and Facebook videos
+- Lasso-select visible food on other webpages
+- Get personalized suggestions based on your Swiggy history
+- Automatically compare suitable items and available discounts
+- Review an itemized cart before taking action
+- Keep visual food analysis on your device
+- Stay in control: CraveLens never places an order without your confirmation
+
+From "that looks delicious" to a personalized cart in moments, CraveLens makes food discovery effortless while keeping the final decision firmly in your hands.

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { SystemMessage } from "@langchain/core/messages";
 import { AgentFollowUpSchema, CartCustomizationSchema, CartMutationSchema, CouponSelectionSchema, FoodVerificationSchema, OrchestrateRequestSchema } from "@cravelens/shared";
 import { isSuggestionExpired, orchestrationFlightKey, runSingleFlight } from "./app.js";
-import { appendSystemInstruction, createSearchBudgetGuard, directMenuSearchPlan, discoverDirectMenuSearch, finalCartAgentResponseContent, hasQuickAddMenuCandidate, invokeModelWithToolChoiceRetry, isOutputParseFailedError, isToolChoiceMismatchError, isTransientModelError, localCartPhaseRequest, normalizeAgentFollowUpPayload, normalizeToolSchema, recordCartToolCompletion, recoverFailedGenerationToolCall, replaceSystemInstruction, shouldFinalizeCartAgent, shouldRetryMissingToolCall, splitAgentResponse, verifyPendingCartMutation, withActiveToolChoice, withRequiredToolReminder } from "./swiggy-agent.js";
+import { appendSystemInstruction, createSearchBudgetGuard, directMenuSearchPlan, discoverDirectMenuSearch, finalCartAgentResponseContent, hasQuickAddMenuCandidate, invokeModelWithToolChoiceRetry, isOutputParseFailedError, isToolChoiceMismatchError, isTransientModelError, localCartPhaseRequest, normalizeAgentFollowUpPayload, normalizeToolSchema, recordCartToolCompletion, recoverFailedGenerationToolCall, replaceSystemInstruction, shouldFinalizeCartAgent, shouldRetryMissingToolCall, splitAgentResponse, unavailableFailedGenerationToolName, verifyPendingCartMutation, withActiveToolChoice, withRequiredToolReminder, withUnavailableToolReminder } from "./swiggy-agent.js";
 import { unwrap } from "./swiggy-mcp.js";
 import { claimThreadStatus, getThread, saveThread } from "./store.js";
 import { applyBestVerifiedCoupon, cartReflectsItems, configuredMenuItemPayload, currentTemporalContext, normalizeAddress, normalizeCartReceipt, normalizeFoodCoupons, normalizeMenuCatalog, normalizeMenuOptionGroups, normalizePaymentOptions, normalizePaymentStatus, normalizePendingPayment, reconcileCouponRationale, resolveAppliedCouponDiscount, resolveCouponCode, resolveDeliveryEta, resolveDietaryType, resolveItemDescription, resolveItemImage, resolveProductRating, resolveRestaurantLocation, resolveRestaurantLogo, resolveRestaurantName, resolveRestaurantNameWithRetry, resolveRestaurantRating } from "./swiggy.js";
@@ -327,6 +327,24 @@ HUMAN_INPUT_UI:
     const hallucinated = new Error('400 {"code":"tool_use_failed","message":"Tool choice is none, but model called a tool","failed_generation":"{\\"name\\": \\"repo_browser.open_file\\", \\"arguments\\": {}}"}');
     expect(recoverFailedGenerationToolCall(namespaced, tools)).toMatchObject({ name: "get_food_orders", args: {} });
     expect(recoverFailedGenerationToolCall(hallucinated, tools)).toBeUndefined();
+  });
+  it("retries Groq validation failures for unavailable tools with an explicit reminder", async () => {
+    const error = new Error('400 litellm.BadRequestError: GroqException - {"error":{"message":"Tool call validation failed: tool call validation failed: attempted to call tool \\"get_addresses\\" which was not in request.tools","type":"invalid_request_error","code":"tool_use_failed","failed_generation":"{\\"name\\": \\"get_addresses\\", \\"arguments\\": {}}"}}');
+    const tools = [{ name: "get_food_orders" }, { name: "search_menu" }];
+    expect(isToolChoiceMismatchError(error)).toBe(true);
+    expect(unavailableFailedGenerationToolName(error, tools)).toBe("get_addresses");
+    const reminded = withUnavailableToolReminder({ tools, messages: [] }, "get_addresses");
+    expect(reminded.messages.at(-1).content).toContain("selected delivery address is already pinned");
+    let attempts = 0;
+    const retries = [];
+    const response = await invokeModelWithToolChoiceRetry({ tools, messages: [] }, async (request) => {
+      attempts += 1;
+      if (attempts === 1) throw error;
+      expect(request.messages.at(-1).content).toContain("Do not call \"get_addresses\"");
+      return { ok: true };
+    }, { onRetry: (event) => retries.push(event.reason) });
+    expect(response).toEqual({ ok: true });
+    expect(retries).toEqual(["unavailable_tool_call"]);
   });
   it("recovers one unambiguous no-argument tool from Groq output_parse_failed prose", async () => {
     const parseFailure = new Error('400 {"error":{"code":"output_parse_failed","message":"Parsing failed. See failed_generation.","failed_generation":"We need to proceed. Call get_food_orders, then inspect the result."}}');
@@ -726,6 +744,30 @@ HUMAN_INPUT_UI:
       expect.objectContaining({ code: "ADD150", applicable: false, selectable: false, ineligibilityReason: "Add ₹150 more" }),
     ]));
     expect(promos.some((promo) => promo.bestMatch)).toBe(false);
+  });
+  it("normalizes Swiggy structured coupon titles as codes when the code field is absent", () => {
+    const promos = normalizeFoodCoupons({
+      status_message: "done successfully",
+      coupon_sections: [{
+        title: "More offers",
+        coupons: [{
+          id: "8245681b-c4e5-4734-8ec4-579961e553a7",
+          title: "XTRAPARTY",
+          subtitle: "Add ₹2129 more to avail this offer",
+          description: "Use Code XTRAPARTY and get FLAT 10% off on order above Rs.2500. No Upper Limit.",
+          ribbon_text: "10% OFF",
+        }],
+      }],
+      summary: { total_coupons: 1, applicable_coupons: 0 },
+    });
+    expect(promos).toEqual([
+      expect.objectContaining({
+        code: "XTRAPARTY",
+        applicable: false,
+        selectable: false,
+        ineligibilityReason: "Add ₹2129 more to avail this offer",
+      }),
+    ]);
   });
   it("normalizes serialized coupon payloads but excludes zero-discount cart suggestion metadata", () => {
     const coupons = normalizeFoodCoupons({

@@ -11,7 +11,7 @@
     
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="CraveLens is a Chrome extension that uses on-device AI to identify food in YouTube videos and prepare personalized Swiggy carts for your review." />
+    <meta name="description" content="CraveLens is a Chrome extension that uses on-device AI to identify food in supported videos and selected webpage regions, then prepare personalized Swiggy carts for your review." />
     <meta name="keywords" content="CraveLens, Chrome extension, Swiggy Builders Club, food detection, food recognition AI, on-device AI, Gemma 3n, Swiggy cart, personalized food recommendations, visual food search, food ordering assistant" />
     <meta name="author" content="Nishith P" />
     <meta name="theme-color" content="#ff5b38" />
@@ -24,7 +24,7 @@
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="CraveLens" />
     <meta property="og:title" content="CraveLens — See it. Crave it. Get it." />
-    <meta property="og:description" content="Identify dishes in YouTube videos with on-device AI and prepare a personalized Swiggy cart that you control." />
+    <meta property="og:description" content="Identify dishes in supported videos or selected webpage regions with on-device AI and prepare a personalized Swiggy cart that you control." />
     <meta property="og:url" content="https://cravelens.nishithp.page/" />
     <meta property="og:image" content="https://cravelens.nishithp.page/cravelens-social.png" />
     <meta property="og:image:secure_url" content="https://cravelens.nishithp.page/cravelens-social.png" />
@@ -35,7 +35,7 @@
 
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="CraveLens — See it. Crave it. Get it." />
-    <meta name="twitter:description" content="Identify dishes in YouTube videos with on-device AI and prepare a personalized Swiggy cart that you control." />
+    <meta name="twitter:description" content="Identify dishes in supported videos or selected webpage regions with on-device AI and prepare a personalized Swiggy cart that you control." />
     <meta name="twitter:image" content="https://cravelens.nishithp.page/cravelens-social.png" />
     <meta name="twitter:image:alt" content="CraveLens detecting a paneer tikka pizza" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -53,8 +53,8 @@
         "author": { "@type": "Person", "name": "Nishith P" },
         "applicationCategory": "BrowserApplication",
         "operatingSystem": "Chrome",
-        "description": "A Chrome extension that uses on-device AI to identify food in YouTube videos and prepare personalized Swiggy carts for user review.",
-        "keywords": "Chrome extension, YouTube food detection, on-device AI, Gemma 3n, Swiggy cart, personalized food recommendations",
+        "description": "A Chrome extension that uses on-device AI to identify food in supported videos and selected webpage regions, then prepare personalized Swiggy carts for user review.",
+        "keywords": "Chrome extension, YouTube food detection, Instagram Reels food detection, Facebook Watch food detection, visual food search, on-device AI, Gemma 3n, Swiggy cart, personalized food recommendations",
         "browserRequirements": "Google Chrome with WebGPU support",
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "INR" }
       }
@@ -88,7 +88,7 @@
         <div class="hero-copy">
           <div class="eyebrow eyebrow-swiggy"><span class="pulse"></span><img src="/provider-icons/swiggy.png" alt="Swiggy" /> Builders Club integration</div>
           <h1>See it.<br>Crave it. <em>Get it.</em></h1>
-          <p class="hero-lede">CraveLens spots the food in your videos, finds your perfect match nearby through Swiggy, and gets it ready to order - without breaking your scroll.</p>
+          <p class="hero-lede">CraveLens spots food in supported videos or a selected part of any page, finds your perfect match nearby through Swiggy, and gets it ready to order - without breaking your scroll.</p>
           <div class="hero-actions">
             <a class="button install-trigger" href="#download">
               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.8 8h16.4M9.5 20.4l4.3-7.5M7 4.2l4.3 7.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
@@ -134,7 +134,7 @@
           <article class="story-panel story-cinema">
             <span class="story-label">The Spark</span>
             <h3>The craving hit before the app could catch up.</h3>
-            <p>You're deep into a YouTube travel vlog or an anime marathon, and a steaming bowl of ramen appears. Pausing, searching, comparing restaurants, and rebuilding the dish from memory is enough friction to kill the impulse.</p>
+            <p>You're deep into a YouTube travel vlog, an Instagram Reel, a Facebook video, or a food page, and a steaming bowl of ramen appears. Pausing, searching, comparing restaurants, and rebuilding the dish from memory is enough friction to kill the impulse.</p>
             <blockquote>Why couldn't the screen just know what you were looking at and bring it to your door?</blockquote>
           </article>
           <article class="story-panel story-inspiration">
@@ -196,8 +196,8 @@
           <p>Keep watching. CraveLens works quietly in the background and only pops up when it finds something delicious.</p>
         </div>
         <div class="step-grid">
-          <article class="step-card coral"><span class="step-number">01</span><div class="step-art eye-art"><div class="eye"><i></i></div><span>Scanning locally…</span></div><h3>Watch what you love</h3><p>Browse YouTube as usual. Nothing new to learn, nothing extra to open.</p></article>
-          <article class="step-card lime"><span class="step-number">02</span><div class="step-art detect-art"><div class="mini-frame">🍜<span></span></div><div class="confidence"><i></i><b>Ramen</b><small>96% match</small></div></div><h3>We spot the craving</h3><p>On-device AI recognizes the dish without sending your video frames anywhere.</p></article>
+          <article class="step-card coral"><span class="step-number">01</span><div class="step-art eye-art"><div class="eye"><i></i></div><span>Scanning locally…</span></div><h3>Watch what you love</h3><p>Browse supported video sites as usual, or lasso a food moment on any page.</p></article>
+          <article class="step-card lime"><span class="step-number">02</span><div class="step-art detect-art"><div class="mini-frame">🍜<span></span></div><div class="confidence"><i></i><b>Ramen</b><small>96% match</small></div></div><h3>We spot the craving</h3><p>On-device AI recognizes the dish without sending video frames or selected page images anywhere.</p></article>
           <article class="step-card ink"><span class="step-number">03</span><div class="step-art order-art"><div>Order ready <b>₹279</b></div><button type="button">Looks delicious →</button></div><h3>You choose the match</h3><p>Get a personalized nearby pick from Swiggy listings, with current prices, offers, and you in control.</p></article>
         </div>
       </section>
@@ -221,8 +221,8 @@
         <span class="kicker">A FEW GOOD QUESTIONS</span><h2>Still curious?</h2>
         <div class="faq-list">
           <details name="faq" open><summary>Does CraveLens place orders automatically?<span>＋</span></summary><p>Never. CraveLens can prepare the perfect cart, but the final order always waits for your explicit confirmation.</p></details>
-          <details name="faq"><summary>Which videos does it work with?<span>＋</span></summary><p>CraveLens currently works on YouTube videos in Chrome and recognizes a growing catalog of dishes and food moments.</p></details>
-          <details name="faq"><summary>Is my browsing data uploaded?<span>＋</span></summary><p>No. The first food-detection step happens locally in your browser, and only a chosen food frame is used to identify the dish.</p></details>
+          <details name="faq"><summary>Which videos does it work with?<span>＋</span></summary><p>CraveLens supports YouTube videos and Shorts, Instagram Reels, and Facebook Watch/video pages in Chrome. On other pages, use the keyboard shortcut to lasso the food you want checked.</p></details>
+          <details name="faq"><summary>Is my browsing data uploaded?<span>＋</span></summary><p>No. Food detection happens locally in your browser. For lasso scans, only the selected visible region is captured for local verification; browsing history and full-page activity are not uploaded.</p></details>
           <!-- <details name="faq"><summary>Why does CraveLens need a local service?<span>＋</span></summary><p>The extension runs the watching experience in Chrome, while the local service handles Swiggy OAuth, secure sessions, cart planning, and order confirmation flows.</p></details> -->
           <details name="faq"><summary>Do I need to connect Swiggy?<span>＋</span></summary><p>You can explore detection without ordering, but connecting Swiggy is needed to use saved addresses, nearby listings, menus, offers, carts, and checkout.</p></details>
           <details name="faq"><summary>Are prices and offers final?<span>＋</span></summary><p>CraveLens shows Swiggy listing, price, fee, delivery, and offer information as provided at the time it prepares your cart. Always review the final Swiggy checkout details before confirming.</p></details>

@@ -42,8 +42,8 @@
       <header class="policy-hero">
         <span class="kicker">PRIVACY, IN PLAIN LANGUAGE</span>
         <h1>Privacy Policy</h1>
-        <p>CraveLens uses the minimum data needed to recognize food in YouTube videos and prepare a Swiggy cart that you can review. Food-frame analysis happens on your device, Swiggy customer details are used only for the order flow you request, and an order is never placed without your explicit confirmation.</p>
-        <div class="policy-meta"><span>Effective July 8, 2026</span><span>Last updated August 7, 2026</span></div>
+        <p>CraveLens uses the minimum data needed to recognize visible food in supported videos or a webpage region you select, then prepare a Swiggy cart that you can review. Food-frame and lasso analysis happens on your device, Swiggy customer details are used only for the order flow you request, and an order is never placed without your explicit confirmation.</p>
+        <div class="policy-meta"><span>Effective July 8, 2026</span><span>Last updated August 17, 2026</span></div>
       </header>
 
       <div class="policy-layout">
@@ -63,21 +63,22 @@
 
         <article class="policy-content">
           <section class="policy-summary" aria-label="Privacy summary">
-            <div><b>On-device vision</b><span>Sampled video frames are analyzed locally and are not uploaded to CraveLens, Swiggy, or an AI API.</span></div>
+            <div><b>On-device vision</b><span>Sampled video frames and selected lasso regions are analyzed locally and are not uploaded to CraveLens, Swiggy, or an AI API.</span></div>
             <div><b>No data sales</b><span>We do not sell personal data or use it for advertising, lending, or creditworthiness.</span></div>
             <div><b>You confirm orders</b><span>CraveLens may prepare a cart, but only you can approve placing the order.</span></div>
           </section>
 
           <section id="scope">
             <h2>1. Scope</h2>
-            <p>This policy describes how the CraveLens Chrome extension, landing site, and supporting CraveLens service (together, “CraveLens,” “we,” or “us”) handle information. It applies when you use the extension on YouTube, connect a Swiggy account, ask CraveLens to prepare a cart, or contact us.</p>
+            <p>This policy describes how the CraveLens Chrome extension, landing site, and supporting CraveLens service (together, “CraveLens,” “we,” or “us”) handle information. It applies when you use the extension on supported video sites, use the lasso selector on a webpage, connect a Swiggy account, ask CraveLens to prepare a cart, or contact us.</p>
           </section>
 
           <section id="data">
             <h2>2. Data we process</h2>
             <h3>Video and website context</h3>
-            <p>The extension accesses the active YouTube video so it can sample frames, read the video identifier and title, record the playback timestamp where food was detected, and retrieve a short window of available YouTube captions around that timestamp. Sampled frames and caption context are processed locally in an offscreen extension document by the bundled food detector and the configured local VLM, such as Gemini Nano, browser-downloaded Gemma 3n, or an Ollama vision model. Frames and captions are not sent to our server, Swiggy, or the provider of any hosted cart-planning AI model.</p>
-            <p>When food is confidently identified, CraveLens sends our supporting service the YouTube video identifier, title, playback timestamp, detector confidence, and a structured food description such as the dish, cuisine, likely ingredients, confidence, and dining context. The surrounding caption text is not included.</p>
+            <p>The extension accesses supported video pages, including YouTube, Instagram Reels, and Facebook Watch/video pages, so it can sample visible video frames, read a source identifier and title where available, and record the timestamp where food was detected. On YouTube, it may also retrieve a short window of available captions around that timestamp. Sampled frames and caption context are processed locally in an offscreen extension document by the bundled food detector and the configured local VLM, such as Gemini Nano, browser-downloaded Gemma 3n, or an Ollama vision model. Frames and captions are not sent to our server, Swiggy, or the provider of any hosted cart-planning AI model.</p>
+            <p>When you use the keyboard shortcut on another webpage, CraveLens shows a rectangular lasso selector. The extension captures the visible tab only after you select an area, crops that screenshot to the selected rectangle, and uses the cropped region for local food verification. The full screenshot is not sent to our server, Swiggy, or an AI API.</p>
+            <p>When food is confidently identified, CraveLens sends our supporting service the source identifier, page or video title, timestamp or page-selection marker, detector confidence, and a structured food description such as the dish, cuisine, likely ingredients, confidence, and dining context. The surrounding caption text and selected image are not included.</p>
 
             <h3>Swiggy account and delivery information</h3>
             <p>If you choose to connect Swiggy, we process an OAuth session identifier and authorization tokens needed to maintain that connection. Through Swiggy, CraveLens may retrieve saved delivery addresses (which can contain a name, address, phone number, label, and coordinates), recent food orders, restaurant and menu information, cart contents, prices, fees, discounts, delivery estimates, and available payment-method names. If you choose UPI, CraveLens temporarily processes Swiggy's UPI payment intent, pending-payment references, amount, and expiry so it can display the QR code, check payment status, and confirm the paid order. CraveLens does not ask for or store your payment-card number, CVV, Swiggy password, UPI ID, or PIN.</p>
@@ -86,15 +87,15 @@
             <p>If saved Swiggy addresses include coordinates and you grant Chrome’s geolocation permission, the extension reads your device coordinates to select the nearest saved address. This distance comparison happens locally in the extension. Your live device coordinates are not sent to our server or Swiggy by CraveLens.</p>
 
             <h3>Settings and extension activity</h3>
-            <p>The extension stores settings such as enabled status, detection sensitivity, debug preference, selected address identifier and label, optional food-preference context you enter, connection session identifier and expiration, detected dishes, and prepared-cart history. It also handles progress events needed to show what the cart agent is doing. We do not monitor keystrokes, mouse movement, general browsing history, personal communications, or activity on sites other than the YouTube pages covered by the extension.</p>
+            <p>The extension stores settings such as enabled status, detection sensitivity, model scan interval, keyboard shortcut behavior, per-site auto-detection preferences, debug preference, selected address identifier and label, optional food-preference context you enter, connection session identifier and expiration, detected dishes, and prepared-cart history. It also handles progress events needed to show what the cart agent is doing. We do not monitor keystrokes, mouse movement, general browsing history, personal communications, or page activity outside supported video detection and user-initiated lasso scans.</p>
           </section>
 
           <section id="use">
             <h2>3. How we use data</h2>
             <p>We use the information above only to provide and improve CraveLens’ user-facing purpose:</p>
             <ul>
-              <li>detect and identify visible food in the current YouTube video;</li>
-              <li>avoid duplicate suggestions for the same dish or video moment;</li>
+              <li>detect and identify visible food in the current supported video or selected webpage region;</li>
+              <li>avoid duplicate suggestions for the same dish, video moment, or page selection;</li>
               <li>connect the Swiggy account you authorize, select a delivery address, and consummate the order flow you request;</li>
               <li>use relevant order history and preferences to find a suitable restaurant and menu item;</li>
               <li>prepare, verify, and display a cart, charges, delivery estimate, and applicable discount;</li>
@@ -110,7 +111,7 @@
             <p>We do not sell user data. We disclose data only as needed for the following approved purposes:</p>
             <ul>
               <li><strong>Swiggy:</strong> to authenticate the connection you request and retrieve addresses, orders, restaurants, menus, carts, offers, order support details, and order results.</li>
-              <li><strong>Cart-planning AI provider:</strong> to process the identified food description, selected-address summary, and relevant Swiggy results so the agent can choose and verify a personalized cart. Video frames and live device coordinates are not provided to this service.</li>
+              <li><strong>Cart-planning AI provider:</strong> to process the identified food description, selected-address summary, and relevant Swiggy results so the agent can choose and verify a personalized cart. Video frames, lasso images, and live device coordinates are not provided to this service.</li>
               <li><strong>Hosting and infrastructure providers:</strong> to operate and secure the supporting service and its database.</li>
               <li><strong>Legal or safety disclosures:</strong> if required by law or reasonably necessary to protect users, CraveLens, or the public.</li>
               <li><strong>Business transfer:</strong> as part of a merger, acquisition, financing, or sale, subject to this policy and applicable law.</li>
@@ -120,7 +121,7 @@
 
           <section id="storage">
             <h2>5. Storage and retention</h2>
-            <p>Extension settings, session identifiers, detected-food history, and prepared-cart history are stored locally in your Chrome profile or the YouTube site storage used by the extension. You can remove this local information by clearing extension/site data or uninstalling CraveLens.</p>
+            <p>Extension settings, session identifiers, detected-food history, and prepared-cart history are stored locally in your Chrome profile or the site storage used by the extension for each supported source. You can remove this local information by clearing extension/site data or uninstalling CraveLens.</p>
             <p>The supporting service stores OAuth credentials and provider keys encrypted in Redis, stores only hashes of rotating device refresh tokens, and may retain detection records and prepared-cart records in its database. We retain information only while it is reasonably needed to provide the service, maintain security and records, resolve disputes, satisfy legal obligations, or conclude orders you approved. Retention periods can vary by data type and operational need. You may request deletion using the contact details below.</p>
           </section>
 
@@ -128,6 +129,8 @@
             <h2>6. Your choices and controls</h2>
             <ul>
               <li>Disable food detection from the extension popup.</li>
+              <li>Enable or disable auto-detection separately for YouTube, Instagram, and Facebook.</li>
+              <li>Choose whether the keyboard shortcut auto-scans supported video sites and uses lasso elsewhere, or always starts lasso selection.</li>
               <li>Deny geolocation; you can still select a saved address manually or use Swiggy’s first recommended address.</li>
               <li>Choose which saved delivery address CraveLens uses.</li>
               <li>Decline any proposed cart. No order is placed without your confirmation.</li>

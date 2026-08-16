@@ -1,13 +1,14 @@
 const DEFAULT_SENSITIVITY = .38;
 const DEFAULT_SCAN_INTERVAL_MS = 4000;
-const MIN_SCAN_INTERVAL_MS = 2000;
+const MIN_SCAN_INTERVAL_MS = 1000;
 const MAX_SCAN_INTERVAL_MS = 30000;
+const DEFAULT_SHORTCUT_BEHAVIOR = "auto-supported";
 const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434";
 const MIN_LOCAL_CONTEXT_TOKENS = 4_096;
 const DEFAULT_LOCAL_CONTEXT_TOKENS = 16_384;
 const MAX_LOCAL_CONTEXT_TOKENS = 32_768;
-const ids = ["enabled", "debug", "sensitivity", "scanIntervalMs", "personalContext"];
-const defaults = { enabled: true, debug: false, addressId: "", addressLabel: "", sensitivity: DEFAULT_SENSITIVITY, scanIntervalMs: DEFAULT_SCAN_INTERVAL_MS, themeMode: "system", personalContext: "" };
+const ids = ["enabled", "debug", "sensitivity", "scanIntervalMs", "autoDetectYouTube", "autoDetectInstagram", "autoDetectFacebook", "shortcutBehavior", "personalContext"];
+const defaults = { enabled: true, debug: false, addressId: "", addressLabel: "", sensitivity: DEFAULT_SENSITIVITY, scanIntervalMs: DEFAULT_SCAN_INTERVAL_MS, autoDetectYouTube: true, autoDetectInstagram: true, autoDetectFacebook: true, shortcutBehavior: DEFAULT_SHORTCUT_BEHAVIOR, themeMode: "system", personalContext: "" };
 const preferenceKeys = Object.keys(defaults);
 const PREFERENCE_CACHE_KEY = "cravelens.preferences.v1";
 let selectedAddress;
@@ -42,7 +43,7 @@ async function main() {
   const values = await loadPreferences();
   await savePreferences(values);
   applyTheme(values.themeMode);
-  for (const id of ids) document.getElementById(id)[id === "enabled" || id === "debug" ? "checked" : "value"] = values[id];
+  for (const id of ids) setPreferenceControlValue(id, values[id]);
   await setupModelSettings();
   updateEnabledState(values.enabled);
   const updateRangeProgress = (input, valueText) => {
@@ -88,7 +89,7 @@ async function main() {
   document.getElementById("save").addEventListener("click", async () => {
     const enabled = document.getElementById("enabled").checked;
     if (!enabled) document.getElementById("debug").checked = false;
-    const preferences = { enabled, debug: enabled && document.getElementById("debug").checked, addressId: selectedAddress?.id || "", addressLabel: selectedAddress ? addressLabel(selectedAddress) : "", sensitivity: Number(document.getElementById("sensitivity").value), scanIntervalMs: Number(document.getElementById("scanIntervalMs").value), personalContext: document.getElementById("personalContext").value.trim() };
+    const preferences = { enabled, debug: enabled && document.getElementById("debug").checked, addressId: selectedAddress?.id || "", addressLabel: selectedAddress ? addressLabel(selectedAddress) : "", sensitivity: Number(document.getElementById("sensitivity").value), scanIntervalMs: Number(document.getElementById("scanIntervalMs").value), autoDetectYouTube: document.getElementById("autoDetectYouTube").checked, autoDetectInstagram: document.getElementById("autoDetectInstagram").checked, autoDetectFacebook: document.getElementById("autoDetectFacebook").checked, shortcutBehavior: shortcutBehaviorValue(), personalContext: document.getElementById("personalContext").value.trim() };
     await Promise.all([savePreferences(preferences), saveModelSettings()]);
     updateEnabledState(preferences.enabled);
     showMessage("Saved");
@@ -96,8 +97,12 @@ async function main() {
   document.getElementById("resetDetectionDefaults").addEventListener("click", async () => {
     document.getElementById("sensitivity").value = DEFAULT_SENSITIVITY;
     document.getElementById("scanIntervalMs").value = DEFAULT_SCAN_INTERVAL_MS;
+    document.getElementById("autoDetectYouTube").checked = true;
+    document.getElementById("autoDetectInstagram").checked = true;
+    document.getElementById("autoDetectFacebook").checked = true;
+    setShortcutBehavior(DEFAULT_SHORTCUT_BEHAVIOR);
     updateDetectionOutputs();
-    await savePreferences({ sensitivity: DEFAULT_SENSITIVITY, scanIntervalMs: DEFAULT_SCAN_INTERVAL_MS });
+    await savePreferences({ sensitivity: DEFAULT_SENSITIVITY, scanIntervalMs: DEFAULT_SCAN_INTERVAL_MS, autoDetectYouTube: true, autoDetectInstagram: true, autoDetectFacebook: true, shortcutBehavior: DEFAULT_SHORTCUT_BEHAVIOR });
     showMessage("Detection defaults restored");
   });
   document.getElementById("connect").addEventListener("click", beginSwiggySignIn);
@@ -106,6 +111,7 @@ async function main() {
     await savePreferences({ debug: event.target.checked }); await sendToYouTube({ type: "CRAVELENS_DEBUG_CHANGED" }).catch(() => {});
   });
   document.getElementById("scan").addEventListener("click", scanCurrentFrame);
+  document.querySelectorAll('input[name="shortcutBehavior"]').forEach((input) => input.addEventListener("change", () => updateShortcutSlider()));
   document.getElementById("addressTrigger").addEventListener("click", toggleAddressList);
   document.addEventListener("click", (event) => { if (!document.getElementById("addressPicker").contains(event.target)) closeAddressList(); });
   const connection = await getSwiggyConnection();
@@ -127,6 +133,40 @@ async function scanCurrentFrame() {
       : food || "No food class detected";
   } catch (error) { document.getElementById("message").textContent = error.message; }
   finally { updateEnabledState(document.getElementById("enabled").checked); setScanButtonLabel("Scan current frame"); }
+}
+
+function setPreferenceControlValue(id, value) {
+  if (id === "shortcutBehavior") {
+    setShortcutBehavior(value);
+    return;
+  }
+  const control = document.getElementById(id);
+  if (!control) return;
+  control[isCheckboxPreference(id) ? "checked" : "value"] = value;
+}
+
+function isCheckboxPreference(id) {
+  return ["enabled", "debug", "autoDetectYouTube", "autoDetectInstagram", "autoDetectFacebook"].includes(id);
+}
+
+function setShortcutBehavior(value = DEFAULT_SHORTCUT_BEHAVIOR) {
+  const normalized = ["auto-supported", "lasso-always"].includes(value) ? value : DEFAULT_SHORTCUT_BEHAVIOR;
+  const input = document.querySelector(`input[name="shortcutBehavior"][value="${normalized}"]`);
+  if (input) input.checked = true;
+  updateShortcutSlider();
+}
+
+function shortcutBehaviorValue() {
+  return document.querySelector('input[name="shortcutBehavior"]:checked')?.value || DEFAULT_SHORTCUT_BEHAVIOR;
+}
+
+function updateShortcutSlider() {
+  const slider = document.getElementById("shortcutBehavior");
+  if (slider) slider.dataset.value = shortcutBehaviorValue();
+  const hint = document.getElementById("shortcutBehaviorHint");
+  if (hint) hint.textContent = shortcutBehaviorValue() === "lasso-always"
+    ? "Shortcut always opens the rectangular selector."
+    : "Scans video frames on supported sites; uses lasso elsewhere.";
 }
 
 async function setupModelSettings() {
@@ -826,6 +866,9 @@ function sanitizePreferences(value) {
   for (const key of preferenceKeys) if (Object.prototype.hasOwnProperty.call(value || {}, key)) preferences[key] = value[key];
   if (typeof preferences.enabled !== "boolean") delete preferences.enabled;
   if (typeof preferences.debug !== "boolean") delete preferences.debug;
+  if (typeof preferences.autoDetectYouTube !== "boolean") delete preferences.autoDetectYouTube;
+  if (typeof preferences.autoDetectInstagram !== "boolean") delete preferences.autoDetectInstagram;
+  if (typeof preferences.autoDetectFacebook !== "boolean") delete preferences.autoDetectFacebook;
   if (typeof preferences.addressId !== "string") delete preferences.addressId;
   if (typeof preferences.addressLabel !== "string") delete preferences.addressLabel;
   if (typeof preferences.personalContext !== "string") delete preferences.personalContext;
@@ -834,6 +877,7 @@ function sanitizePreferences(value) {
   if (!Number.isFinite(preferences.sensitivity)) delete preferences.sensitivity;
   if (!Number.isFinite(preferences.scanIntervalMs)) delete preferences.scanIntervalMs;
   else preferences.scanIntervalMs = Math.max(MIN_SCAN_INTERVAL_MS, Math.min(MAX_SCAN_INTERVAL_MS, Math.round(preferences.scanIntervalMs / 1000) * 1000));
+  if (!["auto-supported", "lasso-always"].includes(preferences.shortcutBehavior)) delete preferences.shortcutBehavior;
   return preferences;
 }
 function resolvedTheme(mode = document.documentElement.dataset.themeMode || "system") {
