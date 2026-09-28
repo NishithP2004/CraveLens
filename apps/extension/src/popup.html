@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <link rel="stylesheet" href="./popup.css">
+    <link rel="stylesheet" href="./environment.css">
     <link rel="stylesheet" href="./popup-glass.css">
     <link rel="stylesheet" href="./model-settings.css">
     <title>CraveLens</title>
@@ -35,6 +36,18 @@
             <span>Powered by</span>
             <img src="../provider-icons/swiggy.png" alt="Swiggy">
         </div>
+        <section class="environment-control" aria-labelledby="environmentTitle">
+            <span class="environment-copy">
+                <b id="environmentTitle">Server environment</b>
+                <small id="environmentDetail">Loading connection target…</small>
+            </span>
+            <label class="environment-toggle">
+                <span>Dev</span>
+                <input id="environmentMode" type="checkbox" role="switch" aria-describedby="environmentDetail">
+                <i aria-hidden="true"></i>
+                <span>Prod</span>
+            </label>
+        </section>
         <button id="connect" class="secondary connect-button" hidden>Connect Swiggy <span aria-hidden="true">↗</span></button>
 
         <details class="settings-card context-card" name="popup-context" open>

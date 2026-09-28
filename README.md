@@ -192,6 +192,31 @@ Then:
 
 During extension development, `npm run dev` watches and rebuilds the extension. Reload the unpacked extension from `chrome://extensions` after a rebuild. Restart the Node process after server changes.
 
+### Local Swiggy OAuth
+
+For local sign-in, start the local server with `npm run dev:local`, reload the
+extension, and switch **Server environment** to **Dev** (the Prod toggle is
+off). These three values must agree:
+
+```text
+Extension API:     http://localhost:8787
+PUBLIC_BASE_URL:   http://localhost:8787
+Swiggy callback:   http://localhost:8787/api/swiggy/auth/callback
+```
+
+Swiggy must allowlist that exact localhost callback as well as the production
+callback. The popup deliberately shows **Connect Swiggy** first; clicking it
+starts the authorization in a user-initiated browser tab.
+
+### Production: GitHub Pages with a Raspberry Pi server
+
+The landing page may remain on GitHub Pages at `https://cravelens.nishithp.page`.
+The companion Cloudflare Worker in `apps/edge-proxy` intercepts only `/api/*`,
+`/socket.io/*`, `/health`, and `/models/*`, then forwards those requests through
+an Access-protected Cloudflare Tunnel to the Pi. All other paths continue to
+GitHub Pages. Follow the deployment instructions in
+[`apps/edge-proxy/README.md`](apps/edge-proxy/README.md).
+
 ## Local model setup
 
 The YOLO food detector and ONNX Runtime WASM are bundled with the extension. The detector model is located at:

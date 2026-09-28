@@ -28,7 +28,7 @@ const api = (path, options = {}) => chrome.runtime.sendMessage({ type: "CRAVELEN
 const settings = async () => {
   if (extensionContextStopped || !chrome.runtime?.id) throw new Error("Extension context invalidated.");
   try {
-    return await chrome.storage.local.get({ enabled: true, debug: false, apiUrl: "http://localhost:8787", addressId: "", addressLabel: "", sensitivity: .38, scanIntervalMs: DEFAULT_SCAN_INTERVAL_MS, autoDetectYouTube: true, autoDetectInstagram: true, autoDetectFacebook: true, themeMode: "system", personalContext: "" });
+    return await chrome.storage.local.get({ enabled: true, debug: false, apiUrl: "https://cravelens.nishithp.page", addressId: "", addressLabel: "", sensitivity: .38, scanIntervalMs: DEFAULT_SCAN_INTERVAL_MS, autoDetectYouTube: true, autoDetectInstagram: true, autoDetectFacebook: true, themeMode: "system", personalContext: "" });
   } catch (error) {
     if (isExtensionContextInvalidated(error)) stopInvalidatedExtensionContext();
     throw error;

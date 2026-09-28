@@ -43,7 +43,12 @@ export async function startSwiggyAuthorization(deviceId) {
   const pending = { deviceId, redirectUrl: redirectUri, verifier: provider.verifier, clientInformation: provider.clientInfo, createdAt: Date.now() };
   await Promise.all([
     redis.set(redisKeys.oauthState(sha256(state)), encryptJson(pending, `cravelens:oauth:${state}`), { EX: OAUTH_TTL_SECONDS }),
-    redis.hSet(redisKeys.device(deviceId), { swiggyOAuthStatus: "pending", updatedAt: String(Date.now()) }),
+    redis.hSet(redisKeys.device(deviceId), {
+      swiggyOAuthStatus: "pending",
+      swiggyOAuthPendingExpiresAt: String(Date.now() + OAUTH_TTL_SECONDS * 1000),
+      swiggyOAuthError: "",
+      updatedAt: String(Date.now()),
+    }),
   ]);
   return { authorizationUrl: provider.authorizationUrl, expiresAt: Date.now() + OAUTH_TTL_SECONDS * 1000 };
 }
@@ -63,12 +68,22 @@ export async function completeSwiggyAuthorization(state, code) {
     const credential = { redirectUrl: pending.redirectUrl, tokens: provider.oauthTokens, clientInformation: provider.clientInfo, createdAt: Date.now(), expiresAt: Date.now() + expiresIn * 1000 };
     await Promise.all([
       redis.set(redisKeys.swiggyCredential(pending.deviceId), encryptJson(credential, `cravelens:swiggy:${pending.deviceId}`), { EX: expiresIn }),
-      redis.hSet(redisKeys.device(pending.deviceId), { swiggyOAuthStatus: "connected", swiggyExpiresAt: String(credential.expiresAt), updatedAt: String(Date.now()) }),
+      redis.hSet(redisKeys.device(pending.deviceId), {
+        swiggyOAuthStatus: "connected",
+        swiggyOAuthPendingExpiresAt: "",
+        swiggyOAuthError: "",
+        swiggyExpiresAt: String(credential.expiresAt),
+        updatedAt: String(Date.now()),
+      }),
     ]);
     activeClients.delete(pending.deviceId);
     return pending.deviceId;
   } catch (error) {
-    await redis.hSet(redisKeys.device(pending.deviceId), { swiggyOAuthStatus: "failed", swiggyOAuthError: error instanceof Error ? error.message.slice(0, 300) : "Authorization failed" });
+    await redis.hSet(redisKeys.device(pending.deviceId), {
+      swiggyOAuthStatus: "failed",
+      swiggyOAuthPendingExpiresAt: "",
+      swiggyOAuthError: error instanceof Error ? error.message.slice(0, 300) : "Authorization failed",
+    });
     throw error;
   } finally { await exchangeTransport.close().catch(() => {}); }
 }
@@ -78,7 +93,12 @@ export async function getSwiggyAuthorizationStatus(deviceId) {
   const [credentialExists, device] = await Promise.all([redis.exists(redisKeys.swiggyCredential(deviceId)), redis.hGetAll(redisKeys.device(deviceId))]);
   if (credentialExists) return { status: "connected", expiresAt: Number(device.swiggyExpiresAt) || undefined };
   if (device.swiggyOAuthStatus === "failed") return { status: "failed", error: device.swiggyOAuthError || "Authorization failed" };
-  return { status: device.swiggyOAuthStatus === "pending" ? "pending" : "missing" };
+  if (device.swiggyOAuthStatus === "pending") {
+    const expiresAt = Number(device.swiggyOAuthPendingExpiresAt);
+    if (expiresAt > Date.now()) return { status: "pending", expiresAt };
+    await redis.hSet(redisKeys.device(deviceId), { swiggyOAuthStatus: "missing", swiggyOAuthPendingExpiresAt: "" });
+  }
+  return { status: "missing" };
 }
 
 export async function failSwiggyAuthorization(state, message) {
@@ -87,14 +107,18 @@ export async function failSwiggyAuthorization(state, message) {
   const encrypted = await redis.getDel(redisKeys.oauthState(sha256(state)));
   if (!encrypted) return;
   const pending = decryptJson(encrypted, `cravelens:oauth:${state}`);
-  await redis.hSet(redisKeys.device(pending.deviceId), { swiggyOAuthStatus: "failed", swiggyOAuthError: String(message).slice(0, 300) });
+  await redis.hSet(redisKeys.device(pending.deviceId), {
+    swiggyOAuthStatus: "failed",
+    swiggyOAuthPendingExpiresAt: "",
+    swiggyOAuthError: String(message).slice(0, 300),
+  });
 }
 
 export async function disconnectSwiggy(deviceId) {
   activeClients.delete(deviceId);
   const redis = await getRedis();
   await redis.del(redisKeys.swiggyCredential(deviceId));
-  await redis.hSet(redisKeys.device(deviceId), { swiggyOAuthStatus: "missing", swiggyExpiresAt: "" });
+  await redis.hSet(redisKeys.device(deviceId), { swiggyOAuthStatus: "missing", swiggyOAuthPendingExpiresAt: "", swiggyExpiresAt: "" });
 }
 
 export async function getSwiggySession(deviceId) {

@@ -7,6 +7,11 @@ const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434";
 const MIN_LOCAL_CONTEXT_TOKENS = 4_096;
 const DEFAULT_LOCAL_CONTEXT_TOKENS = 16_384;
 const MAX_LOCAL_CONTEXT_TOKENS = 32_768;
+const ENVIRONMENTS = Object.freeze({
+  development: { label: "Development", apiUrl: "http://localhost:8787" },
+  production: { label: "Production", apiUrl: "https://cravelens.nishithp.page" },
+});
+const DEFAULT_ENVIRONMENT = "production";
 const ids = ["enabled", "debug", "sensitivity", "scanIntervalMs", "autoDetectYouTube", "autoDetectInstagram", "autoDetectFacebook", "shortcutBehavior", "personalContext"];
 const defaults = { enabled: true, debug: false, addressId: "", addressLabel: "", sensitivity: DEFAULT_SENSITIVITY, scanIntervalMs: DEFAULT_SCAN_INTERVAL_MS, autoDetectYouTube: true, autoDetectInstagram: true, autoDetectFacebook: true, shortcutBehavior: DEFAULT_SHORTCUT_BEHAVIOR, themeMode: "system", personalContext: "" };
 const preferenceKeys = Object.keys(defaults);
@@ -42,6 +47,7 @@ async function main() {
   });
   const values = await loadPreferences();
   await savePreferences(values);
+  renderEnvironment(await loadEnvironment());
   applyTheme(values.themeMode);
   for (const id of ids) setPreferenceControlValue(id, values[id]);
   await setupModelSettings();
@@ -67,6 +73,22 @@ async function main() {
   updateDetectionOutputs();
   document.getElementById("sensitivity").addEventListener("input", updateDetectionOutputs);
   document.getElementById("scanIntervalMs").addEventListener("input", updateDetectionOutputs);
+  document.getElementById("environmentMode").addEventListener("change", async (event) => {
+    const control = event.currentTarget;
+    const environment = control.checked ? "production" : "development";
+    control.disabled = true;
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "CRAVELENS_ENVIRONMENT_CHANGED", environment });
+      if (!response?.ok) throw new Error(response?.error || "Unable to switch the server environment");
+      renderEnvironment(response.environment);
+      window.location.reload();
+    } catch (error) {
+      control.checked = !control.checked;
+      showMessage(error.message);
+    } finally {
+      control.disabled = false;
+    }
+  });
   document.getElementById("enabled").addEventListener("change", async (event) => {
     const enabled = event.target.checked;
     if (!enabled) document.getElementById("debug").checked = false;
@@ -117,7 +139,7 @@ async function main() {
   const connection = await getSwiggyConnection();
   if (connection.connected) { showConnected(connection.expiresAt); await loadAddresses(values.addressId); }
   else if (connection.pending) resumePendingSignIn();
-  else beginSwiggySignIn();
+  else showDisconnected(connection.error);
 }
 
 async function scanCurrentFrame() {
@@ -771,10 +793,7 @@ async function resumePendingSignIn() {
     showConnected(connection.expiresAt);
     await loadAddresses();
   } catch (error) {
-    document.getElementById("connectionDot").classList.add("offline");
-    document.getElementById("connectionTitle").textContent = "Swiggy isn’t connected";
-    document.getElementById("connectionDetail").textContent = error.message;
-    document.getElementById("connect").hidden = false;
+    showDisconnected(error.message);
   }
 }
 
@@ -788,10 +807,7 @@ async function beginSwiggySignIn() {
     showConnected(connection.expiresAt);
     await loadAddresses();
   } catch (error) {
-    document.getElementById("connectionDot").classList.add("offline");
-    document.getElementById("connectionTitle").textContent = "Swiggy isn’t connected";
-    document.getElementById("connectionDetail").textContent = error.message;
-    button.hidden = false;
+    showDisconnected(error.message);
   }
 }
 
@@ -800,6 +816,13 @@ function showConnected(expiresAt) {
   document.getElementById("connectionTitle").textContent = "Swiggy connected";
   document.getElementById("connectionDetail").textContent = `Session active until ${new Date(expiresAt).toLocaleDateString()}`;
   document.getElementById("connect").hidden = true;
+}
+
+function showDisconnected(error = "") {
+  document.getElementById("connectionDot").classList.add("offline");
+  document.getElementById("connectionTitle").textContent = "Swiggy isn’t connected";
+  document.getElementById("connectionDetail").textContent = error || "Connect your Swiggy account to continue";
+  document.getElementById("connect").hidden = false;
 }
 
 async function loadAddresses(savedAddressId) {
@@ -849,6 +872,22 @@ function addressBadges(address) {
 }
 function addressLabel(address) { return [meaningfulAddressTag(address), address.receiverName, address.addressString].filter(Boolean).join(" · "); }
 function semanticTag(value) { return value.toLowerCase().replace(/\band\b|&/g, "").replace(/[^a-z0-9]/g, ""); }
+function normalizeEnvironment(value) {
+  return value === "development" || value === "production" ? value : DEFAULT_ENVIRONMENT;
+}
+async function loadEnvironment() {
+  const { environment, apiUrl } = await chrome.storage.local.get(["environment", "apiUrl"]);
+  if (environment === "development" || environment === "production") return environment;
+  return apiUrl === ENVIRONMENTS.development.apiUrl ? "development" : DEFAULT_ENVIRONMENT;
+}
+function renderEnvironment(value) {
+  const environment = normalizeEnvironment(value);
+  const details = ENVIRONMENTS[environment];
+  const toggle = document.getElementById("environmentMode");
+  toggle.checked = environment === "production";
+  toggle.setAttribute("aria-label", `Use ${details.label} server`);
+  document.getElementById("environmentDetail").textContent = `${details.label} · ${details.apiUrl}`;
+}
 async function loadPreferences() {
   return { ...defaults, ...await chrome.storage.local.get(defaults), ...readCachedPreferences() };
 }

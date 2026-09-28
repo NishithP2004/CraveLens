@@ -3,6 +3,8 @@ node_modules
 .cravelens/
 dist
 .env
+.dev.vars
+.wrangler/
 .DS_Store
 *.log
 coverage

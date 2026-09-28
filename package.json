@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "dev": "concurrently -n server,extension -c cyan,magenta \"npm run dev -w @cravelens/server\" \"npm run dev -w @cravelens/extension\"",
+    "dev:local": "PUBLIC_BASE_URL=http://localhost:8787 npm run dev",
     "dev:web": "npm run dev -w @cravelens/web",
     "build:web": "npm run build -w @cravelens/web",
     "build": "npm run build -w @cravelens/shared && npm run build -w @cravelens/server && npm run build -w @cravelens/extension",

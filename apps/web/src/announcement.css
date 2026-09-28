@@ -1,0 +1,22 @@
+.announcement .announcement-copy { color: #fff8ee; }
+.announcement .announcement-spark { color: var(--lime); }
+
+@media (max-width: 600px) {
+  .announcement {
+    gap: 5px;
+    padding: 0 7px;
+    white-space: nowrap;
+    font-size: 7.5px;
+    letter-spacing: 0;
+  }
+
+  .announcement .announcement-copy { flex: 0 1 auto; }
+
+  .announcement .announcement-spark {
+    display: inline-block;
+    flex: 0 0 auto;
+    color: var(--lime);
+    font-size: 11px;
+    line-height: 1;
+  }
+}

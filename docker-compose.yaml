@@ -3,7 +3,7 @@ services:
     image: mongo
     restart: unless-stopped
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
       MONGO_INITDB_ROOT_PASSWORD: admin
@@ -26,7 +26,7 @@ services:
     image: nishithp/cravelens-server
     restart: unless-stopped
     ports:
-      - "8787:8787"
+      - "127.0.0.1:8787:8787"
     environment:
       MONGODB_URI: mongodb://admin:admin@db:27017
       MONGODB_DATABASE: cravelens

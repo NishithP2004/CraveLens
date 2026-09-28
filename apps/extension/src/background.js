@@ -3,16 +3,36 @@ import { LITERT_TEXT_MODELS, getLiteRtTextModel, getLiteRtVlmModelByProvider } f
 
 const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434";
 const DEFAULT_LOCAL_CONTEXT_TOKENS = 16_384;
-const defaults = { enabled: true, debug: false, apiUrl: "http://localhost:8787", addressId: "", addressLabel: "", sensitivity: 0.38, scanIntervalMs: 4000, autoDetectYouTube: true, autoDetectInstagram: true, autoDetectFacebook: true, shortcutBehavior: "auto-supported", personalContext: "", themeMode: "system", modelSettings: { version: 1, vlm: { provider: "auto" }, orchestration: { provider: "auto", contextTokens: DEFAULT_LOCAL_CONTEXT_TOKENS, thinkingEnabled: false }, ollama: { baseUrl: DEFAULT_OLLAMA_BASE_URL }, hostedFallback: "ask" } };
+const ENVIRONMENTS = Object.freeze({
+  development: { apiUrl: "http://localhost:8787" },
+  production: { apiUrl: "https://cravelens.nishithp.page" },
+});
+const DEFAULT_ENVIRONMENT = "production";
+const defaults = { enabled: true, debug: false, environment: DEFAULT_ENVIRONMENT, apiUrl: ENVIRONMENTS[DEFAULT_ENVIRONMENT].apiUrl, addressId: "", addressLabel: "", sensitivity: 0.38, scanIntervalMs: 4000, autoDetectYouTube: true, autoDetectInstagram: true, autoDetectFacebook: true, shortcutBehavior: "auto-supported", personalContext: "", themeMode: "system", modelSettings: { version: 1, vlm: { provider: "auto" }, orchestration: { provider: "auto", contextTokens: DEFAULT_LOCAL_CONTEXT_TOKENS, thinkingEnabled: false }, ollama: { baseUrl: DEFAULT_OLLAMA_BASE_URL }, hostedFallback: "ask" } };
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
-  const existing = await chrome.storage.local.get(Object.keys(defaults));
-  await chrome.storage.local.set({ ...defaults, ...existing, ...(reason === "install" ? { debug: false } : {}) });
+  const existing = await chrome.storage.local.get([...Object.keys(defaults), "deviceId", "deviceRefreshToken", "deviceRefreshExpiresAt", "deviceSessions"]);
+  const environment = normalizeEnvironment(existing.environment || (existing.apiUrl === ENVIRONMENTS.development.apiUrl ? "development" : DEFAULT_ENVIRONMENT));
+  const deviceSessions = normalizeDeviceSessions(existing.deviceSessions);
+  if (!deviceSessions[environment] && existing.deviceId && existing.deviceRefreshToken) {
+    deviceSessions[environment] = {
+      deviceId: existing.deviceId,
+      refreshToken: existing.deviceRefreshToken,
+      refreshExpiresAt: existing.deviceRefreshExpiresAt,
+    };
+  }
+  await chrome.storage.local.set({ ...defaults, ...existing, environment, apiUrl: apiUrlForEnvironment(environment), deviceSessions, ...(reason === "install" ? { debug: false } : {}) });
   await ensureDeviceSession();
   await connectInferenceSocket();
 });
 chrome.runtime.onStartup.addListener(() => { ensureDeviceSession().then(connectInferenceSocket).catch((error) => console.warn("[CraveLens] Device session startup failed", error)); });
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if (message.type === "CRAVELENS_ENVIRONMENT_CHANGED") {
+    setEnvironment(message.environment)
+      .then((environment) => respond({ ok: true, environment }))
+      .catch((error) => respond({ ok: false, error: error.message }));
+    return true;
+  }
   if (message.type === "CRAVELENS_INFERENCE_CHUNK") {
     inferenceSocket?.emit("inference:chunk", { version: 1, requestId: message.requestId, content: message.content });
     respond({ ok: true });
@@ -130,12 +150,11 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   }
   if (message.type !== "CRAVELENS_API") return;
   (async () => {
-    const stored = { ...defaults, ...await chrome.storage.local.get(Object.keys(defaults)) };
-    let accessToken = (await ensureDeviceSession()).accessToken;
-    let response = await fetch(`${stored.apiUrl}${message.path}`, { method: message.method || "GET", headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` }, body: message.body ? JSON.stringify(message.body) : undefined });
+    let session = await ensureDeviceSession();
+    let response = await fetch(`${session.apiUrl}${message.path}`, { method: message.method || "GET", headers: { "content-type": "application/json", authorization: `Bearer ${session.accessToken}` }, body: message.body ? JSON.stringify(message.body) : undefined });
     if (response.status === 401) {
-      accessToken = (await ensureDeviceSession(true)).accessToken;
-      response = await fetch(`${stored.apiUrl}${message.path}`, { method: message.method || "GET", headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` }, body: message.body ? JSON.stringify(message.body) : undefined });
+      session = await ensureDeviceSession(true);
+      response = await fetch(`${session.apiUrl}${message.path}`, { method: message.method || "GET", headers: { "content-type": "application/json", authorization: `Bearer ${session.accessToken}` }, body: message.body ? JSON.stringify(message.body) : undefined });
     }
     if (response.status === 204) return undefined;
     const data = await response.json();
@@ -231,31 +250,74 @@ async function startActiveTabLasso(tab) {
   }
 }
 
+function normalizeEnvironment(value) {
+  return value === "development" || value === "production" ? value : DEFAULT_ENVIRONMENT;
+}
+
+function apiUrlForEnvironment(environment) {
+  return ENVIRONMENTS[normalizeEnvironment(environment)].apiUrl;
+}
+
+function normalizeDeviceSessions(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {};
+}
+
+function accessTokenKey(environment) {
+  return `deviceAccessToken:${environment}`;
+}
+
+function accessExpiryKey(environment) {
+  return `deviceAccessExpiresAt:${environment}`;
+}
+
+async function setEnvironment(value) {
+  const environment = normalizeEnvironment(value);
+  const apiUrl = apiUrlForEnvironment(environment);
+  inferenceSocket?.disconnect();
+  inferenceSocket = undefined;
+  sessionPromise = undefined;
+  await chrome.storage.local.set({ environment, apiUrl });
+  return { environment, apiUrl };
+}
+
 let sessionPromise;
 async function ensureDeviceSession(forceRefresh = false) {
   if (sessionPromise) return sessionPromise;
   sessionPromise = (async () => {
-    const storedSession = await chrome.storage.session.get(["deviceAccessToken", "deviceAccessExpiresAt"]);
-    if (!forceRefresh && storedSession.deviceAccessToken && Number(storedSession.deviceAccessExpiresAt) > Date.now() + 30_000) return { accessToken: storedSession.deviceAccessToken, accessExpiresAt: storedSession.deviceAccessExpiresAt };
-    const local = await chrome.storage.local.get(["deviceId", "deviceRefreshToken", "apiUrl"]);
-    const apiUrl = local.apiUrl || defaults.apiUrl;
+    const local = await chrome.storage.local.get(["environment", "deviceSessions", "deviceId", "deviceRefreshToken", "deviceRefreshExpiresAt"]);
+    const environment = normalizeEnvironment(local.environment);
+    const apiUrl = apiUrlForEnvironment(environment);
+    const deviceSessions = normalizeDeviceSessions(local.deviceSessions);
+    const currentSession = deviceSessions[environment] || (local.deviceId && local.deviceRefreshToken
+      ? { deviceId: local.deviceId, refreshToken: local.deviceRefreshToken, refreshExpiresAt: local.deviceRefreshExpiresAt }
+      : {});
+    const tokenKey = accessTokenKey(environment);
+    const expiryKey = accessExpiryKey(environment);
+    const storedSession = await chrome.storage.session.get([tokenKey, expiryKey]);
+    if (!forceRefresh && storedSession[tokenKey] && Number(storedSession[expiryKey]) > Date.now() + 30_000) {
+      return { accessToken: storedSession[tokenKey], accessExpiresAt: storedSession[expiryKey], environment, apiUrl };
+    }
     let response;
-    if (local.deviceRefreshToken) response = await fetch(`${apiUrl}/api/device/session/refresh`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ refreshToken: local.deviceRefreshToken }) });
+    if (currentSession.refreshToken) response = await fetch(`${apiUrl}/api/device/session/refresh`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ refreshToken: currentSession.refreshToken }) });
     if (!response?.ok) response = await fetch(`${apiUrl}/api/device/session`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
     if (!response.ok) throw new Error(`Unable to create CraveLens device session (${response.status})`);
     const session = await response.json();
+    const nextDeviceSessions = {
+      ...deviceSessions,
+      [environment]: { deviceId: session.deviceId, refreshToken: session.refreshToken, refreshExpiresAt: session.refreshExpiresAt },
+    };
     await Promise.all([
-      chrome.storage.session.set({ deviceAccessToken: session.accessToken, deviceAccessExpiresAt: session.accessExpiresAt }),
-      chrome.storage.local.set({ deviceId: session.deviceId, deviceRefreshToken: session.refreshToken, deviceRefreshExpiresAt: session.refreshExpiresAt }),
+      chrome.storage.session.set({ [tokenKey]: session.accessToken, [expiryKey]: session.accessExpiresAt }),
+      chrome.storage.local.set({ environment, apiUrl, deviceSessions: nextDeviceSessions }),
     ]);
-    return { accessToken: session.accessToken, accessExpiresAt: session.accessExpiresAt };
+    return { accessToken: session.accessToken, accessExpiresAt: session.accessExpiresAt, environment, apiUrl };
   })().finally(() => { sessionPromise = undefined; });
   return sessionPromise;
 }
 
 let inferenceSocket;
 async function connectInferenceSocket() {
-  const [{ accessToken }, { apiUrl = defaults.apiUrl, modelSettings = defaults.modelSettings }] = await Promise.all([ensureDeviceSession(), chrome.storage.local.get(["apiUrl", "modelSettings"])]);
+  const [{ accessToken, apiUrl }, { modelSettings = defaults.modelSettings }] = await Promise.all([ensureDeviceSession(), chrome.storage.local.get(["modelSettings"])]);
   inferenceSocket?.disconnect();
   inferenceSocket = io(`${apiUrl}/inference`, { transports: ["websocket"], auth: { token: accessToken }, reconnection: true, timeout: 8_000 });
   inferenceSocket.on("connect", async () => {
