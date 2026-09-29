@@ -43,6 +43,7 @@
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/src/style.css" />
     <link rel="stylesheet" href="/src/announcement.css" />
+    <link rel="stylesheet" href="/src/install-dialog.css" />
     <style>h1 em{display:block}.match-card{right:8px}</style>
     <title>CraveLens — See it. Crave it. Get it.</title>
     <script type="application/ld+json">
@@ -228,7 +229,6 @@
           <details name="faq" open><summary>Does CraveLens place orders automatically?<span>＋</span></summary><p>Never. CraveLens can prepare the perfect cart, but the final order always waits for your explicit confirmation.</p></details>
           <details name="faq"><summary>Which videos does it work with?<span>＋</span></summary><p>CraveLens supports YouTube videos and Shorts, Instagram Reels, and Facebook Watch/video pages in Chrome. On other pages, use the keyboard shortcut to lasso the food you want checked.</p></details>
           <details name="faq"><summary>Is my browsing data uploaded?<span>＋</span></summary><p>No. Food detection happens locally in your browser. For lasso scans, only the selected visible region is captured for local verification; browsing history and full-page activity are not uploaded.</p></details>
-          <!-- <details name="faq"><summary>Why does CraveLens need a local service?<span>＋</span></summary><p>The extension runs the watching experience in Chrome, while the local service handles Swiggy OAuth, secure sessions, cart planning, and order confirmation flows.</p></details> -->
           <details name="faq"><summary>Do I need to connect Swiggy?<span>＋</span></summary><p>You can explore detection without ordering, but connecting Swiggy is needed to use saved addresses, nearby listings, menus, offers, carts, and checkout.</p></details>
           <details name="faq"><summary>Are prices and offers final?<span>＋</span></summary><p>CraveLens shows Swiggy listing, price, fee, delivery, and offer information as provided at the time it prepares your cart. Always review the final Swiggy checkout details before confirming.</p></details>
           <details name="faq"><summary>Can it handle allergies or dietary preferences?<span>＋</span></summary><p>CraveLens can use preferences you enter, like vegetarian choices or allergy warnings, to guide recommendations. You should still verify item details with Swiggy and the restaurant before ordering.</p></details>
@@ -261,11 +261,10 @@
     </footer>
     <dialog class="install-dialog" id="installDialog" aria-labelledby="installTitle">
       <button class="dialog-close" type="button" aria-label="Close installation options">×</button>
-      <span class="kicker">TWO QUICK STEPS</span>
+      <span class="kicker">ONE QUICK STEP</span>
       <h2 id="installTitle">Install CraveLens</h2>
-      <p>Add the browser extension, then run the local service that powers Swiggy OAuth, Redis-backed sessions, and the cart agent. Local AI models download privately in Chrome after you choose them in Settings.</p>
-      <a class="install-option extension-option" href="https://chromewebstore.google.com/detail/gehijhngicamfekokcbcdkjnjkmfofpn?utm_source=item-share-cb" target="_blank" rel="noopener noreferrer"><span><small>STEP 1</small><strong>Add the extension to Chrome</strong></span><b>↗</b></a>
-      <div class="install-option command-option"><span><small>STEP 2 · RUN IN YOUR TERMINAL</small><code>curl -fsSL https://cravelens.nishithp.page/install.sh | bash</code></span><button type="button" class="copy-command">Copy</button></div>
+      <p>Install the Chrome extension, then open it to connect your Swiggy account. CraveLens is ready to use—no terminal or local-service setup required. Local AI models download privately in Chrome after you choose them in Settings.</p>
+      <a class="chrome-web-store-badge" href="https://chromewebstore.google.com/detail/gehijhngicamfekokcbcdkjnjkmfofpn?utm_source=item-share-cb" target="_blank" rel="noopener noreferrer"><img src="https://developer.chrome.com/static/docs/webstore/branding/image/tbyBjqi7Zu733AAKA5n4.png" width="206" height="58" alt="Available in the Chrome Web Store"></a>
     </dialog>
     <div class="toast" role="status" aria-live="polite"><span>✓</span> Added to your craving cart</div>
     <a class="scroll-top" href="#top" aria-label="Scroll back to top">↑</a>

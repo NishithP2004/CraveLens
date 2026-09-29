@@ -13,7 +13,6 @@ nav.querySelectorAll('a').forEach((link) => link.addEventListener('click', () =>
 }));
 
 const installDialog = document.querySelector('#installDialog');
-const installCommand = 'curl -fsSL https://cravelens.nishithp.page/install.sh | bash';
 
 document.querySelectorAll('.install-trigger').forEach((trigger) => {
   trigger.addEventListener('click', (event) => {
@@ -26,22 +25,6 @@ installDialog.querySelector('.dialog-close').addEventListener('click', () => ins
 installDialog.addEventListener('click', (event) => {
   if (event.target === installDialog) installDialog.close();
 });
-installDialog.querySelector('.copy-command').addEventListener('click', async (event) => {
-  const copyButton = event.currentTarget;
-  const commandOption = copyButton.closest('.command-option');
-
-  await navigator.clipboard.writeText(installCommand);
-  copyButton.textContent = 'Copied ✓';
-  copyButton.classList.add('copied');
-  commandOption.classList.add('copied');
-
-  window.setTimeout(() => {
-    copyButton.textContent = 'Copy';
-    copyButton.classList.remove('copied');
-    commandOption.classList.remove('copied');
-  }, 1800);
-});
-
 const quickAdd = document.querySelector('#quickAdd');
 const toast = document.querySelector('.toast');
 quickAdd.addEventListener('click', () => {
