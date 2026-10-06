@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createLangfuseHandler, initializeLangfuse, isLangfuseEnabled, shutdownLangfuse } from "./langfuse.js";
+import { createLangfuseHandler, initializeLangfuse, isLangfuseEnabled, shutdownLangfuse } from "../src/langfuse.js";
 
 describe("Langfuse integration", () => {
   it("stays disabled during tests and without a running SDK", async () => {

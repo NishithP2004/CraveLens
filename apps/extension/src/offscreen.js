@@ -1,5 +1,7 @@
+import { foodVerificationInstruction, parseVerification } from "./food-verification.js";
 import { FilesetResolver, LlmInference } from "@mediapipe/tasks-genai";
 import { Engine, loadLiteRtLm } from "@litert-lm/core";
+import { createInferenceDeadline, runLiteRtConversation } from "./litert-chat.js";
 import { buildOllamaChatPayload, DEFAULT_LOCAL_CONTEXT_TOKENS, normalizeContextTokens } from "./ollama-chat.js";
 import { getLiteRtModel, getLiteRtModelByUrl, getLiteRtTextModel } from "./litert-models.js";
 
@@ -11,9 +13,9 @@ const textEngines = new Map();
 const activeConversations = new Map();
 const activeLiteRtDownloads = new Map();
 let liteRtLmRuntime;
-const VLM_CONTEXT_TOKENS = 2_048;
-const VLM_OUTPUT_RESERVE_TOKENS = 384;
-const LITERT_MAX_OUTPUT_TOKENS = 1_536;
+const VLM_CONTEXT_TOKENS = 4_096;
+const VLM_OUTPUT_RESERVE_TOKENS = 1_536;
+const readyTextEngines = new Set();
 
 chrome.runtime.onMessage.addListener((message, _sender, respond) => {
   if (message.type === "CRAVELENS_OFFSCREEN_CANCEL") {
@@ -35,6 +37,7 @@ chrome.runtime.onMessage.addListener((message, _sender, respond) => {
     return true;
   }
   let operation;
+  if (message.type === "CRAVELENS_OFFSCREEN_LITERT_STATUS") operation = getLiteRtRuntimeStatus();
   if (message.type === "CRAVELENS_OFFSCREEN_DETECT") operation = runDetection(message);
   else if (message.type === "CRAVELENS_OFFSCREEN_VERIFY") operation = runLocalVerification(message);
   else if (message.type === "CRAVELENS_OFFSCREEN_CHAT") operation = runChatInference(message.request);
@@ -99,60 +102,61 @@ async function runLocalVerification({ imageDataUrl, videoTitle, frameTimestamp, 
 
 async function runChatInference(request) {
   const startedAt = performance.now();
-  if (request.provider === "ollama") return runOllamaChat(request, startedAt);
-  if (!navigator.gpu) throw Object.assign(new Error("LiteRT Gemma 4 requires WebGPU"), { code: "INFERENCE_UNAVAILABLE" });
-  liteRtLmRuntime ||= loadLiteRtLm(chrome.runtime.getURL("litertlm-wasm"));
-  await liteRtLmRuntime;
-  const modelUrl = request.modelUrl;
-  if (!modelUrl) throw Object.assign(new Error("LiteRT Gemma 4 model URL was not supplied by the extension service worker"), { code: "INFERENCE_UNAVAILABLE" });
-  const contextTokens = normalizeContextTokens(request.options?.contextTokens || DEFAULT_LOCAL_CONTEXT_TOKENS);
-  const engine = await getLiteRtEngine(modelUrl, contextTokens, request.model);
-  const messages = request.messages.map(toLiteRtMessage);
-  const last = messages.at(-1);
-  const tools = request.tools || [];
-  const maxOutputTokens = Math.max(64, Math.min(LITERT_MAX_OUTPUT_TOKENS, Number(request.options?.maxTokens) || LITERT_MAX_OUTPUT_TOKENS));
-  const requestedTemperature = Number(request.options?.temperature);
-  const conversation = await engine.createConversation({
-    preface: {
-      messages: messages.slice(0, -1),
-      tools,
-      ...(request.options?.thinkingEnabled === true ? { extra_context: { enable_thinking: true } } : {}),
-    },
-    sessionConfig: {
-      maxOutputTokens,
-      samplerParams: { temperature: Math.max(0, Math.min(2, Number.isFinite(requestedTemperature) ? requestedTemperature : 0.2)) },
-    },
-    enableConstrainedDecoding: tools.length > 0,
-    prefillPrefaceOnInit: true,
+  const deadline = createInferenceDeadline(request.deadline);
+  let conversation;
+  const engineKey = `${request.modelUrl}#ctx=${normalizeContextTokens(request.options?.contextTokens || DEFAULT_LOCAL_CONTEXT_TOKENS)}`;
+  let ownsDownload = false;
+  const cancelGeneration = () => {
+    conversation?.cancel();
+    if (ownsDownload) activeLiteRtDownloads.get(request.modelUrl)?.abort();
+  };
+  deadline.signal.addEventListener("abort", cancelGeneration, { once: true });
+  activeConversations.set(request.requestId, { modelUrl: request.modelUrl, cancel: () => deadline.cancel() });
+  const work = async () => {
+    if (deadline.signal.aborted) throw deadline.signal.reason;
+    if (request.provider === "ollama") return runOllamaChat(request, startedAt, deadline.signal);
+    if (!navigator.gpu) throw Object.assign(new Error("LiteRT Gemma 4 requires WebGPU"), { code: "INFERENCE_UNAVAILABLE" });
+    liteRtLmRuntime ||= loadLiteRtLm(chrome.runtime.getURL("litertlm-wasm"));
+    await liteRtLmRuntime;
+    if (deadline.signal.aborted) throw deadline.signal.reason;
+    if (!request.modelUrl) throw Object.assign(new Error("LiteRT Gemma 4 model URL was not supplied by the extension service worker"), { code: "INFERENCE_UNAVAILABLE" });
+    const contextTokens = normalizeContextTokens(request.options?.contextTokens || DEFAULT_LOCAL_CONTEXT_TOKENS);
+    ownsDownload = !textEngines.has(engineKey) && !activeLiteRtDownloads.has(request.modelUrl);
+    const engine = await getLiteRtEngine(request.modelUrl, contextTokens, request.model);
+    if (deadline.signal.aborted) throw deadline.signal.reason;
+    const result = await runLiteRtConversation(engine, request, {
+      contextTokens, signal: deadline.signal,
+      setConversation: (value) => { conversation = value; if (deadline.signal.aborted) value?.cancel(); },
+      onChunk: (content) => chrome.runtime.sendMessage({ type: "CRAVELENS_INFERENCE_CHUNK", requestId: request.requestId, content }),
+    });
+    return { result: { version: 1, requestId: request.requestId, ...result, metrics: { ...result.metrics, totalMs: Math.round(performance.now() - startedAt), streamed: request.stream ? 1 : 0 } } };
+  };
+  let rejectOnAbort;
+  const aborted = new Promise((_resolve, reject) => {
+    rejectOnAbort = () => reject(deadline.signal.reason);
+    if (deadline.signal.aborted) rejectOnAbort();
+    else deadline.signal.addEventListener("abort", rejectOnAbort, { once: true });
   });
-  activeConversations.set(request.requestId, { conversation, modelUrl });
-  try {
-    const inputTokens = await conversation.getTokenCount().catch(() => 0);
-    let response;
-    let streamedContent = "";
-    if (request.stream) {
-      const reader = conversation.sendMessageStreaming(last).getReader();
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        response = value;
-        const content = messageText(value);
-        if (content) {
-          streamedContent += content;
-          await chrome.runtime.sendMessage({ type: "CRAVELENS_INFERENCE_CHUNK", requestId: request.requestId, content });
-        }
-      }
-      response ||= { role: "model", content: streamedContent };
-    } else response = await conversation.sendMessage(last);
-    const outputTokens = Math.max(0, (await conversation.getTokenCount().catch(() => inputTokens)) - inputTokens);
-    return {
-      result: {
-        version: 1, requestId: request.requestId, content: messageText(response), toolCalls: normalizeLiteRtToolCalls(response.tool_calls), finishReason: response.tool_calls?.length ? "tool_calls" : "stop",
-        usage: { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens },
-        metrics: { totalMs: Math.round(performance.now() - startedAt), streamed: request.stream ? 1 : 0, contextTokens, thinkingEnabled: request.options?.thinkingEnabled === true ? 1 : 0 },
-      },
-    };
-  } finally { activeConversations.delete(request.requestId); await conversation.delete().catch(() => {}); }
+  try { return await Promise.race([work(), aborted]); }
+  catch (error) { if (deadline.signal.aborted) throw deadline.signal.reason; throw error; }
+  finally {
+    deadline.dispose();
+    deadline.signal.removeEventListener("abort", rejectOnAbort);
+    deadline.signal.removeEventListener("abort", cancelGeneration);
+    activeConversations.delete(request.requestId);
+  }
+}
+
+async function getLiteRtRuntimeStatus() {
+  const gpuAvailable = Boolean(navigator.gpu && await navigator.gpu.requestAdapter());
+  const cache = await caches.open("cravelens-litert-models-v1");
+  const { LITERT_TEXT_MODELS } = await import("./litert-models.js");
+  const models = await Promise.all(LITERT_TEXT_MODELS.map(async (model) => ({
+    model: model.id, supported: true, downloaded: Boolean(await cache.match(model.url)),
+    ready: [...readyTextEngines].some((key) => key.startsWith(`${model.url}#`)),
+    downloading: activeLiteRtDownloads.has(model.url),
+  })));
+  return { gpuAvailable, models };
 }
 
 async function preloadLiteRtModel({ modelId, modelUrl, contextTokens }) {
@@ -173,8 +177,9 @@ async function getLiteRtEngine(modelUrl, contextTokens, modelId) {
   let enginePromise = textEngines.get(engineKey);
   if (!enginePromise) {
     enginePromise = loadCachedLiteRtModel(modelUrl, modelId)
-      .then((model) => Engine.create({ model, mainExecutorSettings: { maxNumTokens: contextTokens } }))
+      .then((model) => Engine.create({ model, benchmarkEnabled: true, mainExecutorSettings: { maxNumTokens: contextTokens } }))
       .then((engine) => {
+        readyTextEngines.add(engineKey);
         publishLiteRtDownloadStatus(modelUrl, { state: "ready", downloadedBytes: 0, totalBytes: 0 });
         return engine;
       })
@@ -217,7 +222,9 @@ async function loadCachedLiteRtModel(modelUrl, modelId) {
   const contentLength = response.headers.get("content-length");
   if (contentLength) headers.set("content-length", contentLength);
   headers.set("content-type", "application/octet-stream");
-  void cache.put(modelUrl, new Response(cacheStream, { headers })).catch((error) => console.warn("[CraveLens] LiteRT model cache write failed", error));
+  void cache.put(modelUrl, new Response(cacheStream, { headers })).then(() => {
+    publishLiteRtDownloadStatus(modelUrl, { state: [...readyTextEngines].some((key) => key.startsWith(`${modelUrl}#`)) ? "ready" : "cached", downloadedBytes, totalBytes });
+  }).catch((error) => console.warn("[CraveLens] LiteRT model cache write failed", error));
   return modelStream;
 }
 
@@ -235,6 +242,7 @@ async function removeCachedLiteRtModel(modelId) {
     const engine = await enginePromise.catch(() => undefined);
     await engine?.delete?.().catch(() => {});
     textEngines.delete(key);
+    readyTextEngines.delete(key);
   }
   const vlm = await vlmPromises.get(target.url)?.catch(() => undefined);
   vlm?.close?.();
@@ -278,11 +286,9 @@ function publishLiteRtDownloadStatus(modelUrl, update) {
   }).catch(() => {});
 }
 
-async function runOllamaChat(request, startedAt = performance.now()) {
-  const controller = new AbortController();
-  activeConversations.set(request.requestId, { cancel: () => controller.abort() });
+async function runOllamaChat(request, startedAt = performance.now(), signal) {
   try {
-    const response = await fetch(ollamaApiUrl(request.ollamaBaseUrl, "/api/chat"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(buildOllamaChatPayload(request)), signal: controller.signal });
+    const response = await fetch(ollamaApiUrl(request.ollamaBaseUrl, "/api/chat"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(buildOllamaChatPayload(request)), signal });
     if (!response.ok) {
       const detail = (await response.text().catch(() => "")).trim().slice(0, 500);
       throw Object.assign(new Error(`Ollama request failed (${response.status})${detail ? `: ${detail}` : ""}`), { code: "INFERENCE_FAILED" });
@@ -297,7 +303,7 @@ async function runOllamaChat(request, startedAt = performance.now()) {
       throw Object.assign(new Error("Ollama could not be reached from the extension. Check the host and its OLLAMA_ORIGINS entry."), { code: "INFERENCE_UNAVAILABLE", cause: error });
     }
     throw error;
-  } finally { activeConversations.delete(request.requestId); }
+  }
 }
 
 async function runOllamaVerification({ imageDataUrl, videoTitle, transcriptContext, model = "gemma3:4b", ollamaBaseUrl }) {
@@ -333,7 +339,7 @@ async function runGeminiNanoVerification({ imageDataUrl, videoTitle, transcriptC
 }
 
 function verificationInstruction(videoTitle, transcriptContext) {
-  return `Inspect the image. Pixels are authoritative; title and transcript are weak hints. Return only minified JSON: {"isFood":boolean,"dish":string,"description":string,"cuisine":string,"ingredients":string[],"confidence":number,"context":"ready_to_eat"|"recipe"|"restaurant_experience"}. Be conservative; never invent hidden ingredients. Title: ${String(videoTitle || "YouTube video").slice(0, 240)}\n${compactTranscriptText(transcriptContext)}`;
+  return foodVerificationInstruction(videoTitle, compactTranscriptText(transcriptContext));
 }
 
 function visionPrompt({ bitmap, videoTitle, frameTimestamp, transcriptContext }) {
@@ -365,35 +371,7 @@ function normalizeInferenceError(error) {
   return { message, code: error?.code || "INFERENCE_FAILED" };
 }
 
-function toLiteRtMessage(message) {
-  if (message.role === "tool") {
-    const toon = typeof message.content === "string" && message.content.startsWith("TOON\n");
-    return { role: "tool", content: [{ type: "tool_response", name: message.name || message.toolCallId, response: toon ? message.content : typeof message.content === "string" ? safeJson(message.content) : message.content }] };
-  }
-  return { role: message.role === "assistant" ? "model" : message.role, content: message.content, ...(message.toolCalls ? { tool_calls: message.toolCalls.map((call) => ({ type: "function", id: call.id, function: { name: call.name, arguments: call.args } })) } : {}) };
-}
 
-function messageText(message) { return typeof message?.content === "string" ? message.content : (message?.content || []).filter((part) => part.type === "text").map((part) => part.text).join(""); }
-function normalizeLiteRtToolCalls(calls = []) { return calls.map((call) => ({ id: call.id || crypto.randomUUID(), name: call.function?.name || "", args: call.function?.arguments || {} })); }
-function safeJson(value) { try { return JSON.parse(value); } catch { return { content: value }; } }
-
-function parseVerification(text) {
-  const match = String(text).match(/\{[\s\S]*\}/);
-  if (!match) throw new Error("The configured VLM did not return a JSON object");
-  const value = JSON.parse(match[0]);
-  console.info("[CraveLens] VLM JSON output:", JSON.stringify(value));
-  const contexts = new Set(["ready_to_eat", "recipe", "restaurant_experience"]);
-  if (typeof value.isFood !== "boolean" || typeof value.dish !== "string" || !contexts.has(value.context)) throw new Error("The configured VLM returned an invalid food result");
-  return {
-    isFood: value.isFood,
-    dish: value.dish,
-    description: typeof value.description === "string" ? value.description.trim().slice(0, 1200) : "",
-    cuisine: typeof value.cuisine === "string" ? value.cuisine : "unknown",
-    ingredients: Array.isArray(value.ingredients) ? value.ingredients.filter((item) => typeof item === "string").slice(0, 20) : [],
-    confidence: Math.max(0, Math.min(1, Number(value.confidence) || 0)),
-    context: value.context,
-  };
-}
 
 function formatTranscriptContext(context) {
   if (!context) return "No transcript context was available.";

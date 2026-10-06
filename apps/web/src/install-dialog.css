@@ -10,12 +10,15 @@
   border-radius: 16px;
   background: #fffaf7;
   box-shadow: 0 7px 18px #ff5b3820;
-  transition: border-color .18s ease, transform .18s ease, box-shadow .18s ease;
+  transition:
+    border-color 0.18s ease,
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .chrome-web-store-badge:hover,
 .chrome-web-store-badge:focus-visible {
-  border-color: #e44928;
+  border-color: var(--coral-dark);
   box-shadow: 0 12px 24px #ff5b3840;
   transform: translateY(-1px);
 }

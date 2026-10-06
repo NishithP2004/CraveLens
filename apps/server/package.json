@@ -7,13 +7,16 @@
   },
   "scripts": {
     "dev": "node --watch src/index.js",
-    "build": "for file in src/*.js; do node --check \"$file\"; done",
+    "build": "for file in src/*.js admin/*.js; do node --check \"$file\"; done",
     "start": "node src/index.js",
-    "test": "vitest run",
-    "typecheck": "for file in src/*.js; do node --check \"$file\"; done"
+    "test": "vitest run tests",
+    "typecheck": "for file in src/*.js admin/*.js; do node --check \"$file\"; done",
+    "dev:admin": "node src/local-admin.js"
   },
   "dependencies": {
     "@cravelens/shared": "*",
+    "@fontsource-variable/dm-sans": "^5.3.0",
+    "@fontsource-variable/manrope": "^5.3.0",
     "@langchain/core": "^1.2.1",
     "@langchain/google": "^0.2.1",
     "@langchain/langgraph": "^1.4.7",
@@ -21,21 +24,25 @@
     "@langfuse/core": "^5.9.1",
     "@langfuse/langchain": "^5.9.1",
     "@langfuse/otel": "^5.9.1",
+    "@langfuse/tracing": "^5.9.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentelemetry/sdk-node": "^0.221.0",
     "@socket.io/redis-adapter": "^8.3.0",
     "@toon-format/toon": "^4.1.0",
+    "chart.js": "^4.5.1",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "jose": "^6.2.7",
     "langchain": "^1.2.24",
     "mongodb": "^6.17.0",
+    "qrcode": "^1.5.4",
     "redis": "^6.2.0",
     "socket.io": "^4.8.3",
     "zod": "^3.25.67"
   },
   "devDependencies": {
+    "@opentelemetry/sdk-trace-base": "^2.10.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "vitest": "^3.2.4"

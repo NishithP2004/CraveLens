@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ values: new Map(), hashes: new Map(), sets: new Map() }));
 
-vi.mock("./redis.js", () => ({
+vi.mock("../src/redis.js", () => ({
   redisKeys: {
     device: (id) => `device:${id}`, refresh: (id) => `refresh:${id}`, usedRefresh: (id) => `used:${id}`, refreshFamily: (id) => `family:${id}`,
   },
@@ -19,8 +19,8 @@ vi.mock("./redis.js", () => ({
   }),
 }));
 
-import { config } from "./config.js";
-import { authenticateDeviceToken, createDeviceSession, rotateDeviceSession } from "./device-auth.js";
+import { config } from "../src/config.js";
+import { authenticateDeviceToken, createDeviceSession, rotateDeviceSession } from "../src/device-auth.js";
 
 describe("rotating device sessions", () => {
   beforeEach(() => {

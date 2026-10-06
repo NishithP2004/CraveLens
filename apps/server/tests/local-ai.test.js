@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { z } from "zod";
-import { config } from "./config.js";
-import { decryptJson, encryptJson } from "./crypto-store.js";
-import { inferenceBroker } from "./inference-broker.js";
-import { assertSafeHostedBaseUrl, safeHostedFetch } from "./model-settings.js";
-import { compactLocalMessages, compactLocalTools, compactToolResultContent, RemoteBrowserChatModel } from "./remote-browser-chat-model.js";
+import { config } from "../src/config.js";
+import { decryptJson, encryptJson } from "../src/crypto-store.js";
+import { inferenceBroker } from "../src/inference-broker.js";
+import { assertSafeHostedBaseUrl, safeHostedFetch } from "../src/model-settings.js";
+import { compactLocalMessages, compactLocalTools, compactToolResultContent, RemoteBrowserChatModel } from "../src/remote-browser-chat-model.js";
 import { ModelSettingsSchema } from "@cravelens/shared";
-import { ApprovalFallbackChatModel } from "./approval-fallback-chat-model.js";
+import { ApprovalFallbackChatModel } from "../src/approval-fallback-chat-model.js";
+import { ChatOpenAI } from "@langchain/openai";
 
 const originalKey = config.credentialEncryptionKey;
 afterEach(() => { config.credentialEncryptionKey = originalKey; vi.restoreAllMocks(); });
@@ -106,6 +107,87 @@ describe("RemoteBrowserChatModel", () => {
 });
 
 describe("ApprovalFallbackChatModel", () => {
+  it("accepts all fallback policies while preserving the existing default", () => {
+    for (const policy of ["auto", "ask", "none"]) expect(ModelSettingsSchema.parse({ hostedFallback: policy }).hostedFallback).toBe(policy);
+    expect(ModelSettingsSchema.parse({}).hostedFallback).toBe("ask");
+    expect(() => ModelSettingsSchema.parse({ hostedFallback: "invalid" })).toThrow();
+  });
+  it("automatically switches once without requesting or waiting for approval", async () => {
+    const localGenerate = vi.fn(async () => { throw Object.assign(new Error("Browser disconnected"), { code: "INFERENCE_OFFLINE" }); });
+    const localModel = { _generate: localGenerate, bindTools() { return this; } };
+    const hostedInvoke = vi.fn(async () => new AIMessage("Hosted result"));
+    const hostedModel = { invoke: hostedInvoke, bindTools() { return this; } };
+    const requestApproval = vi.fn();
+    const waitForDecision = vi.fn();
+    const onFallbackActivated = vi.fn();
+    const model = new ApprovalFallbackChatModel({ hostedFallback: "auto", localModel, hostedModel, requestApproval, waitForDecision, onFallbackActivated });
+    await model.bindTools([])._generate([], {});
+    await model._generate([], {});
+    expect(localGenerate).toHaveBeenCalledTimes(1);
+    expect(hostedInvoke).toHaveBeenCalledTimes(2);
+    expect(requestApproval).not.toHaveBeenCalled();
+    expect(waitForDecision).not.toHaveBeenCalled();
+    expect(onFallbackActivated).toHaveBeenCalledWith(expect.objectContaining({ automatic: true, reason: "INFERENCE_OFFLINE" }));
+  });
+  it("stops on local failure without approval or hosted inference, including after binding tools", async () => {
+    const failure = Object.assign(new Error("Local inference failed"), { code: "INFERENCE_OFFLINE" });
+    const localModel = { _generate: async () => { throw failure; }, bindTools() { return this; } };
+    const hostedInvoke = vi.fn();
+    const hostedModel = { invoke: hostedInvoke, bindTools() { return this; } };
+    const requestApproval = vi.fn();
+    const model = new ApprovalFallbackChatModel({ hostedFallback: "none", localModel, hostedModel, requestApproval });
+    await expect(model.bindTools([])._generate([], {})).rejects.toBe(failure);
+    expect(requestApproval).not.toHaveBeenCalled();
+    expect(hostedInvoke).not.toHaveBeenCalled();
+    expect(model.isUsingLocal()).toBe(true);
+  });
+  it("does not automatically switch on cancellation or an unverified cart", async () => {
+    for (const code of ["INFERENCE_CANCELLED", "INFERENCE_CART_UNVERIFIED"]) {
+      const hostedInvoke = vi.fn();
+      const model = new ApprovalFallbackChatModel({ hostedFallback: "auto", localModel: { _generate: async () => { throw Object.assign(new Error(code), { code }); } }, hostedModel: { invoke: hostedInvoke } });
+      await expect(model._generate([], {})).rejects.toMatchObject({ code });
+      expect(hostedInvoke).not.toHaveBeenCalled();
+    }
+  });
+  it("sends bound Swiggy tools and tool_choice through the real ChatOpenAI invocation path", async () => {
+    const requests = [];
+    const hostedModel = new ChatOpenAI({
+      model: "groq/openai/gpt-oss-120b", apiKey: "test-only", maxRetries: 0,
+      configuration: { baseURL: "https://provider.example/v1", fetch: async (_url, init) => {
+        requests.push(JSON.parse(init.body));
+        return new Response(JSON.stringify({ id: "completion-1", object: "chat.completion", created: 1, model: "groq/openai/gpt-oss-120b", choices: [{ index: 0, finish_reason: "tool_calls", message: { role: "assistant", content: null, tool_calls: [{ id: "call-1", type: "function", function: { name: "get_food_orders", arguments: "{}" } }] } }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }), { headers: { "content-type": "application/json" } });
+      } },
+    });
+    const localModel = { _generate: async () => { throw Object.assign(new Error("Offline"), { code: "INFERENCE_OFFLINE" }); }, bindTools() { return this; } };
+    const model = new ApprovalFallbackChatModel({ localModel, hostedModel, requestApproval: async () => ({ status: "pending" }), waitForDecision: async () => "approved" });
+    const tools = [{ name: "get_food_orders", description: "Read order history", schema: z.object({}) }];
+    const bound = model.bindTools(tools, { tool_choice: "required" });
+    await bound.invoke([new HumanMessage("Read my food order history")]);
+    await model.bindTools(tools, { tool_choice: "auto" }).invoke([new HumanMessage("Continue")]);
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toMatchObject({ tool_choice: "required", tools: [{ type: "function", function: { name: "get_food_orders" } }] });
+    expect(requests[1]).toMatchObject({ tool_choice: "auto", tools: [{ type: "function", function: { name: "get_food_orders" } }] });
+  });
+  it("preserves the local inference cause when fallback approval expires", async () => {
+    const failure = Object.assign(new Error("Browser inference timed out"), { code: "INFERENCE_TIMEOUT" });
+    const onApprovalRequired = vi.fn();
+    const model = new ApprovalFallbackChatModel({
+      localModel: { _generate: async () => { throw failure; } }, hostedModel: {},
+      deviceId: "device-1", runId: "run-1", onApprovalRequired,
+      requestApproval: async () => ({ runId: "run-1", status: "pending" }), waitForDecision: async () => "expired",
+    });
+    await expect(model._generate([new HumanMessage("Continue")], {})).rejects.toMatchObject({
+      cause: failure, localFailure: { code: "INFERENCE_TIMEOUT", message: "Browser inference timed out", durationMs: expect.any(Number) },
+      message: expect.stringContaining("INFERENCE_TIMEOUT"), approvalDurationMs: expect.any(Number),
+    });
+    expect(onApprovalRequired).toHaveBeenCalledWith(expect.objectContaining({ reason: "INFERENCE_TIMEOUT", localFailure: expect.objectContaining({ code: "INFERENCE_TIMEOUT" }) }));
+  });
+  it("does not request hosted fallback when inference is cancelled", async () => {
+    const requestApproval = vi.fn();
+    const model = new ApprovalFallbackChatModel({ localModel: { _generate: async () => { throw Object.assign(new Error("Cancelled"), { code: "INFERENCE_CANCELLED" }); } }, hostedModel: {}, requestApproval });
+    await expect(model._generate([], {})).rejects.toMatchObject({ code: "INFERENCE_CANCELLED" });
+    expect(requestApproval).not.toHaveBeenCalled();
+  });
   it("switches the entire run to a tool-bound hosted runnable after one approval", async () => {
     const localGenerate = vi.fn(async () => { throw Object.assign(new Error("Browser model disconnected"), { code: "INFERENCE_DISCONNECTED" }); });
     const localModel = { _generate: localGenerate, bindTools() { return this; } };
@@ -133,5 +215,20 @@ describe("ApprovalFallbackChatModel", () => {
     expect(requestApproval).toHaveBeenCalledTimes(1);
     expect(waitForDecision).toHaveBeenCalledTimes(1);
     expect(onFallbackActivated).toHaveBeenCalledWith(expect.objectContaining({ status: "approved", hostedProvider: "google" }));
+  });
+});
+
+describe("inference deadline cleanup", () => {
+  it("sends cancellation to the device after an acknowledgement timeout", async () => {
+    const originalNamespace = inferenceBroker.namespace;
+    const emit = vi.fn();
+    const target = { timeout: () => target, emitWithAck: async () => { throw new Error("operation has timed out"); }, emit };
+    inferenceBroker.namespace = { to: () => target };
+    const deviceId = crypto.randomUUID();
+    try {
+      await expect(inferenceBroker.invoke(deviceId, { provider: "litert", model: "gemma-4-E2B-it-web", messages: [{ role: "user", content: "Hello" }] })).rejects.toMatchObject({ code: "INFERENCE_TIMEOUT" });
+      expect(emit).toHaveBeenCalledWith("inference:cancel", expect.objectContaining({ requestId: expect.any(String) }));
+      expect(inferenceBroker.pendingByDevice.has(deviceId)).toBe(false);
+    } finally { inferenceBroker.namespace = originalNamespace; }
   });
 });

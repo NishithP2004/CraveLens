@@ -5,7 +5,9 @@ const TTL_SECONDS = 120;
 export async function requestFallbackApproval(deviceId, runId, details) {
   const redis = await getRedis();
   await redis.set(redisKeys.fallback(deviceId, runId), JSON.stringify({ status: "pending", details, createdAt: Date.now() }), { EX: TTL_SECONDS });
-  return { runId, status: "pending", expiresAt: Date.now() + TTL_SECONDS * 1000 };
+  const { sendTelegramFallback } = await import("./telegram.js");
+  const telegram = await sendTelegramFallback(deviceId, runId, details);
+  return { runId, delivery: telegram ? "telegram" : "browser", status: "pending", expiresAt: Date.now() + TTL_SECONDS * 1000 };
 }
 
 export async function decideFallback(deviceId, runId, decision) {

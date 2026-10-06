@@ -8,7 +8,7 @@ import { inferenceBroker } from "./inference-broker.js";
 
 export class RemoteBrowserChatModel extends BaseChatModel {
   constructor(fields = {}) {
-    super(fields);
+    super({ ...fields, metadata: {...fields.metadata, origin: "local", provider: fields.provider || "litert", model: fields.model || "gemma-4-E2B-it-web"} });
     this.deviceId = fields.deviceId;
     this.provider = fields.provider || "litert";
     this.model = fields.model || "gemma-4-E2B-it-web";
@@ -100,9 +100,19 @@ const LOCAL_REQUEST_CHARACTER_BUDGET = 24_000;
 const LOCAL_TOOL_RESULT_CHARACTER_LIMIT = 4_500;
 
 export function compactLocalMessages(messages, tools = [], characterBudget = LOCAL_REQUEST_CHARACTER_BUDGET) {
-  const prepared = messages.map((message) => ({
+  const evidence = new Set();
+  for (const names of [["search_menu", "get_restaurant_menu"], ["update_food_cart"]]) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "tool" && names.includes(messages[i].name)) {
+        evidence.add(i);
+        if (i > 0) evidence.add(i - 1);
+        break;
+      }
+    }
+  }
+  const prepared = messages.map((message, index) => ({
     ...message,
-    content: message.role === "tool"
+    content: evidence.has(index) || message.role === "system" || message.role === "user" ? message.content : message.role === "tool"
       ? compactToolResultContent(message.content, LOCAL_TOOL_RESULT_CHARACTER_LIMIT)
       : compactTextContent(message.content, message.role === "system" ? 8_000 : 3_000),
   }));
@@ -117,6 +127,10 @@ export function compactLocalMessages(messages, tools = [], characterBudget = LOC
   const toolCharacters = JSON.stringify(tools).length;
   let remaining = Math.max(5_000, characterBudget - toolCharacters);
   const selected = new Set();
+  for (const index of evidence) {
+    selected.add(index);
+    remaining -= messageCharacters(prepared[index]);
+  }
   for (let index = 0; index < prepared.length; index += 1) {
     if (prepared[index].role !== "system") continue;
     selected.add(index);
@@ -127,6 +141,11 @@ export function compactLocalMessages(messages, tools = [], characterBudget = LOC
   if (firstUser >= 0 && !selected.has(firstUser)) {
     selected.add(firstUser);
     remaining -= messageCharacters(prepared[firstUser]);
+  }
+  const lastUser = prepared.findLastIndex((message) => message.role === "user");
+  if (lastUser >= 0 && !selected.has(lastUser)) {
+    selected.add(lastUser);
+    remaining -= messageCharacters(prepared[lastUser]);
   }
 
   let suffixStart = prepared.length;
@@ -189,10 +208,9 @@ function compactJsonValue(value, { arrayLimit, stringLimit }, depth = 0) {
 
 function compactSchema(schema, depth = 0) {
   if (!schema || typeof schema !== "object" || depth > 8) return schema;
-  if (Array.isArray(schema)) return schema.slice(0, 24).map((item) => compactSchema(item, depth + 1));
+  if (Array.isArray(schema)) return schema.map((item) => compactSchema(item, depth + 1));
   return Object.fromEntries(Object.entries(schema).map(([key, value]) => {
     if (key === "description" && typeof value === "string") return [key, value.slice(0, 160)];
-    if (key === "enum" && Array.isArray(value)) return [key, value.slice(0, 24)];
     return [key, compactSchema(value, depth + 1)];
   }));
 }

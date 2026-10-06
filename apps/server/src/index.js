@@ -1,3 +1,4 @@
+import { startTelegram, stopTelegram } from "./telegram.js";
 import { app } from "./app.js";
 import { config } from "./config.js";
 import { connectStore } from "./store.js";
@@ -12,8 +13,11 @@ const server = createServer(app);
 await attachAgentEventServer(server);
 server.listen(config.port, () => console.log(`CraveLens API on http://localhost:${config.port} (${store.mode}, Socket.IO ready; Langfuse ${langfuse.enabled ? "enabled" : "disabled"})`));
 
+await startTelegram().catch(() => console.error("[telegram] Could not start bot. Check TELEGRAM_BOT_TOKEN, transport, webhook secret and public URL."));
+
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.once(signal, async () => {
+    stopTelegram();
     await shutdownLangfuse();
     await closeRedis();
     server.close(() => process.exit(0));

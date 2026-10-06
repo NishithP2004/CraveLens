@@ -7,12 +7,15 @@ Node server routes through a Cloudflare Tunnel on the Raspberry Pi.
 https://cravelens.nishithp.page/             -> GitHub Pages
 https://cravelens.nishithp.page/api/*        -> Worker -> Tunnel -> Pi server
 https://cravelens.nishithp.page/socket.io/*  -> Worker -> Tunnel -> Pi server
+https://cravelens.nishithp.page/telegram/webhook -> Worker -> Tunnel -> Pi server
 ```
 
 `/socket.io/*` is essential: the extension uses Socket.IO over WebSocket for
 agent events and the `/inference` namespace. The Socket.IO namespace is carried
 inside the `/socket.io/*` handshake, so it does not need a separate `/inference`
 route.
+
+Telegram linking, confirmation, disconnection, cart-experience settings and the preference builder’s start/progress endpoints use the existing `/api/*` route. Preference progress uses authenticated HTTP polling; no additional WebSocket route is required. The exact `/telegram/webhook` route forwards bot updates, including the POST body and `X-Telegram-Bot-Api-Secret-Token` header, to the API. The Worker adds the origin Access service-token headers; the API separately validates the Telegram secret. Other `/telegram/*` paths are not forwarded. Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_WEBHOOK_SECRET` on the server, not on the Worker. Redeploy this Worker after route changes. See [Telegram setup](../../TELEGRAM.md).
 
 ## One-time Cloudflare setup
 
@@ -52,6 +55,8 @@ route.
 
 ## Validation
 
+Before deployment, run `npm test` in `apps/edge-proxy` to check webhook forwarding, header preservation and path isolation. `npx wrangler deploy --dry-run` validates the Worker bundle without publishing.
+
 After deployment, the public health endpoint should be served by the Pi rather
 than GitHub Pages:
 
@@ -66,3 +71,15 @@ extension open the Swiggy sign-in tab.
 Do not expose MongoDB, Redis, or port 8787 to the public Internet. The Worker
 is the only permitted public route to the Tunnel origin; Cloudflare Access
 rejects direct traffic to that origin.
+
+## Admin console on the same hostname
+
+`/admin` and `/admin/*` are forwarded by the `cravelens.nishithp.page/admin*` Worker route. `/api/admin/*` uses the existing `/api/*` route. The UI comes from the Node server, not GitHub Pages. The Worker verifies the human `Cf-Access-Jwt-Assertion` and allowlisted email before forwarding; the API verifies it again via the Worker-supplied `X-CraveLens-Admin-Assertion`. This separate header preserves the admin identity while the origin's Access application authenticates the Worker service token. Client-supplied copies are always discarded. Public API behavior stays unchanged.
+
+1. In Zero Trust, create a self-hosted admin Access application with both public destinations `cravelens.nishithp.page/admin` and `cravelens.nishithp.page/api/admin` (subpaths included), using the same application AUD. Limit the Allow policy to your admin email(s); do not use Everyone, Bypass or service-token access for admin routes.
+2. Set `ADMIN_ACCESS_TEAM_DOMAIN` (HTTPS team domain), `ADMIN_ACCESS_AUDIENCE` (admin AUD) and `ADMIN_EMAILS` (comma-separated humans) in the server environment.
+3. Set the same values on the Worker using `npx wrangler secret put ADMIN_ACCESS_TEAM_DOMAIN`, `npx wrangler secret put ADMIN_ACCESS_AUDIENCE`, and `npx wrangler secret put ADMIN_EMAILS`.
+4. Deploy the server containing `apps/server/admin/` and redeploy the Worker after reviewing the diff. The configuration disables both `workers.dev` and preview URLs. No policy is created by Wrangler here.
+5. Verify signed-out and non-admin visitors cannot retrieve UI assets or JSON. Verify an allowed admin can navigate to `/admin/`, refresh data and export aggregates. Test direct-origin and forged-header attempts. Cloudflare sign-in requires actual configured policies; local tests do not establish live policy protection.
+
+Missing admin configuration returns 503; invalid or unauthorized assertions return 403. No public admin fallback exists. JWT verification rejects the Tunnel service-token audience for admin access. The existing origin service-token policy must stay in place. See the main README for analytics sources, retention, MongoDB persistence and Langfuse sampling limits.

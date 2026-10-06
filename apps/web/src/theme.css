@@ -1,0 +1,66 @@
+/* Page artwork adaptations; palette and reusable components live in shared CSS. */
+html[data-theme="dark"] :is(.eyebrow, .story-panel) {
+  background: var(--paper);
+}
+html[data-theme="dark"] :is(.feature-band, .story-tech) {
+  background: #22241d;
+}
+html[data-theme="dark"] :is(.announcement, .step-card.ink) {
+  background: var(--surface-inverse);
+  color: var(--on-inverse);
+}
+html[data-theme="dark"]
+  :is(
+    .step-card.coral,
+    .step-card.lime,
+    .story-inspiration,
+    .story-product,
+    .story-ticket,
+    .feature-copy li span,
+    .shield
+  ) {
+  color: #181814;
+}
+html[data-theme="dark"] .story-panel.story-inspiration {
+  background: var(--lime);
+  color: #181814;
+}
+html[data-theme="dark"] .story-panel.story-product {
+  background: #ffe1d5;
+  color: #181814;
+}
+html[data-theme="dark"] .story-panel.story-cinema {
+  background: #181814;
+  color: var(--on-inverse);
+}
+html[data-theme="dark"] .story-product p {
+  color: #514a42;
+}
+html[data-theme="dark"] .story-notification small {
+  color: var(--muted);
+}
+html[data-theme="dark"] .mini-frame {
+  background: #363125;
+}
+html[data-theme="dark"] .eye-art > span {
+  background: #fff;
+}
+html[data-theme="dark"] .avatar-stack b {
+  background: #3b3a31;
+}
+html[data-theme="dark"] .pref-row > b {
+  background: #35362e;
+}
+html[data-theme="dark"] .pref-row > b.safe {
+  background: #e2efc1;
+}
+html[data-theme="dark"] .coupon {
+  background: #38251e;
+}
+html[data-theme="dark"] .install-dialog::backdrop {
+  background: #000b;
+}
+/* Official store artwork keeps its intended light background in both themes. */
+html[data-theme="dark"] .chrome-web-store-badge {
+  background: #fffaf7;
+}

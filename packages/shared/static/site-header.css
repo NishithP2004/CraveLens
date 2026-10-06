@@ -1,0 +1,188 @@
+header.cl-header {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  max-width: 1240px;
+  min-height: 88px;
+  margin: 0 auto;
+  padding: 16px 28px;
+  color: var(--ink);
+  font-family: "DM Sans", system-ui, sans-serif;
+}
+.cl-header .cl-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-shrink: 0;
+  text-decoration: none;
+  color: var(--ink);
+  font:
+    800 21px/1 Manrope,
+    system-ui,
+    sans-serif;
+  letter-spacing: -0.7px;
+}
+.cl-header-mark {
+  position: relative;
+  display: block;
+  width: 31px;
+  height: 31px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--coral);
+  transform: rotate(-8deg);
+}
+.cl-header-mark i:first-child {
+  position: absolute;
+  width: 16px;
+  height: 11px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  left: 8px;
+  top: 8px;
+}
+.cl-header-mark i:last-child {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  background: #fff;
+  border-radius: 50%;
+  left: 14px;
+  top: 12px;
+}
+.cl-header .cl-header-nav {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+.cl-header-nav a {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--ink);
+  text-decoration: none;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+}
+.cl-header a:hover {
+  color: var(--theme-accent);
+}
+.cl-header .cl-header-install {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 40px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: var(--primary);
+  color: #fff;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.cl-header .cl-header-install:hover {
+  background: var(--primary-hover);
+  color: #fff;
+}
+.cl-header .cl-header-menu {
+  display: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+}
+.cl-header-menu svg {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  fill: none;
+}
+.cl-header a:focus-visible,
+.cl-header button:focus-visible {
+  outline: 2px solid var(--theme-accent);
+  outline-offset: 4px;
+}
+@media (max-width: 1100px) {
+  header.cl-header {
+    gap: 12px;
+  }
+  .cl-header .cl-header-nav {
+    gap: 15px;
+  }
+}
+@media (max-width: 1000px) {
+  header.cl-header {
+    justify-content: flex-end;
+  }
+  .cl-header .cl-header-brand {
+    margin-right: auto;
+  }
+  .cl-header .cl-header-menu {
+    display: grid;
+  }
+  .cl-header .cl-header-nav {
+    display: none;
+    position: absolute;
+    left: 24px;
+    right: 24px;
+    top: calc(100% - 4px);
+    padding: 18px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--paper);
+    box-shadow: 0 16px 32px var(--theme-shadow);
+  }
+  .cl-header .cl-header-nav.is-open {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+  }
+  .cl-header-nav a {
+    padding: 7px;
+  }
+}
+@media (max-width: 600px) {
+  header.cl-header {
+    min-height: 78px;
+    padding: 16px 18px;
+    gap: 10px;
+  }
+  .cl-header .cl-header-install {
+    display: none;
+  }
+  .cl-header .cl-header-brand {
+    font-size: 19px;
+  }
+  .cl-header .cl-header-nav {
+    left: 18px;
+    right: 18px;
+  }
+}
+@media (max-width: 360px) {
+  header.cl-header {
+    padding: 14px 12px;
+    gap: 6px;
+  }
+  .cl-header .cl-header-brand {
+    font-size: 17px;
+    gap: 6px;
+  }
+}

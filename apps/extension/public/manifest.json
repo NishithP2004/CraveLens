@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CraveLens",
-  "version": "0.8.1",
+  "version": "0.10.8",
   "description": "See it. Crave it. Get it.",
   "icons": {
     "16": "icons/icon-16.png",
@@ -12,10 +12,34 @@
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' http://*:* https://*:* ws://*:* wss://*:*"
   },
-  "permissions": ["storage", "tabs", "activeTab", "scripting", "geolocation", "offscreen"],
-  "host_permissions": ["https://www.youtube.com/*", "https://www.instagram.com/*", "https://www.facebook.com/*", "https://web.facebook.com/*", "https://m.facebook.com/*", "http://localhost:8787/*", "http://localhost:11434/*", "https://huggingface.co/*", "https://*.hf.co/*", "https://cravelens.nishithp.page/*"],
-  "optional_host_permissions": ["http://*/*", "https://*/*"],
-  "background": { "service_worker": "background.js", "type": "module" },
+  "permissions": [
+    "storage",
+    "tabs",
+    "activeTab",
+    "scripting",
+    "geolocation",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://www.instagram.com/*",
+    "https://www.facebook.com/*",
+    "https://web.facebook.com/*",
+    "https://m.facebook.com/*",
+    "http://localhost:8787/*",
+    "http://localhost:11434/*",
+    "https://huggingface.co/*",
+    "https://*.hf.co/*",
+    "https://cravelens.nishithp.page/*"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
   "action": {
     "default_popup": "src/popup.html",
     "default_title": "CraveLens",
@@ -35,6 +59,36 @@
       "description": "Search a selected area with CraveLens"
     }
   },
-  "content_scripts": [{ "matches": ["https://www.youtube.com/*", "https://www.instagram.com/*", "https://www.facebook.com/*", "https://web.facebook.com/*", "https://m.facebook.com/*"], "js": ["content.js"], "run_at": "document_idle" }],
-  "web_accessible_resources": [{ "resources": ["food-worker.js", "chunks/*", "*.wasm", "litert-wasm/*", "litertlm-wasm/*", "genai-wasm/*", "models/food-detector/*", "provider-icons/swiggy.png"], "matches": ["<all_urls>"] }]
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://www.instagram.com/*",
+        "https://www.facebook.com/*",
+        "https://web.facebook.com/*",
+        "https://m.facebook.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "food-worker.js",
+        "chunks/*",
+        "*.wasm",
+        "litert-wasm/*",
+        "litertlm-wasm/*",
+        "genai-wasm/*",
+        "models/food-detector/*",
+        "provider-icons/swiggy.png"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
 }

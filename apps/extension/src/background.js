@@ -8,7 +8,7 @@ const ENVIRONMENTS = Object.freeze({
   production: { apiUrl: "https://cravelens.nishithp.page" },
 });
 const DEFAULT_ENVIRONMENT = "production";
-const defaults = { enabled: true, debug: false, environment: DEFAULT_ENVIRONMENT, apiUrl: ENVIRONMENTS[DEFAULT_ENVIRONMENT].apiUrl, addressId: "", addressLabel: "", sensitivity: 0.38, scanIntervalMs: 4000, autoDetectYouTube: true, autoDetectInstagram: true, autoDetectFacebook: true, shortcutBehavior: "auto-supported", personalContext: "", themeMode: "system", modelSettings: { version: 1, vlm: { provider: "auto" }, orchestration: { provider: "auto", contextTokens: DEFAULT_LOCAL_CONTEXT_TOKENS, thinkingEnabled: false }, ollama: { baseUrl: DEFAULT_OLLAMA_BASE_URL }, hostedFallback: "ask" } };
+const defaults = { cartExperience: "screen", telegramSilent: false, enabled: true, debug: false, environment: DEFAULT_ENVIRONMENT, apiUrl: ENVIRONMENTS[DEFAULT_ENVIRONMENT].apiUrl, addressId: "", addressLabel: "", sensitivity: 0.38, scanIntervalMs: 4000, autoDetectYouTube: true, autoDetectInstagram: true, autoDetectFacebook: true, shortcutBehavior: "auto-supported", personalContext: "", themeMode: "system", modelSettings: { version: 1, vlm: { provider: "auto" }, orchestration: { provider: "auto", contextTokens: DEFAULT_LOCAL_CONTEXT_TOKENS, thinkingEnabled: false }, ollama: { baseUrl: DEFAULT_OLLAMA_BASE_URL }, hostedFallback: "ask" } };
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   const existing = await chrome.storage.local.get([...Object.keys(defaults), "deviceId", "deviceRefreshToken", "deviceRefreshExpiresAt", "deviceSessions"]);
   const environment = normalizeEnvironment(existing.environment || (existing.apiUrl === ENVIRONMENTS.development.apiUrl ? "development" : DEFAULT_ENVIRONMENT));
@@ -40,6 +40,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   }
   if (message.type === "CRAVELENS_LITERT_DOWNLOAD_STATUS") {
     chrome.storage.local.set({ liteRtDownloadState: message.state }).then(() => respond({ ok: true }));
+    if (inferenceSocket?.connected && ["ready", "cached", "removed", "error", "cancelled"].includes(message.state?.state)) {
+      discoverLocalProviders().then((providers) => inferenceSocket?.emit("inference:register", { version: 1, providers })).catch(() => {});
+    }
     return true;
   }
   if (message.type === "CRAVELENS_CANCEL_LITERT_DOWNLOAD") {
@@ -151,14 +154,26 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message.type !== "CRAVELENS_API") return;
   (async () => {
     let session = await ensureDeviceSession();
+    if (message.path === "/api/orchestrate" || /^\/api\/orchestrate\/[^/]+\/customize$/.test(message.path)) {
+      try { await ensureInferenceConnection(); }
+      catch (error) { console.warn("[CraveLens] Browser inference connection failed before cart run", error.message); }
+    }
     let response = await fetch(`${session.apiUrl}${message.path}`, { method: message.method || "GET", headers: { "content-type": "application/json", authorization: `Bearer ${session.accessToken}` }, body: message.body ? JSON.stringify(message.body) : undefined });
     if (response.status === 401) {
       session = await ensureDeviceSession(true);
+      await connectInferenceSocket();
+      try { await waitForInferenceConnection(inferenceSocket); } catch { /* Server can still request approved hosted fallback. */ }
       response = await fetch(`${session.apiUrl}${message.path}`, { method: message.method || "GET", headers: { "content-type": "application/json", authorization: `Bearer ${session.accessToken}` }, body: message.body ? JSON.stringify(message.body) : undefined });
     }
-    if (response.status === 204) return undefined;
+    if (response.status === 204) {
+      if (message.path === "/api/swiggy/auth" && message.method === "DELETE") await chrome.storage.local.remove(`cravelens.autoPreferences:${session.environment}`);
+      return undefined;
+    }
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+    const profileKey = `cravelens.autoPreferences:${session.environment}`;
+    if (message.path === "/api/swiggy/auth/start") await chrome.storage.local.remove(profileKey);
+    if (data?.suggestion?.preferenceProfile) await chrome.storage.local.set({ [profileKey]: data.suggestion.preferenceProfile });
     return data;
   })().then((data) => respond({ ok: true, data })).catch((error) => respond({ ok: false, error: error.message }));
   return true;
@@ -316,6 +331,31 @@ async function ensureDeviceSession(forceRefresh = false) {
 }
 
 let inferenceSocket;
+let inferenceConnectionPromise;
+let inferenceHeartbeat;
+async function ensureInferenceConnection() {
+  if (inferenceSocket?.connected) return;
+  if (!inferenceConnectionPromise) {
+    inferenceConnectionPromise = (async () => {
+      await connectInferenceSocket();
+      await waitForInferenceConnection(inferenceSocket);
+    })().finally(() => { inferenceConnectionPromise = undefined; });
+  }
+  return inferenceConnectionPromise;
+}
+
+function waitForInferenceConnection(socket) {
+  if (socket?.connected) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const cleanup = () => { clearTimeout(timer); socket?.off("connect", connected); socket?.off("connect_error", failed); };
+    const connected = () => { cleanup(); resolve(); };
+    const failed = (error) => { cleanup(); reject(error); };
+    const timer = setTimeout(() => failed(new Error("Browser inference socket did not connect within 8 seconds")), 8000);
+    socket?.once("connect", connected);
+    socket?.once("connect_error", failed);
+  });
+}
+
 async function connectInferenceSocket() {
   const [{ accessToken, apiUrl }, { modelSettings = defaults.modelSettings }] = await Promise.all([ensureDeviceSession(), chrome.storage.local.get(["modelSettings"])]);
   inferenceSocket?.disconnect();
@@ -330,14 +370,15 @@ async function connectInferenceSocket() {
       const { apiUrl = defaults.apiUrl, modelSettings: currentSettings = defaults.modelSettings } = await chrome.storage.local.get(["apiUrl", "modelSettings"]);
       const offscreenRequest = request.provider === "ollama"
         ? { ...request, ollamaBaseUrl: normalizeOllamaBaseUrl(currentSettings?.ollama?.baseUrl) }
-        : { ...request, modelUrl: getLiteRtTextModel(request.model).url };
+        : { ...request, modelUrl: requireLiteRtTextModel(request.model).url };
       const response = await chrome.runtime.sendMessage({ type: "CRAVELENS_OFFSCREEN_CHAT", request: offscreenRequest });
       if (!response?.ok) throw Object.assign(new Error(response?.error || "Local inference failed"), { code: response?.code });
       acknowledge({ ok: true, result: response.result });
     } catch (error) { acknowledge({ ok: false, error: { code: error.code || "INFERENCE_FAILED", message: error.message } }); }
   });
   inferenceSocket.on("inference:cancel", ({ requestId }) => chrome.runtime.sendMessage({ type: "CRAVELENS_OFFSCREEN_CANCEL", requestId }).catch(() => {}));
-  setInterval(() => inferenceSocket?.connected && inferenceSocket.emit("inference:heartbeat", { version: 1, timestamp: Date.now() }), 25_000);
+  clearInterval(inferenceHeartbeat);
+  inferenceHeartbeat = setInterval(() => inferenceSocket?.connected && inferenceSocket.emit("inference:heartbeat", { version: 1, timestamp: Date.now() }), 25_000);
 }
 
 async function discoverLocalProviders(ollamaBaseUrl = DEFAULT_OLLAMA_BASE_URL) {
@@ -349,8 +390,19 @@ async function discoverLocalProviders(ollamaBaseUrl = DEFAULT_OLLAMA_BASE_URL) {
   return providers;
 }
 
+function requireLiteRtTextModel(modelId) {
+  const model = LITERT_TEXT_MODELS.find((candidate) => candidate.id === modelId);
+  if (!model) throw Object.assign(new Error(`Unknown LiteRT text model: ${modelId}`), { code: "INFERENCE_UNAVAILABLE" });
+  return model;
+}
+
 async function discoverLiteRtProviders() {
-  return LITERT_TEXT_MODELS.map((model) => ({ provider: "litert", model: model.id, capabilities: ["text", "tools"] }));
+  try {
+    await ensureOffscreenDocument();
+    const status = await chrome.runtime.sendMessage({ type: "CRAVELENS_OFFSCREEN_LITERT_STATUS" });
+    if (!status?.ok || !status.gpuAvailable) return [];
+    return status.models.map((model) => ({ provider: "litert", ...model, capabilities: ["text", "tools"] }));
+  } catch { return []; }
 }
 
 function isSupportedVideoUrl(value) {

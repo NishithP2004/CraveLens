@@ -7,7 +7,7 @@ import {
   getTranscriptContext,
   normalizeCaptionEvents,
   selectCaptionTrack,
-} from "./transcript.js";
+} from "../src/transcript.js";
 
 test("extracts a balanced ytInitialPlayerResponse assignment", () => {
   const value = extractAssignedJson('var ytInitialPlayerResponse = {"captions":{"value":"brace } in string"}};', "ytInitialPlayerResponse");

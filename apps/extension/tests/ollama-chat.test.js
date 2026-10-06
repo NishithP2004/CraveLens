@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildOllamaChatPayload, DEFAULT_LOCAL_CONTEXT_TOKENS, MAX_LOCAL_CONTEXT_TOKENS, toOllamaMessage } from "./ollama-chat.js";
+import { buildOllamaChatPayload, DEFAULT_LOCAL_CONTEXT_TOKENS, MAX_LOCAL_CONTEXT_TOKENS, toOllamaMessage } from "../src/ollama-chat.js";
 
 test("builds a bounded Ollama agent request with thinking disabled by default", () => {
   const payload = buildOllamaChatPayload({

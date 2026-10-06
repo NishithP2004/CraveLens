@@ -67,6 +67,7 @@ export async function completeSwiggyAuthorization(state, code) {
     const expiresIn = Math.max(60, Number(provider.oauthTokens.expires_in || 5 * 24 * 60 * 60));
     const credential = { redirectUrl: pending.redirectUrl, tokens: provider.oauthTokens, clientInformation: provider.clientInfo, createdAt: Date.now(), expiresAt: Date.now() + expiresIn * 1000 };
     await Promise.all([
+      redis.del(redisKeys.preferenceProfiles(pending.deviceId)),
       redis.set(redisKeys.swiggyCredential(pending.deviceId), encryptJson(credential, `cravelens:swiggy:${pending.deviceId}`), { EX: expiresIn }),
       redis.hSet(redisKeys.device(pending.deviceId), {
         swiggyOAuthStatus: "connected",
@@ -118,6 +119,7 @@ export async function disconnectSwiggy(deviceId) {
   activeClients.delete(deviceId);
   const redis = await getRedis();
   await redis.del(redisKeys.swiggyCredential(deviceId));
+  await redis.del(redisKeys.preferenceProfiles(deviceId));
   await redis.hSet(redisKeys.device(deviceId), { swiggyOAuthStatus: "missing", swiggyOAuthPendingExpiresAt: "", swiggyExpiresAt: "" });
 }
 

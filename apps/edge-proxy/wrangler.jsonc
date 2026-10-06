@@ -6,6 +6,10 @@
   "workers_dev": false,
   "routes": [
     {
+      "pattern": "cravelens.nishithp.page/telegram/webhook",
+      "zone_name": "nishithp.page"
+    },
+    {
       "pattern": "cravelens.nishithp.page/api/*",
       "zone_name": "nishithp.page"
     },
@@ -20,6 +24,12 @@
     {
       "pattern": "cravelens.nishithp.page/models/*",
       "zone_name": "nishithp.page"
+    },
+    {
+      "pattern": "cravelens.nishithp.page/admin*",
+      "zone_name": "nishithp.page"
     }
-  ]
+  ],
+  "preview_urls": false,
+  "keep_vars": true
 }

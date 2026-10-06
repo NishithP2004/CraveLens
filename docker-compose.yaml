@@ -4,6 +4,8 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:27017:27017"
+    volumes:
+      - mongo_data:/data/db
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
       MONGO_INITDB_ROOT_PASSWORD: admin
@@ -44,4 +46,5 @@ services:
         condition: service_healthy
 
 volumes:
+  mongo_data:
   redis_data:

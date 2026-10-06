@@ -12,13 +12,34 @@ export function resolveMenuItemId(item) {
 }
 
 export function cartReflectsItems(cart, expectedItems) {
+  return compareCartItems(cart, expectedItems).verified;
+}
+
+export function compareCartItems(cart, expectedItems) {
   const expected = cartItemQuantities(expectedItems);
-  if (!expected.size) return false;
-  return collectArraysAtKeys(cart, new Set(["items", "cartItems", "orderItems"])).some((items) => {
+  const arrays = collectArraysAtKeys(cart, new Set(["items", "cartItems", "orderItems"]));
+  const verified = expected.size > 0 && arrays.some((items) => {
     const actual = cartItemQuantities(items);
     if (actual.size !== expected.size) return false;
     return [...expected].every(([itemId, quantity]) => actual.get(itemId) === quantity);
   });
+  const entries = (quantities) => [...quantities].slice(0, 20).map(([itemId, quantity]) => ({ itemId, quantity }));
+  return {
+    verified,
+    reason: verified ? "matched" : !expected.size ? "missing_expected_item_ids" : !arrays.length ? "unrecognized_cart_shape" : "item_or_quantity_mismatch",
+    responseType: cart === null ? "null" : typeof cart,
+    responseKeys: cart && typeof cart === "object" ? Object.keys(cart).slice(0, 20) : [],
+    arrayPaths: cartArrayPaths(cart),
+    expected: entries(expected),
+    actual: arrays.slice(0, 8).map((items) => ({ itemCount: items.length, items: entries(cartItemQuantities(items)) })),
+  };
+}
+
+function cartArrayPaths(value, path = "", paths = [], depth = 0) {
+  if (!value || typeof value !== "object" || depth > 6 || paths.length >= 20) return paths;
+  if (Array.isArray(value)) { paths.push(path); return paths; }
+  for (const [key, child] of Object.entries(value)) cartArrayPaths(child, path ? `${path}.${key}` : key, paths, depth + 1);
+  return paths;
 }
 
 function cartItemQuantities(items) {

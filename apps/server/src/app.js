@@ -1,9 +1,17 @@
+import { mountAdmin } from "./admin.js";
+import { recordEvent } from "./analytics.js";
+import { traceOperation } from "./trace-context.js";
+import { customizeCart } from "./cart-customization.js";
+import { getPreferenceJob, startPreferenceJob } from "./preference-builder.js";
+import { telegramStatus, startTelegramLink, confirmTelegramLink, disconnectTelegram, handleTelegramUpdate, queueTelegramCart } from "./telegram.js";
+import { getCartExperience, saveCartExperience, reserveBackgroundCart, releaseBackgroundCart, pausedBackgroundCart } from "./cart-experience.js";
+import { decideCart, refreshPayment, cancelPayment } from "./checkout.js";
 import crypto from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import express from "express";
 import cors from "cors";
-import { CartCustomizationSchema, CartMutationSchema, CouponSelectionSchema, DetectionSchema, OrchestrateRequestSchema } from "@cravelens/shared";
+import { CartCustomizationSchema, CartMutationSchema, CouponSelectionSchema, DetectionSchema, OrchestrateRequestSchema, foodCravingIdentity } from "@cravelens/shared";
 import { claimThreadStatus, getThread, getVideo, patchThread, saveDetection, saveThread } from "./store.js";
 import { buildPersonalizedCart, checkUPIPayment, confirmUPIPayment, customizePersonalizedCart, getRestaurantMenuItems, getSavedAddresses, mutatePersonalizedCart, placeOrder, publicPayment, selectPersonalizedCoupon } from "./swiggy.js";
 import { completeSwiggyAuthorization, disconnectSwiggy, failSwiggyAuthorization, getSwiggyAuthorizationStatus, startSwiggyAuthorization } from "./swiggy-auth.js";
@@ -16,9 +24,10 @@ import { decideFallback } from "./fallback-approval.js";
 export const app = express();
 const orchestrationFlights = new Map();
 
+
 export function orchestrationFlightKey(input, swiggySessionId, requester = "") {
   const dish = String(input.verification?.dish || "food").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-  const identity = [swiggySessionId || `anonymous:${requester}`, input.addressId || "default", input.videoId, dish].join("\u001f");
+  const identity = [swiggySessionId || `anonymous:${requester}`, input.addressId || "default", input.videoId, dish, JSON.stringify(foodCravingIdentity(input.verification)), input.personalContext || ""].join("\u001f");
   return crypto.createHash("sha256").update(identity).digest("hex");
 }
 
@@ -31,8 +40,8 @@ export function runSingleFlight(flights, key, operation, { retainMs = 30_000 } =
   const remove = () => {
     if (flights.get(key) === promise) flights.delete(key);
   };
-  promise.then(() => {
-    if (retainMs <= 0) remove();
+  promise.then((result) => {
+    if (retainMs <= 0 || result?.paused) remove();
     else {
       const timer = setTimeout(remove, retainMs);
       timer.unref?.();
@@ -43,6 +52,8 @@ export function runSingleFlight(flights, key, operation, { retainMs = 30_000 } =
 
 app.use(cors());
 app.use(express.json({ limit: "5mb" }));
+mountAdmin(app);
+
 app.use("/models", express.static(config.localModelDirectory, { fallthrough: false, immutable: true, maxAge: "1y" }));
 app.get("/health", (_req, res) => res.json({ ok: true, service: "cravelens", time: new Date().toISOString() }));
 app.get("/api/local-model/status", (_req, res) => {
@@ -66,7 +77,26 @@ app.get("/api/swiggy/auth/callback", async (req, res) => {
     res.status(400).type("html").send(authResultPage(false, "Couldn’t connect Swiggy", error instanceof Error ? error.message : "Authorization failed"));
   }
 });
-app.use(["/api/swiggy", "/api/orchestrate", "/api/model-settings"], requireDevice);
+app.post("/telegram/webhook", async (req, res) => {
+  const supplied = Buffer.from(String(req.get("X-Telegram-Bot-Api-Secret-Token") || ""));
+  const expected = Buffer.from(config.telegramWebhookSecret);
+  if (!expected.length || supplied.length !== expected.length || !crypto.timingSafeEqual(supplied, expected)) return res.sendStatus(403);
+  try { await handleTelegramUpdate(req.body); res.sendStatus(200); }
+  catch { res.sendStatus(503); }
+});
+app.use(["/api/swiggy", "/api/orchestrate", "/api/model-settings", "/api/telegram", "/api/cart-experience", "/api/preferences"], requireDevice);
+app.post("/api/preferences/build", async (req, res, next) => { try { res.status(202).json(await startPreferenceJob(req.deviceId, req.body)); } catch (error) { next(error); } });
+app.get("/api/preferences/build/:runId", async (req, res, next) => { try { const job = await getPreferenceJob(req.deviceId, req.params.runId); if (!job) return res.status(404).json({ error: "Preferences run expired or was not found" }); res.set("Cache-Control", "no-store").json(job); } catch (error) { next(error); } });
+app.get("/api/telegram", async (req, res, next) => { try { res.json(await telegramStatus(req.deviceId)); } catch (error) { next(error); } });
+app.post("/api/telegram/connect", async (req, res, next) => { try { res.json(await startTelegramLink(req.deviceId)); } catch (error) { next(error); } });
+app.post("/api/telegram/confirm", async (req, res, next) => { try { res.json(await confirmTelegramLink(req.deviceId)); } catch (error) { next(error); } });
+app.delete("/api/telegram", async (req, res, next) => { try { await disconnectTelegram(req.deviceId); res.sendStatus(204); } catch (error) { next(error); } });
+app.get("/api/cart-experience", async (req, res, next) => { try { res.json(await getCartExperience(req.deviceId)); } catch (error) { next(error); } });
+app.put("/api/cart-experience", async (req, res, next) => { try { res.json(await saveCartExperience(req.deviceId, req.body)); } catch (error) { next(error); } });
+app.use("/api/orchestrate/:threadId", async (req, res, next) => {
+  if (req.path === "/fallback") return next();
+  try { const thread = await getThread(req.params.threadId); if (!thread || thread.deviceId !== req.deviceId) return res.status(404).json({ error: "Cart not found" }); next(); } catch (error) { next(error); }
+});
 app.post("/api/swiggy/auth/start", async (req, res, next) => { try { res.json(await startSwiggyAuthorization(req.deviceId)); } catch (error) { next(error); } });
 app.get("/api/swiggy/auth/status", async (req, res, next) => { try { res.json(await getSwiggyAuthorizationStatus(req.deviceId)); } catch (error) { next(error); } });
 app.delete("/api/swiggy/auth", async (req, res, next) => { try { await disconnectSwiggy(req.deviceId); res.status(204).end(); } catch (error) { next(error); } });
@@ -82,60 +112,50 @@ app.post("/api/orchestrate", async (req, res, next) => {
     const input = OrchestrateRequestSchema.parse(req.body);
     const food = input.verification;
     if (!food.isFood || food.confidence < 0.65) return res.json({ detected: false });
+    const experience = await getCartExperience(req.deviceId);
     const swiggySessionId = readSwiggySession(req);
     const flightKey = orchestrationFlightKey(input, swiggySessionId, req.ip);
     const { joined, promise } = runSingleFlight(orchestrationFlights, flightKey, async () => {
-      const threadId = crypto.randomUUID();
+      const reserved = await reserveBackgroundCart(req.deviceId);
+      if (!reserved) {
+        publishAgentEvent(input.streamId, "orchestration_paused", { reason: "ACTIVE_CART_PENDING" });
+        return { detected: false, paused: true, code: "ACTIVE_CART_PENDING", ...await pausedBackgroundCart(req.deviceId) };
+      }
+      const threadId = reserved || crypto.randomUUID();
+      return traceOperation("cart.prepare", {sessionId: threadId, streamId: input.streamId, operation: "cart.prepare"}, async () => {
+      try {
+      await recordEvent({id: `detection:${threadId}`, kind: "detection", outcome: "success", dishes: [...new Set((food.dishes?.length ? food.dishes : [food]).map(d => d.dish.trim().toLowerCase()))]});
       publishAgentEvent(input.streamId, "orchestration_started", { dish: food.dish });
       const suggestion = await buildPersonalizedCart(food, threadId, swiggySessionId, input.addressId, input.streamId, {
         personalContext: input.personalContext,
         timeZone: input.timeZone,
       });
-      await Promise.all([saveThread({ threadId, conversationId: threadId, status: "awaiting_confirmation", suggestion, createdAt: new Date() }), saveDetection(input.videoId, { itemLabel: food.dish, startTime: Math.floor(input.timestamp), endTime: Math.floor(input.timestamp + 5), confidence: food.confidence })]);
+      await Promise.all([saveThread({ deviceId: req.deviceId, threadId, conversationId: threadId, status: "awaiting_confirmation", suggestion, createdAt: new Date() }), saveDetection(input.videoId, { itemLabel: food.dish, startTime: Math.floor(input.timestamp), endTime: Math.floor(input.timestamp + 5), confidence: food.confidence })]);
       publishAgentEvent(input.streamId, "cart_ready", { restaurant: suggestion.restaurant, item: suggestion.item, finalAmount: suggestion.finalAmount });
-      return { detected: true, suggestion };
+      if (experience.mode === "telegram") await queueTelegramCart(threadId);
+      await recordEvent({id: `cart:${threadId}`, kind: "cart", outcome: "success"});
+      return { detected: true, suggestion, experience: experience.mode };
+      } catch (error) {
+        await recordEvent({id: `cart:${threadId}`, kind: "cart", outcome: "error"});
+        if (reserved) await releaseBackgroundCart(req.deviceId, reserved);
+        throw error;
+      }
+      });
     });
     if (joined) publishAgentEvent(input.streamId, "orchestration_joined", { dish: food.dish });
     const result = await promise;
-    if (joined) publishAgentEvent(input.streamId, "cart_ready", { restaurant: result.suggestion.restaurant, item: result.suggestion.item, finalAmount: result.suggestion.finalAmount });
+    if (joined && result.suggestion) publishAgentEvent(input.streamId, "cart_ready", { restaurant: result.suggestion.restaurant, item: result.suggestion.item, finalAmount: result.suggestion.finalAmount });
     res.json(joined ? { ...result, deduplicated: true } : result);
   } catch (error) {
     publishAgentEvent(req.body?.streamId, "failed", { error: error instanceof Error ? error.message : "Unexpected error" });
     next(error);
   }
 });
-app.post("/api/orchestrate/:threadId/customize", async (req, res, next) => {
-  try {
-    const input = CartCustomizationSchema.parse(req.body);
-    const thread = await claimThreadStatus(req.params.threadId, ["awaiting_confirmation"], "customizing");
-    if (!thread) {
-      const existing = await getThread(req.params.threadId);
-      if (!existing) return res.status(404).json({ error: "Cart conversation expired or was not found." });
-      return res.status(409).json({ error: "This cart can no longer be customized." });
-    }
-    publishAgentEvent(input.streamId, "customization_started", { instruction: input.instruction });
-    try {
-      const conversationId = thread.conversationId || thread.threadId;
-      const suggestion = await customizePersonalizedCart(thread.suggestion, input.instruction, conversationId, readSwiggySession(req), input.streamId, {
-        personalContext: input.personalContext,
-        timeZone: input.timeZone,
-      });
-      await patchThread(req.params.threadId, {
-        status: "awaiting_confirmation",
-        suggestion,
-        conversationId,
-        lastInstruction: input.instruction,
-        customizedAt: new Date(),
-      });
-      publishAgentEvent(input.streamId, "cart_ready", { restaurant: suggestion.restaurant, item: suggestion.item, finalAmount: suggestion.finalAmount });
-      return res.json({ status: "awaiting_confirmation", conversationId, suggestion });
-    } catch (error) {
-      await patchThread(req.params.threadId, { status: "awaiting_confirmation", customizationError: error instanceof Error ? error.message : String(error) });
-      throw error;
-    }
-  } catch (error) { next(error); }
+cartRoute("post", "/api/orchestrate/:threadId/customize", async (req, res, next) => {
+  try { res.json(await customizeCart(req.deviceId, req.params.threadId, CartCustomizationSchema.parse(req.body))); }
+  catch (error) { next(error); }
 });
-app.get("/api/orchestrate/:threadId/menu", async (req, res, next) => {
+cartRoute("get", "/api/orchestrate/:threadId/menu", async (req, res, next) => {
   try {
     const thread = await getThread(req.params.threadId);
     if (!thread) return res.status(404).json({ error: "Cart conversation expired or was not found." });
@@ -145,7 +165,7 @@ app.get("/api/orchestrate/:threadId/menu", async (req, res, next) => {
     res.json({ items: await getRestaurantMenuItems(thread.suggestion, readSwiggySession(req), query) });
   } catch (error) { next(error); }
 });
-app.post("/api/orchestrate/:threadId/cart", async (req, res, next) => {
+cartRoute("post", "/api/orchestrate/:threadId/cart", async (req, res, next) => {
   try {
     const input = CartMutationSchema.parse(req.body);
     const thread = await claimThreadStatus(req.params.threadId, ["awaiting_confirmation"], "updating_cart");
@@ -168,7 +188,7 @@ app.post("/api/orchestrate/:threadId/cart", async (req, res, next) => {
     }
   } catch (error) { next(error); }
 });
-app.post("/api/orchestrate/:threadId/coupon", async (req, res, next) => {
+cartRoute("post", "/api/orchestrate/:threadId/coupon", async (req, res, next) => {
   try {
     const input = CouponSelectionSchema.parse(req.body);
     const thread = await claimThreadStatus(req.params.threadId, ["awaiting_confirmation"], "updating_coupon");
@@ -187,46 +207,20 @@ app.post("/api/orchestrate/:threadId/coupon", async (req, res, next) => {
     }
   } catch (error) { next(error); }
 });
-app.post("/api/orchestrate/:threadId/decision", async (req, res, next) => {
+cartRoute("post", "/api/orchestrate/:threadId/decision", async (req, res, next) => {
   try {
-    const decision = req.body?.decision;
-    if (!["approve", "reject"].includes(decision)) return res.status(400).json({ error: "decision must be approve or reject" });
-    const thread = await getThread(req.params.threadId);
-    if (!thread) return res.status(404).json({ error: "Suggestion expired or not found" });
-    if (isSuggestionExpired(thread.suggestion)) return res.status(410).json({ error: "Cart expired. Build a fresh Swiggy cart." });
-    if (decision === "reject") {
-      const rejected = await claimThreadStatus(req.params.threadId, ["awaiting_confirmation"], "rejected");
-      if (!rejected) return res.status(409).json({ error: "This cart is already being processed." });
-      return res.json({ status: "rejected" });
-    }
-    if (thread.status === "payment_pending" || thread.status === "payment_paid") return res.json({ status: thread.status, payment: publicPayment(thread.payment) });
-    if (thread.status === "ordered") return res.json({ status: "ordered", order: thread.order });
-    const paymentMethod = String(req.body?.paymentMethod || "").toUpperCase();
-    if (!["COD", "UPI"].includes(paymentMethod)) return res.status(400).json({ error: "Choose COD or UPI before confirming the order." });
-    if (!thread.suggestion.paymentOptions?.[paymentMethod.toLowerCase()]?.available) return res.status(400).json({ error: `${paymentMethod} is not available for this Swiggy cart.` });
-    const claimed = await claimThreadStatus(req.params.threadId, ["awaiting_confirmation"], "placing_order");
-    if (!claimed) return res.status(409).json({ error: "This cart is already being processed." });
-    try {
-      const result = await placeOrder(claimed.suggestion, readSwiggySession(req), paymentMethod);
-      if (result.payment) {
-        await patchThread(req.params.threadId, { status: "payment_pending", paymentMethod, payment: result.payment });
-        return res.json({ status: "payment_pending", payment: publicPayment(result.payment) });
-      }
-      await patchThread(req.params.threadId, { status: "ordered", paymentMethod, order: result.order });
-      return res.json({ status: "ordered", order: result.order });
-    } catch (error) {
-      await patchThread(req.params.threadId, { status: "placement_failed", placementError: error instanceof Error ? error.message : String(error) });
-      throw error;
-    }
+    res.json(await decideCart(req.deviceId, req.params.threadId, req.body?.decision, req.body?.paymentMethod));
   } catch (error) { next(error); }
 });
-app.get("/api/orchestrate/:threadId/payment-status", async (req, res, next) => {
+cartRoute("get", "/api/orchestrate/:threadId/payment-status", async (req, res, next) => {
   try {
     const thread = await getThread(req.params.threadId);
     if (!thread?.payment) return res.status(404).json({ error: "No UPI payment is pending for this cart." });
     if (thread.status === "ordered") return res.json({ status: "ordered", order: thread.order });
     if (thread.status === "payment_paid") return res.json({ status: "paid" });
     if (thread.status === "payment_cancelled") return res.json({ status: "cancelled" });
+    if (["payment_review_required", "confirmation_failed"].includes(thread.status)) return res.json({ status: "payment_review_required" });
+    if (["payment_cancelling", "confirming_payment"].includes(thread.status)) return res.json({ status: "pending" });
     if (thread.status === "payment_failed" || paymentExpired(thread.payment)) {
       if (thread.status !== "payment_failed") await claimThreadStatus(req.params.threadId, ["payment_pending"], "payment_failed");
       return res.json({ status: "failed" });
@@ -240,52 +234,19 @@ app.get("/api/orchestrate/:threadId/payment-status", async (req, res, next) => {
     return res.json(paymentStatusResponse(await getThread(req.params.threadId)));
   } catch (error) { next(error); }
 });
-app.post("/api/orchestrate/:threadId/cancel-payment", async (req, res, next) => {
-  try {
-    const existing = await getThread(req.params.threadId);
-    if (!existing?.payment) return res.status(404).json({ error: "No UPI payment is pending for this cart." });
-    if (existing.status !== "payment_pending") return res.json(paymentStatusResponse(existing));
-    const claimed = await claimThreadStatus(req.params.threadId, ["payment_pending"], "payment_cancelling");
-    if (!claimed) return res.json(paymentStatusResponse(await getThread(req.params.threadId)));
-    try {
-      const status = paymentExpired(claimed.payment) ? "failed" : await checkUPIPayment(claimed.payment, readSwiggySession(req));
-      if (status === "paid") {
-        await patchThread(req.params.threadId, { status: "payment_paid" });
-        return res.json({ status: "paid" });
-      }
-      if (status === "failed") {
-        await patchThread(req.params.threadId, { status: "payment_failed" });
-        return res.json({ status: "failed" });
-      }
-      await patchThread(req.params.threadId, { status: "payment_cancelled", paymentCancelledAt: new Date() });
-      return res.json({ status: "cancelled" });
-    } catch (error) {
-      await patchThread(req.params.threadId, { status: "payment_pending" });
-      throw error;
-    }
-  } catch (error) { next(error); }
+cartRoute("post", "/api/orchestrate/:threadId/cancel-payment", async (req, res, next) => {
+  try { res.json(await cancelPayment(req.deviceId, req.params.threadId)); } catch (error) { next(error); }
 });
-app.post("/api/orchestrate/:threadId/confirm-payment", async (req, res, next) => {
+cartRoute("post", "/api/orchestrate/:threadId/confirm-payment", async (req, res, next) => {
   try {
-    const existing = await getThread(req.params.threadId);
-    if (!existing) return res.status(404).json({ error: "Payment not found." });
-    if (existing.status === "ordered") return res.json({ status: "ordered", order: existing.order });
-    const thread = await claimThreadStatus(req.params.threadId, ["payment_paid"], "confirming_payment");
-    if (!thread) return res.status(409).json({ error: "Payment has not completed or is already being finalized." });
-    try {
-      const order = await confirmUPIPayment(thread.payment, readSwiggySession(req));
-      await patchThread(req.params.threadId, { status: "ordered", order });
-      return res.json({ status: "ordered", order });
-    } catch (error) {
-      await patchThread(req.params.threadId, { status: "confirmation_failed", confirmationError: error instanceof Error ? error.message : String(error) });
-      throw error;
-    }
+    res.json(await refreshPayment(req.deviceId, req.params.threadId));
   } catch (error) { next(error); }
 });
 app.use((error, _req, res, _next) => {
   const message = safeErrorMessage(error instanceof Error ? error.message : "Unexpected error");
   console.error("[api]", { message, code: error?.code, statusCode: error?.statusCode });
   const status = error?.name === "ZodError" ? 400 : Number(error?.statusCode) || 500;
+  if (status >= 500) void recordEvent({kind: "server_failure", outcome: "error", code: /^INFERENCE_/.test(error?.code || "") ? "MODEL_UPSTREAM" : "SERVER_ERROR", statusCode: status});
   res.status(status).json({ error: message, code: error?.code, ...(error?.fallback ? { fallback: error.fallback } : {}) });
 });
 
@@ -312,10 +273,20 @@ function paymentStatusResponse(thread) {
   if (thread?.status === "payment_paid" || thread?.status === "confirming_payment") return { status: "paid" };
   if (thread?.status === "payment_cancelled") return { status: "cancelled" };
   if (thread?.status === "payment_failed") return { status: "failed" };
+  if (["payment_review_required", "confirmation_failed"].includes(thread?.status)) return { status: "payment_review_required" };
   return { status: "pending" };
 }
 
 function authResultPage(success, title, detail) {
   const safe = (value) => String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
   return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${safe(title)}</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f4f0e6;color:#191915;font:16px system-ui}.card{width:min(420px,calc(100% - 48px));padding:32px;border-radius:24px;background:#fff;box-shadow:0 24px 80px #342d1c1f;text-align:center}.mark{margin:auto;width:52px;height:52px;display:grid;place-items:center;border-radius:18px;background:${success ? "#258a55" : "#c94932"};color:#fff;font-size:25px}h1{font:30px Georgia;margin:20px 0 8px}p{color:#716b5f;line-height:1.5}</style><main class="card"><div class="mark">${success ? "✓" : "!"}</div><h1>${safe(title)}</h1><p>${safe(detail)}</p></main>`;
+}
+
+function cartRoute(method, path, handler) {
+  app[method](path, (req, res, next) => traceOperation("cart.http." + path.split("/").at(-1), {sessionId: req.params.threadId, operation: "cart.followup"}, async () => {
+    let failure;
+    const result = await handler(req, res, (error) => { if (error) failure = error; else next(); });
+    if (failure) throw failure;
+    return result;
+  }).catch(next));
 }

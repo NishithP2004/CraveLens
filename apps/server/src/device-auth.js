@@ -1,3 +1,4 @@
+import { recordDevice } from "./analytics.js";
 import crypto from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
 import { config } from "./config.js";
@@ -38,7 +39,9 @@ async function issueSession(deviceId, familyId = crypto.randomUUID()) {
 }
 
 export async function createDeviceSession() {
-  return issueSession(crypto.randomUUID());
+  const result = await issueSession(crypto.randomUUID());
+  await recordDevice(result.deviceId, true);
+  return result;
 }
 
 export async function rotateDeviceSession(refreshToken) {
@@ -79,6 +82,7 @@ export async function authenticateDeviceToken(token) {
   try {
     const { payload } = await jwtVerify(token, signingKey(), { issuer: "cravelens", audience: "cravelens-extension" });
     if (payload.tokenType !== "access" || !payload.deviceId) throw new Error("Invalid token type");
+    await recordDevice(String(payload.deviceId));
     return String(payload.deviceId);
   } catch { throw authError("Device session is missing or expired", "DEVICE_AUTH_REQUIRED"); }
 }

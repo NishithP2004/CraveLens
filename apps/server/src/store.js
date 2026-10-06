@@ -1,3 +1,4 @@
+import { initializeAnalytics, recordConfirmedOrder } from "./analytics.js";
 import { MongoClient } from "mongodb";
 import { config } from "./config.js";
 
@@ -10,6 +11,7 @@ export async function connectStore() {
   const client = new MongoClient(config.mongoUri);
   await client.connect();
   const db = client.db(config.mongoDatabase);
+  await initializeAnalytics(db);
   videos = db.collection("video_cache");
   threads = db.collection("orchestration_threads");
   await Promise.all([
@@ -46,7 +48,11 @@ export async function getThread(threadId) {
 }
 
 export async function patchThread(threadId, patch) {
-  if (threads) return threads.findOneAndUpdate({ threadId }, { $set: patch }, { returnDocument: "after" });
+  if (threads) {
+    const updated = await threads.findOneAndUpdate({ threadId }, { $set: patch }, { returnDocument: "after" });
+    if (patch.status === "ordered") await recordConfirmedOrder(updated);
+    return updated;
+  }
   const doc = memory.threads.get(threadId);
   if (!doc) return null;
   const updated = { ...doc, ...patch };

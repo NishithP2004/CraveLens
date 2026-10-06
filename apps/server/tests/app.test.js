@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { SystemMessage } from "@langchain/core/messages";
 import { AgentFollowUpSchema, CartCustomizationSchema, CartMutationSchema, CouponSelectionSchema, FoodVerificationSchema, OrchestrateRequestSchema } from "@cravelens/shared";
-import { isSuggestionExpired, orchestrationFlightKey, runSingleFlight } from "./app.js";
-import { appendSystemInstruction, createSearchBudgetGuard, directMenuSearchPlan, discoverDirectMenuSearch, finalCartAgentResponseContent, hasQuickAddMenuCandidate, invokeModelWithToolChoiceRetry, isOutputParseFailedError, isToolChoiceMismatchError, isTransientModelError, localCartPhaseRequest, normalizeAgentFollowUpPayload, normalizeToolSchema, recordCartToolCompletion, recoverFailedGenerationToolCall, replaceSystemInstruction, shouldFinalizeCartAgent, shouldRetryMissingToolCall, splitAgentResponse, unavailableFailedGenerationToolName, verifyPendingCartMutation, withActiveToolChoice, withRequiredToolReminder, withUnavailableToolReminder } from "./swiggy-agent.js";
-import { unwrap } from "./swiggy-mcp.js";
-import { claimThreadStatus, getThread, saveThread } from "./store.js";
-import { applyBestVerifiedCoupon, cartReflectsItems, configuredMenuItemPayload, currentTemporalContext, normalizeAddress, normalizeCartReceipt, normalizeFoodCoupons, normalizeMenuCatalog, normalizeMenuOptionGroups, normalizePaymentOptions, normalizePaymentStatus, normalizePendingPayment, reconcileCouponRationale, resolveAppliedCouponDiscount, resolveCouponCode, resolveDeliveryEta, resolveDietaryType, resolveItemDescription, resolveItemImage, resolveProductRating, resolveRestaurantLocation, resolveRestaurantLogo, resolveRestaurantName, resolveRestaurantNameWithRetry, resolveRestaurantRating } from "./swiggy.js";
+import { isSuggestionExpired, orchestrationFlightKey, runSingleFlight } from "../src/app.js";
+import { appendSystemInstruction, directMenuSearchPlan, discoverDirectMenuSearch, finalCartAgentResponseContent, hasQuickAddMenuCandidate, invokeModelWithToolChoiceRetry, isOutputParseFailedError, isToolChoiceMismatchError, isTransientModelError, localCartPhaseRequest, normalizeAgentFollowUpPayload, normalizeToolSchema, recordCartToolCompletion, recoverFailedGenerationToolCall, replaceSystemInstruction, shouldFinalizeCartAgent, shouldRetryMissingToolCall, splitAgentResponse, unavailableFailedGenerationToolName, verifyPendingCartMutation, withActiveToolChoice, withRequiredToolReminder, withUnavailableToolReminder } from "../src/swiggy-agent.js";
+import { unwrap } from "../src/swiggy-mcp.js";
+import { claimThreadStatus, getThread, saveThread } from "../src/store.js";
+import { applyBestVerifiedCoupon, cartReflectsItems, configuredMenuItemPayload, currentTemporalContext, normalizeAddress, normalizeCartReceipt, normalizeFoodCoupons, normalizeMenuCatalog, normalizeMenuOptionGroups, normalizePaymentOptions, normalizePaymentStatus, normalizePendingPayment, reconcileCouponRationale, resolveAppliedCouponDiscount, resolveCouponCode, resolveDeliveryEta, resolveDietaryType, resolveItemDescription, resolveItemImage, resolveProductRating, resolveRestaurantLocation, resolveRestaurantLogo, resolveRestaurantName, resolveRestaurantNameWithRetry, resolveRestaurantRating } from "../src/swiggy.js";
 
 describe("CraveLens contracts", () => {
   it("accepts a verified dish with a detailed visual description", () => expect(FoodVerificationSchema.parse({
@@ -134,7 +134,7 @@ describe("CraveLens contracts", () => {
     expect(withActiveToolChoice({ ...request, toolChoice: "required" }, { forceAuto: true })).toMatchObject({ toolChoice: "auto" });
     expect(withActiveToolChoice({ tools: [] })).toEqual({ tools: [] });
     expect(finalCartAgentResponseContent({ cartUpdated: true, verificationPending: false }, "cart_verified")).toContain("cart was updated and verified");
-    expect(finalCartAgentResponseContent({}, "model_call_limit")).toContain("reasoning limit");
+    expect(finalCartAgentResponseContent({})).toContain("No verified cart change");
   });
   it("keeps the hosted tool surface for local models while requiring a tool call", () => {
     const request = {
@@ -146,7 +146,8 @@ describe("CraveLens contracts", () => {
     expect(mutation.tools).toEqual(request.tools);
     expect(mutation.systemPrompt).toBe("Prepare a cart.");
     const verification = localCartPhaseRequest(request, { cartMutationAttempted: true, verificationPending: true }, true);
-    expect(verification.tools).toEqual(request.tools);
+    expect(verification.tools).toEqual([{ name: "get_food_cart" }]);
+    expect(verification.toolChoice).toEqual({ type: "function", function: { name: "get_food_cart" } });
     expect(localCartPhaseRequest(request, {}, true).tools).toEqual(request.tools);
     expect(localCartPhaseRequest(request, { mutationCandidateAvailable: true }, false)).toBe(request);
     const retry = withRequiredToolReminder({ messages: [{ role: "user", content: "Find ramen" }] });
@@ -157,15 +158,9 @@ describe("CraveLens contracts", () => {
   });
   it("starts cart discovery with an unscoped direct menu search", async () => {
     const call = vi.fn(async () => ({ items: [{ id: "ramen-1", name: "Miso ramen", price: 199 }] }));
-    const budget = createSearchBudgetGuard({ search_menu: 5 });
-    const result = await discoverDirectMenuSearch({ mcp: { call }, food: { dish: " ramen " }, addressId: "home", searchBudget: budget });
+    const result = await discoverDirectMenuSearch({ mcp: { call }, food: { dish: " ramen " }, addressId: "home" });
     expect(call).toHaveBeenCalledWith("search_menu", { addressId: "home", query: "ramen" });
     expect(result.items).toHaveLength(1);
-    expect(budget.check("search_menu", { addressId: "home", query: "ramen" })).toMatchObject({ allowed: false, reason: "DUPLICATE_SEARCH" });
-    const modelBudget = createSearchBudgetGuard({ search_menu: 5 });
-    modelBudget.remember("search_menu", { addressId: "home", query: "ramen" });
-    expect(modelBudget.check("search_menu", { addressId: "home", query: "ramen" })).toMatchObject({ allowed: false, reason: "DUPLICATE_SEARCH", remaining: 5 });
-    expect(modelBudget.check("search_menu", { addressId: "home", query: "udon" })).toMatchObject({ allowed: true, remaining: 4 });
     expect(directMenuSearchPlan({ dish: "Ramen", cuisine: "Japanese", ingredients: ["noodles", "broth"], description: "A steaming bowl of noodles" })).toEqual([
       "Ramen", "Japanese Ramen", "noodles broth", "Ramen noodles broth", "A steaming bowl of noodles",
     ]);
@@ -262,7 +257,7 @@ HUMAN_INPUT_UI:
       modelCallCount: 4, cartUpdated: true, couponsChecked: true, verificationPending: true,
     })).toBe(false);
     expect(shouldFinalizeCartAgent({ modelCallCount: 12 })).toBe(false);
-    expect(shouldFinalizeCartAgent({ modelCallCount: 16 })).toBe(true);
+    expect(shouldFinalizeCartAgent({ modelCallCount: 1000 })).toBe(false);
   });
   it("retries Groq tool-choice mismatch generations without retrying permanent errors", async () => {
     const mismatch = new Error('400 litellm.BadRequestError: GroqException - {"error":{"message":"Tool choice is none, but model called a tool","code":"tool_use_failed"}}');
@@ -346,6 +341,21 @@ HUMAN_INPUT_UI:
     expect(response).toEqual({ ok: true });
     expect(retries).toEqual(["unavailable_tool_call"]);
   });
+  it("identifies an unregistered container tool in multiline LiteLLM diagnostics without replaying it", async () => {
+    const generation = '{"name":"container.exec","arguments":{"cmd":["bash","lc","python - << PY\\\nprint(1)\\\nPY"]}}';
+    const error = new Error(`400 litellm.BadRequestError: GroqException - ${JSON.stringify({ error: { message: "Tool choice is none, but model called a tool", code: "tool_use_failed", failed_generation: generation } })}`);
+    const tools = [{ name: "get_food_orders" }, { name: "search_menu" }];
+    expect(unavailableFailedGenerationToolName(error, tools)).toBe("container.exec");
+    expect(recoverFailedGenerationToolCall(error, tools)).toBeUndefined();
+    let attempts = 0;
+    const result = await invokeModelWithToolChoiceRetry({ tools, messages: [], toolChoice: "required" }, async (request) => {
+      if (++attempts === 1) throw error;
+      expect(request.toolChoice).toBe("auto");
+      expect(request.messages.at(-1).content).toContain('Do not call "container.exec"');
+      return { ok: true };
+    }, { shouldRequireToolChoice: () => false });
+    expect(result).toEqual({ ok: true });
+  });
   it("recovers one unambiguous no-argument tool from Groq output_parse_failed prose", async () => {
     const parseFailure = new Error('400 {"error":{"code":"output_parse_failed","message":"Parsing failed. See failed_generation.","failed_generation":"We need to proceed. Call get_food_orders, then inspect the result."}}');
     const tools = [
@@ -400,16 +410,15 @@ HUMAN_INPUT_UI:
       { attempt: 2, reason: "transient_model_error", delayMs: 1500 },
     ]);
   });
-  it("uses only LangChain systemMessage when appending an instruction", () => {
+  it("appends instructions without changing either LangChain prompt field", () => {
     const initialMessage = new SystemMessage("Base prompt");
     const finalized = appendSystemInstruction({
       systemPrompt: initialMessage.text,
       systemMessage: initialMessage,
     }, "Finalize without tools.");
-    expect(finalized.systemPrompt).toBeUndefined();
-    expect(finalized.systemMessage.text).toContain("Finalize without tools.");
-    expect(finalized.systemMessage).not.toBe(initialMessage);
-    expect("systemPrompt" in finalized && "systemMessage" in finalized).toBe(false);
+    expect(finalized.systemPrompt).toBe(initialMessage.text);
+    expect(finalized.systemMessage).toBe(initialMessage);
+    expect(finalized.messages[0].text).toBe("Finalize without tools.");
   });
   it("replaces the tool-oriented system message without changing both LangChain fields", () => {
     const initialMessage = new SystemMessage("Use tools to build a cart.");
@@ -417,25 +426,10 @@ HUMAN_INPUT_UI:
       systemPrompt: initialMessage.text,
       systemMessage: initialMessage,
     }, "Tools are disabled. Return final text.");
-    expect(finalized.systemPrompt).toBeUndefined();
-    expect(finalized.systemMessage.text).toBe("Tools are disabled. Return final text.");
+    expect(finalized.systemPrompt).toBe("Tools are disabled. Return final text.");
+    expect(finalized.systemMessage).toBe(initialMessage);
   });
-  it("deduplicates scoped searches and enforces per-tool budgets", () => {
-    const guard = createSearchBudgetGuard({ search_menu: 2 });
-    expect(guard.check("search_menu", { query: " Wasabi  Bowl ", restaurantIdOfAddedItem: "r1" })).toMatchObject({
-      allowed: true, remaining: 1,
-    });
-    expect(guard.check("search_menu", { query: "wasabi bowl", restaurantIdOfAddedItem: "r1" })).toMatchObject({
-      allowed: false, reason: "DUPLICATE_SEARCH", remaining: 1,
-    });
-    expect(guard.check("search_menu", { query: "Japanese rice bowl", restaurantIdOfAddedItem: "r1" })).toMatchObject({
-      allowed: true, remaining: 0,
-    });
-    expect(guard.check("search_menu", { query: "sushi rice", restaurantIdOfAddedItem: "r1" })).toMatchObject({
-      allowed: false, reason: "SEARCH_BUDGET_EXHAUSTED", remaining: 0,
-    });
-    expect(guard.check("get_food_cart", {})).toMatchObject({ allowed: true });
-  });
+
   it("verifies added cart lines across wrapped Swiggy response shapes", () => {
     const expected = [{ itemId: "dish-1", quantity: 1 }, { itemId: "dish-2", quantity: 1 }];
     expect(cartReflectsItems({
@@ -789,7 +783,7 @@ HUMAN_INPUT_UI:
       [{ code: "RAMEN50" }, { code: "UPI75" }],
       "available",
     );
-    expect(response).toBe("The cart is verified. Swiggy returned 2 available offers: RAMEN50, UPI75.");
+    expect(response).toBe("- The cart is verified.\n\n- Swiggy returned 2 available offers: RAMEN50, UPI75.");
   });
   it("normalizes explicit dietary markers and item descriptions", () => {
     expect(resolveDietaryType({ itemAttribute: { vegClassifier: "VEG" } })).toBe("veg");
@@ -819,6 +813,7 @@ HUMAN_INPUT_UI:
     expect(options).toEqual({
       upi: { available: true, id: "PayWithQR", label: "UPI", code: "UPI" },
       cod: { available: true, id: "COD", label: "Cash on delivery", code: "COD" },
+      swiggypay: { available: false, id: "", label: "Swiggy Money", code: "" },
     });
   });
   it("normalizes a pending UPI payment and its status", () => {
@@ -855,4 +850,15 @@ HUMAN_INPUT_UI:
     expect(await claimThreadStatus(threadId, ["awaiting_confirmation"], "customizing")).toMatchObject({ status: "customizing" });
     expect(await claimThreadStatus(threadId, ["awaiting_confirmation"], "placing_order")).toBeNull();
   });
+});
+
+it("does not retain a paused cart request after the active-cart gate changes", async () => {
+  const flights = new Map(); let blocked = true, calls = 0;
+  const operation = async () => { calls++; return blocked ? { detected: false, paused: true } : { detected: true, suggestion: { threadId: "new-cart" } }; };
+  await runSingleFlight(flights, "same-device-and-craving", operation).promise;
+  blocked = false;
+  const next = runSingleFlight(flights, "same-device-and-craving", operation);
+  expect(next.joined).toBe(false);
+  expect((await next.promise).detected).toBe(true);
+  expect(calls).toBe(2);
 });

@@ -3,7 +3,29 @@
   "version": "0.1.0",
   "type": "module",
   "main": "./src/index.js",
-  "exports": { ".": "./src/index.js" },
-  "scripts": { "build": "node --check src/index.js", "typecheck": "node --check src/index.js" },
-  "dependencies": { "zod": "^3.25.67" }
+  "exports": {
+    ".": "./src/index.js",
+    "./access": "./src/access.js",
+    "./theme.js": "./static/theme.js",
+    "./theme-control.css": "./static/theme-control.css",
+    "./site-footer.css": "./static/site-footer.css",
+    "./site-footer.html": "./static/site-footer.html",
+    "./site-header.html": "./static/site-header.html",
+    "./site-header.css": "./static/site-header.css",
+    "./site-header.js": "./static/site-header.js",
+    "./site-motion.css": "./static/site-motion.css",
+    "./site-motion.js": "./static/site-motion.js",
+    "./site-ui.css": "./static/site-ui.css",
+    "./theme-colors.css": "./static/theme-colors.css",
+    "./swiggy-logo.png": "./static/swiggy-logo.png",
+    "./site-assets": "./src/site-assets.js"
+  },
+  "scripts": {
+    "build": "for file in src/*.js static/*.js; do node --check \"$file\"; done",
+    "typecheck": "for file in src/*.js static/*.js; do node --check \"$file\"; done"
+  },
+  "dependencies": {
+    "zod": "^3.25.67",
+    "jose": "^6.2.7"
+  }
 }

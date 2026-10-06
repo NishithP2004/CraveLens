@@ -1,0 +1,218 @@
+.guide-page .policy-hero h1 {
+  font-size: clamp(52px, 7vw, 88px);
+  line-height: 1.05;
+}
+.guide-install {
+  margin-top: 28px;
+}
+.guide-page .policy-toc {
+  max-height: calc(100vh - 56px);
+  overflow-y: auto;
+}
+.guide-page .policy-content ol {
+  padding-left: 24px;
+}
+.guide-page .policy-content li {
+  padding-left: 3px;
+}
+.guide-page kbd,
+.guide-page code {
+  font:
+    600 12px ui-monospace,
+    monospace;
+  background: var(--cream);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 2px 5px;
+  overflow-wrap: anywhere;
+}
+.guide-table {
+  overflow-x: auto;
+  margin: 20px 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.guide-table table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.guide-table th {
+  background: var(--cream);
+  font-weight: 700;
+}
+.guide-table th,
+.guide-table td {
+  padding: 16px;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line);
+}
+.guide-table tr:last-child td {
+  border-bottom: 0;
+}
+.guide-table td:first-child {
+  width: 35%;
+  font-weight: 700;
+  color: var(--ink);
+}
+.guide-page .policy-footer nav {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.guide-skip {
+  position: absolute;
+  top: -100px;
+  left: 20px;
+  background: var(--ink);
+  color: #fff;
+  padding: 12px;
+  z-index: 100;
+}
+.guide-skip:focus {
+  top: 10px;
+}
+.guide-page a:focus-visible {
+  outline: 2px solid var(--coral);
+  outline-offset: 4px;
+  border-radius: 3px;
+}
+@media (max-width: 850px) {
+  .guide-page .policy-toc {
+    max-height: none;
+  }
+}
+@media (max-width: 560px) {
+  .guide-table th,
+  .guide-table td {
+    padding: 12px;
+  }
+  .guide-page .policy-summary {
+    margin-bottom: 32px !important;
+  }
+}
+.guide-screenshot {
+  margin: 28px 0 36px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--cream);
+}
+.guide-screenshot > a {
+  display: block;
+  width: min(100%, 340px);
+  margin: 0 auto;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 12px 32px #18181418;
+}
+.guide-screenshot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.guide-screenshot figcaption {
+  max-width: 520px;
+  margin: 18px auto 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+  text-align: center;
+}
+.guide-screenshot figcaption span {
+  display: block;
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+@media (max-width: 560px) {
+  .guide-screenshot {
+    padding: 12px;
+    margin: 22px 0 28px;
+  }
+}
+.guide-screenshot-wide > a {
+  width: 100%;
+}
+.guide-screenshot > a {
+  cursor: zoom-in;
+}
+.guide-image-modal {
+  width: min(1100px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 24px 80px #0006;
+  overflow: auto;
+}
+.guide-image-modal::backdrop {
+  background: #181814cc;
+}
+.guide-image-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.guide-image-toolbar h2 {
+  margin: 0 auto 0 0;
+  font-size: 18px;
+}
+.guide-image-toolbar button {
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--ink);
+  color: #fff;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.guide-image-toolbar button:focus-visible {
+  outline: 3px solid var(--coral);
+  outline-offset: 3px;
+}
+.guide-image-view {
+  overflow: auto;
+  max-height: calc(100dvh - 210px);
+  text-align: center;
+  border-radius: 12px;
+  background: #eee6da;
+}
+.guide-image-view img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100dvh - 210px);
+  width: auto;
+  height: auto;
+  margin: auto;
+}
+.guide-image-modal.is-zoomed .guide-image-view img {
+  max-width: none;
+  max-height: none;
+}
+.guide-image-description {
+  margin: 14px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+@media (max-width: 560px) {
+  .guide-image-modal {
+    padding: 12px;
+  }
+  .guide-image-toolbar {
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .guide-image-toolbar h2 {
+    flex-basis: 100%;
+  }
+}

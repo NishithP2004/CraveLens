@@ -7,6 +7,14 @@ export const DetectionSchema = z.object({
   confidence: z.number().min(0).max(1),
 });
 
+export const FoodDishSchema = z.object({
+  dish: z.string().trim().min(1).max(200),
+  description: z.string().trim().max(1200).default(""),
+  cuisine: z.string().max(200).default("unknown"),
+  ingredients: z.array(z.string().max(200)).max(20),
+  confidence: z.number().min(0).max(1),
+});
+
 export const FoodVerificationSchema = z.object({
   isFood: z.boolean(),
   dish: z.string(),
@@ -15,7 +23,16 @@ export const FoodVerificationSchema = z.object({
   ingredients: z.array(z.string()),
   confidence: z.number().min(0).max(1),
   context: z.enum(["ready_to_eat", "recipe", "restaurant_experience"]),
+  dishes: z.array(FoodDishSchema).max(8).default([]),
 });
+
+// Confidence fluctuates across scans; different dishes/configuration evidence
+// must affect deduplication while harmless confidence changes must not.
+export function foodCravingIdentity(food = {}) {
+  const normalized = (value) => String(value || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const identity = (item) => ({ dish: normalized(item.dish), cuisine: normalized(item.cuisine), ingredients: (item.ingredients || []).map(normalized).sort() });
+  return { primary: identity(food), dishes: (food.dishes || []).map(identity).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))) };
+}
 
 export const VlmProviderSchema = z.enum(["auto", "gemini-nano", "litert-gemma4", "litert-gemma4-e4b", "litert-gemma3n", "ollama"]);
 export const OrchestrationProviderSchema = z.enum(["auto", "litert", "ollama", "openai-compatible", "google"]);
@@ -48,7 +65,7 @@ export const ModelSettingsSchema = z.object({
   ollama: z.object({
     baseUrl: OllamaBaseUrlSchema.default("http://localhost:11434"),
   }).default({ baseUrl: "http://localhost:11434" }),
-  hostedFallback: z.literal("ask").default("ask"),
+  hostedFallback: z.enum(["auto", "ask", "none"]).default("ask"),
 });
 
 export const ModelSettingsUpdateSchema = z.object({
@@ -174,3 +191,5 @@ export const CartMutationSchema = z.discriminatedUnion("action", [
 export const CouponSelectionSchema = z.object({
   couponCode: z.string().trim().min(1).max(100),
 });
+
+export const PreferenceRequestSchema = z.object({ personalContext: z.string().max(1000).default(""), addressId: z.string().trim().min(1, "Select a delivery address before building preferences.").max(200) });

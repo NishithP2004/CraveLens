@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "typecheck": "node --check vite.config.js && for file in src/*.js; do node --check \"$file\"; done"
   },
   "devDependencies": {
     "vite": "^6.1.0"

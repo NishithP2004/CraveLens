@@ -1,11 +1,14 @@
+import { tracedOperation } from "./trace-context.js";
+import { traceOperation } from "./trace-context.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { config } from "./config.js";
 import { getSwiggySession } from "./swiggy-auth.js";
 
-export async function connectSwiggyFood(sessionId) {
+async function connectSwiggyFoodImpl(sessionId, { allowDeveloperFallback = true } = {}) {
   const sdkSession = sessionId && await getSwiggySession(sessionId);
   if (sdkSession) return wrapClient(sdkSession.client, false);
+  if (!allowDeveloperFallback) throw new Error("Connect your Swiggy account before building preferences.");
   const accessToken = config.swiggyMcpAccessToken;
   if (!accessToken) throw new Error("Swiggy is not connected. Complete OAuth in the CraveLens extension.");
   const client = new Client({ name: "cravelens", version: "0.1.0" });
@@ -24,21 +27,25 @@ export async function connectSwiggyFood(sessionId) {
 function wrapClient(client, closeWhenDone) {
   return {
     async listTools() {
-      const result = await client.listTools();
-      return result.tools || [];
+      return traceOperation("swiggy.tools.list", {phase: "tool_discovery"}, async () => {
+        const result = await client.listTools();
+        return result.tools || [];
+      });
     },
     async call(name, args = {}) {
-      try {
-        const result = await client.callTool({ name, arguments: args });
-        if (name === "fetch_food_coupons") logCouponDiagnostic("mcp_raw", result);
-        if (result.isError) throw new Error(readError(result));
-        const value = unwrap(result);
-        if (name === "fetch_food_coupons") logCouponDiagnostic("unwrapped", value);
-        return value;
-      } catch (error) {
-        if (isAuthError(error)) throw new Error("Swiggy authorization expired. Run the OAuth 2.1 PKCE flow again.");
-        throw error;
-      }
+      return traceOperation(`swiggy.mcp.${name}`, { tool: name, phase: "mcp" }, async () => {
+        try {
+          const result = await client.callTool({ name, arguments: args });
+          if (name === "fetch_food_coupons") logCouponDiagnostic("mcp_raw", result);
+          if (result.isError) throw new Error(readError(result));
+          const value = unwrap(result);
+          if (name === "fetch_food_coupons") logCouponDiagnostic("unwrapped", value);
+          return value;
+        } catch (error) {
+          if (isAuthError(error)) throw new Error("Swiggy authorization expired. Run the OAuth 2.1 PKCE flow again.");
+          throw error;
+        }
+      }, { type: "tool" });
     },
     close: () => closeWhenDone ? client.close() : Promise.resolve(),
   };
@@ -95,3 +102,5 @@ function isAuthError(error) {
   const value = `${error?.code || ""} ${error?.message || error}`;
   return /401|419|-32001|unauthori[sz]ed|session revoked/i.test(value);
 }
+
+export const connectSwiggyFood = tracedOperation("swiggy.connect", connectSwiggyFoodImpl, () => ({phase: "connection"}));

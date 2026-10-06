@@ -1,4 +1,8 @@
 const DEFAULT_SENSITIVITY = .38;
+const extensionVersion = chrome.runtime.getManifest().version;
+const versionLabel = document.getElementById("extensionVersion");
+versionLabel.textContent = `Version ${extensionVersion}`;
+versionLabel.hidden = false;
 const DEFAULT_SCAN_INTERVAL_MS = 4000;
 const MIN_SCAN_INTERVAL_MS = 1000;
 const MAX_SCAN_INTERVAL_MS = 30000;
@@ -13,7 +17,7 @@ const ENVIRONMENTS = Object.freeze({
 });
 const DEFAULT_ENVIRONMENT = "production";
 const ids = ["enabled", "debug", "sensitivity", "scanIntervalMs", "autoDetectYouTube", "autoDetectInstagram", "autoDetectFacebook", "shortcutBehavior", "personalContext"];
-const defaults = { enabled: true, debug: false, addressId: "", addressLabel: "", sensitivity: DEFAULT_SENSITIVITY, scanIntervalMs: DEFAULT_SCAN_INTERVAL_MS, autoDetectYouTube: true, autoDetectInstagram: true, autoDetectFacebook: true, shortcutBehavior: DEFAULT_SHORTCUT_BEHAVIOR, themeMode: "system", personalContext: "" };
+const defaults = { cartExperience: "screen", telegramSilent: false, enabled: true, debug: false, addressId: "", addressLabel: "", sensitivity: DEFAULT_SENSITIVITY, scanIntervalMs: DEFAULT_SCAN_INTERVAL_MS, autoDetectYouTube: true, autoDetectInstagram: true, autoDetectFacebook: true, shortcutBehavior: DEFAULT_SHORTCUT_BEHAVIOR, themeMode: "system", personalContext: "" };
 const preferenceKeys = Object.keys(defaults);
 const PREFERENCE_CACHE_KEY = "cravelens.preferences.v1";
 let selectedAddress;
@@ -51,6 +55,8 @@ async function main() {
   applyTheme(values.themeMode);
   for (const id of ids) setPreferenceControlValue(id, values[id]);
   await setupModelSettings();
+  await setupCartExperience();
+  await setupPreferenceBuilder();
   updateEnabledState(values.enabled);
   const updateRangeProgress = (input, valueText) => {
     const min = Number(input.min || 0);
@@ -112,6 +118,7 @@ async function main() {
     const enabled = document.getElementById("enabled").checked;
     if (!enabled) document.getElementById("debug").checked = false;
     const preferences = { enabled, debug: enabled && document.getElementById("debug").checked, addressId: selectedAddress?.id || "", addressLabel: selectedAddress ? addressLabel(selectedAddress) : "", sensitivity: Number(document.getElementById("sensitivity").value), scanIntervalMs: Number(document.getElementById("scanIntervalMs").value), autoDetectYouTube: document.getElementById("autoDetectYouTube").checked, autoDetectInstagram: document.getElementById("autoDetectInstagram").checked, autoDetectFacebook: document.getElementById("autoDetectFacebook").checked, shortcutBehavior: shortcutBehaviorValue(), personalContext: document.getElementById("personalContext").value.trim() };
+    try { await saveCartExperienceSettings(); } catch (error) { showMessage(error.message); return; }
     await Promise.all([savePreferences(preferences), saveModelSettings()]);
     updateEnabledState(preferences.enabled);
     showMessage("Saved");
@@ -205,6 +212,7 @@ async function setupModelSettings() {
   document.getElementById("agentLiteRtModel").value = normalizeLiteRtModel(settings.orchestration?.model);
   document.getElementById("agentContextTokens").value = normalizeContextTokens(settings.orchestration?.contextTokens);
   document.getElementById("agentThinkingEnabled").checked = settings.orchestration?.thinkingEnabled === true;
+  document.getElementById("hostedFallback").value = settings.hostedFallback || "ask";
   const hostedProvider = ["openai-compatible", "google"].includes(settings.orchestration?.provider);
   document.getElementById("agentModel").value = hostedProvider ? settings.orchestration?.model || "" : "";
   document.getElementById("agentBaseUrl").value = settings.orchestration?.baseUrl || "";
@@ -220,6 +228,7 @@ async function setupModelSettings() {
   });
   document.getElementById("agentContextTokens").addEventListener("input", updateContextLengthOutput);
   document.getElementById("agentLiteRtModel").addEventListener("change", updateModelFieldVisibility);
+  document.getElementById("hostedFallback").addEventListener("change", updateModelFieldVisibility);
   document.getElementById("agentThinkingEnabled").addEventListener("change", updateModelFieldVisibility);
   document.getElementById("cancelLiteRtDownload").addEventListener("click", async () => {
     const { liteRtDownloadState } = await chrome.storage.local.get(["liteRtDownloadState"]);
@@ -503,8 +512,8 @@ function updateModelFieldVisibility() {
   } else if (provider === "litert") {
     const selectedModel = document.getElementById("agentLiteRtModel").value;
     const selected = getLiteRtTextModel(selectedModel);
-    document.getElementById("agentAvailability").textContent = `${selected.name} (${selected.size}) downloads and stays cached privately in this browser after you save. Local failures pause the run and require approval before any hosted fallback.`;
-  } else document.getElementById("agentAvailability").textContent = "Local failures pause the run and require approval before any hosted fallback.";
+    document.getElementById("agentAvailability").textContent = `${selected.name} (${selected.size}) downloads and stays cached privately in this browser after you save. Local model failure behavior follows your saved setting.`;
+  } else document.getElementById("agentAvailability").textContent = "Local model failure behavior follows your saved setting.";
   document.getElementById("vlmProvider").modelPicker?.refresh();
   document.getElementById("agentProvider").modelPicker?.refresh();
 }
@@ -721,7 +730,7 @@ async function saveModelSettings() {
       vlm: { provider: vlmProvider, ...(vlmProvider === "ollama" && document.getElementById("vlmModel").value ? { model: document.getElementById("vlmModel").value } : {}) },
       orchestration: { provider, contextTokens: normalizeContextTokens(document.getElementById("agentContextTokens").value), thinkingEnabled: document.getElementById("agentThinkingEnabled").checked, ...(model ? { model } : {}), ...(provider === "openai-compatible" && baseUrl ? { baseUrl } : {}) },
       ollama: { baseUrl: getOllamaBaseUrl() },
-      hostedFallback: "ask",
+      hostedFallback: document.getElementById("hostedFallback").value,
     },
     ...(key ? { credentials: { [provider === "google" ? "google" : "openai"]: key } } : {}),
   };
@@ -848,6 +857,7 @@ async function loadAddresses(savedAddressId) {
 
 function selectAddress(address) {
   selectedAddress = address;
+  void renderAutoPreferences();
   const tag = meaningfulAddressTag(address);
   document.getElementById("addressPrimary").textContent = [tag, address.receiverName].filter(Boolean).join(" · ") || "Delivery address";
   document.getElementById("addressSecondary").textContent = address.addressString;
@@ -903,6 +913,8 @@ function readCachedPreferences() {
 function sanitizePreferences(value) {
   const preferences = {};
   for (const key of preferenceKeys) if (Object.prototype.hasOwnProperty.call(value || {}, key)) preferences[key] = value[key];
+  if (!["screen", "nudge", "telegram"].includes(preferences.cartExperience)) delete preferences.cartExperience;
+  if (typeof preferences.telegramSilent !== "boolean") delete preferences.telegramSilent;
   if (typeof preferences.enabled !== "boolean") delete preferences.enabled;
   if (typeof preferences.debug !== "boolean") delete preferences.debug;
   if (typeof preferences.autoDetectYouTube !== "boolean") delete preferences.autoDetectYouTube;
@@ -970,3 +982,127 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character
 main();
 import { connectSwiggy, getSwiggyConnection, resumeSwiggyConnection } from "./oauth.js";
 import { LITERT_TEXT_MODELS, getLiteRtTextModel, getLiteRtVlmModelByProvider } from "./litert-models.js";
+
+async function setupCartExperience() {
+  const refresh = async () => {
+    const status = await popupApi("/api/telegram");
+    document.getElementById("telegramAccount").dataset.state = status.connected ? "connected" : status.pending ? "pending" : "disconnected";
+    document.getElementById("telegramAccountTitle").textContent = status.connected ? status.name || "Verified account" : status.pending ? status.pendingName || "Confirm your account" : "Telegram account";
+    document.getElementById("telegramStatus").textContent = status.connected ? "Connected to Telegram" : status.pending ? "Check this account, then confirm below." : status.configured ? "Link a private chat to receive your carts." : "Telegram is not configured on this server.";
+    document.getElementById("telegramConnectedBadge").hidden = !status.connected;
+    document.getElementById("telegramConnect").hidden = status.connected;
+    document.getElementById("telegramConnect").textContent = status.pending ? "Open a new connection link" : "Connect Telegram";
+    document.getElementById("telegramConnect").disabled = !status.configured;
+    document.getElementById("telegramConfirm").hidden = !status.pending;
+    document.getElementById("telegramDisconnect").hidden = !status.connected;
+    document.querySelector('#cartExperience option[value="telegram"]').disabled = !status.connected;
+    return status;
+  };
+  try {
+    const status = await refresh();
+    document.getElementById("cartExperience").value = status.settings.mode;
+    document.getElementById("telegramSilent").checked = status.settings.silent;
+    await savePreferences({ cartExperience: status.settings.mode, telegramSilent: status.settings.silent });
+  } catch { document.getElementById("telegramStatus").textContent = "Unable to check Telegram. Connect to the server and reopen settings."; }
+  let poll;
+  document.getElementById("telegramConnect").addEventListener("click", async () => {
+    try {
+      const result = await popupApi("/api/telegram/connect", { method: "POST" });
+      await chrome.tabs.create({ url: result.url });
+      clearInterval(poll); poll = setInterval(() => refresh().catch(() => {}), 2000);
+    } catch (error) { showMessage(error.message); }
+  });
+  document.getElementById("telegramConfirm").addEventListener("click", async () => {
+    try { await popupApi("/api/telegram/confirm", { method: "POST" }); clearInterval(poll); await refresh(); showMessage("Telegram verified. Select Telegram delivery and save."); } catch (error) { showMessage(error.message); }
+  });
+  document.getElementById("telegramDisconnect").addEventListener("click", async () => {
+    try { await popupApi("/api/telegram", { method: "DELETE" }); document.getElementById("cartExperience").value = "screen"; await savePreferences({ cartExperience: "screen" }); await refresh(); } catch (error) { showMessage(error.message); }
+  });
+  window.addEventListener("pagehide", () => clearInterval(poll), { once: true });
+}
+async function saveCartExperienceSettings() {
+  const value = await popupApi("/api/cart-experience", { method: "PUT", body: { mode: document.getElementById("cartExperience").value, silent: document.getElementById("telegramSilent").checked } });
+  await savePreferences({ cartExperience: value.mode, telegramSilent: value.silent });
+}
+
+async function renderAutoPreferences() {
+  const section = document.getElementById("autoPreferenceProfile");
+  if (!section) return;
+  const key = `cravelens.autoPreferences:${await loadEnvironment()}`;
+  const saved = (await chrome.storage.local.get(key))[key];
+  section.hidden = !saved || saved.addressId !== selectedAddress?.id || !!document.getElementById("personalContext").value.trim();
+  if (section.hidden) return;
+  document.getElementById("autoPreferenceText").textContent = saved.preferences || "No verified order history was found. No preferences were inferred.";
+  const matched = Number(saved.history?.matched) || 0;
+  document.getElementById("autoPreferenceCoverage").textContent = `${matched} ${matched === 1 ? "order" : "orders"}${saved.history?.incomplete ? " · Limited history" : " · Account history"}`;
+  const generated = new Date(saved.generatedAt);
+  document.getElementById("autoPreferenceDate").textContent = Number.isNaN(generated.getTime()) ? "" : `Updated ${generated.toLocaleDateString(undefined, { day: "numeric", month: "short" })}`;
+  document.getElementById("autoPreferenceNotes").textContent = saved.notes || "No additional history evidence was available.";
+}
+
+async function setupPreferenceBuilder() {
+  const editor = document.getElementById("preferenceEditor");
+  const input = document.getElementById("personalContext");
+  const build = document.getElementById("buildPreferences");
+  input.addEventListener("input", () => { void renderAutoPreferences(); });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && Object.keys(changes).some((key) => key.startsWith("cravelens.autoPreferences:"))) void renderAutoPreferences();
+  });
+  await renderAutoPreferences();
+  let current;
+  let timer;
+  let polling = false;
+  const storageKey = `cravelens.preferenceJob:${await loadEnvironment()}`;
+  const finish = () => { clearTimeout(timer); editor.classList.remove("is-building"); input.readOnly = false; build.disabled = false; editor.setAttribute("aria-busy", "false"); };
+  const render = (job) => {
+    if (job.status === "ready" && !job.result?.history?.matched) job = { ...job, status: "no_history" };
+    current = job;
+    document.getElementById("preferenceProgress").hidden = false;
+    document.getElementById("preferenceStatus").textContent = job.status === "no_history" ? "No verified history was available. No suggestion was generated; your preferences are unchanged." : job.error || job.progress.at(-1)?.message || "Starting preferences agent…";
+    const steps = document.getElementById("preferenceSteps"); steps.replaceChildren();
+    for (const step of job.progress) { const item = document.createElement("li"); item.textContent = step.message; steps.append(item); }
+    steps.scrollTop = steps.scrollHeight;
+    document.getElementById("preferenceFallback").hidden = !(job.status === "running" && job.fallback?.status === "pending" && job.fallback.delivery !== "telegram");
+    if (job.status === "ready") {
+      finish(); document.getElementById("preferenceSuggestion").hidden = false;
+      document.getElementById("preferenceDraft").textContent = job.result.preferences;
+      document.getElementById("preferenceNotes").textContent = job.result.notes;
+      const matched = job.result.history.matched;
+      document.getElementById("preferenceCoverage").textContent = `${matched} ${matched === 1 ? "order" : "orders"}${job.result.history.incomplete ? " · Limited history" : " · Account history"}`;
+    } else if (job.status === "failed" || job.status === "no_history") {
+      document.getElementById("preferenceSuggestion").hidden = true;
+      finish();
+    }
+    else { editor.classList.add("is-building"); input.readOnly = true; build.disabled = true; editor.setAttribute("aria-busy", "true"); }
+  };
+  const poll = async () => {
+    if (polling || !current || current.status !== "running") return;
+    polling = true;
+    try { const job = await popupApi(`/api/preferences/build/${current.runId}`); render(job); if (job.status === "running") timer = setTimeout(poll, 500); }
+    catch (error) { finish(); document.getElementById("preferenceStatus").textContent = error.message; }
+    finally { polling = false; }
+  };
+  build.addEventListener("click", async () => {
+    build.disabled = true; document.getElementById("preferenceSuggestion").hidden = true;
+    document.getElementById("preferenceProgress").hidden = false; document.getElementById("preferenceStatus").textContent = "Starting preferences agent…";
+    editor.classList.add("is-building"); input.readOnly = true;
+    try {
+      if (!selectedAddress?.id) throw new Error("Select a delivery address before building preferences.");
+      const job = await popupApi("/api/preferences/build", { method: "POST", body: { personalContext: input.value, addressId: selectedAddress.id } }); await chrome.storage.session.set({ [storageKey]: job.runId }); render(job); void poll();
+    }
+    catch (error) { finish(); document.getElementById("preferenceStatus").textContent = error.message; }
+  });
+  document.getElementById("acceptPreferences").addEventListener("click", async () => {
+    if (current?.status !== "ready") return;
+    try { await savePreferences({ personalContext: current.result.preferences }); input.value = current.result.preferences; void renderAutoPreferences(); document.getElementById("preferenceSuggestion").hidden = true; document.getElementById("preferenceStatus").textContent = "Your refined preferences have been saved."; await chrome.storage.session.remove(storageKey); }
+    catch (error) { showMessage(error.message); }
+  });
+  document.getElementById("rejectPreferences").addEventListener("click", async () => { document.getElementById("preferenceSuggestion").hidden = true; document.getElementById("preferenceStatus").textContent = "Original preferences kept."; current = null; await chrome.storage.session.remove(storageKey); });
+  for (const [id, decision] of [["preferenceAllow", "approve"], ["preferenceDeny", "deny"]]) document.getElementById(id).addEventListener("click", async () => {
+    try { await popupApi(`/api/orchestrate/${current.runId}/fallback`, { method: "POST", body: { decision } }); document.getElementById("preferenceFallback").hidden = true; current.fallback = null; }
+    catch (error) { showMessage(error.message); }
+  });
+  const saved = await chrome.storage.session.get(storageKey);
+  if (saved[storageKey]) try { const job = await popupApi(`/api/preferences/build/${saved[storageKey]}`); input.value = job.original; render(job); void poll(); } catch { await chrome.storage.session.remove(storageKey); }
+  window.addEventListener("pagehide", () => clearTimeout(timer), { once: true });
+}

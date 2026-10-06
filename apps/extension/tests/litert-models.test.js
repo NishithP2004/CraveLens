@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { LITERT_TEXT_MODELS, LITERT_VLM_MODELS, getLiteRtTextModel, getLiteRtVlmModelByProvider } from "./litert-models.js";
+import { LITERT_TEXT_MODELS, LITERT_VLM_MODELS, getLiteRtTextModel, getLiteRtVlmModelByProvider } from "../src/litert-models.js";
 
 test("lists the LiteRT web-compatible Gemma 4 models with fixed Hugging Face sources", () => {
   assert.deepEqual(LITERT_TEXT_MODELS.map((model) => model.id), [

@@ -1,0 +1,1128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <script src="/theme.js"></script>
+    <!-- Google Tag Manager -->
+    <script>
+      (function (w, d, s, l, i) {
+        w[l] = w[l] || [];
+        w[l].push({ "gtm.start": new Date().getTime(), event: "gtm.js" });
+        var f = d.getElementsByTagName(s)[0],
+          j = d.createElement(s),
+          dl = l != "dataLayer" ? "&l=" + l : "";
+        j.async = true;
+        j.src = "https://www.googletagmanager.com/gtm.js?id=" + i + dl;
+        f.parentNode.insertBefore(j, f);
+      })(window, document, "script", "dataLayer", "GTM-W3KTPK7D");
+    </script>
+    <!-- End Google Tag Manager -->
+
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>How to use CraveLens — Feature Guide</title>
+    <meta
+      name="description"
+      content="Learn to scan food in videos and webpages, personalize Swiggy carts, choose local AI, connect Telegram, and confirm orders with UPI, COD or Swiggy Money."
+    />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#ff5b38" />
+    <link rel="canonical" href="https://cravelens.nishithp.page/guide/" />
+    <meta property="og:type" content="article" />
+    <meta property="og:title" content="How to use CraveLens — Feature Guide" />
+    <meta
+      property="og:description"
+      content="From your first food scan to a reviewed Swiggy cart: models, preferences, quiet modes, Telegram and payments."
+    />
+    <meta property="og:url" content="https://cravelens.nishithp.page/guide/" />
+    <meta
+      property="og:image"
+      content="https://cravelens.nishithp.page/cravelens-social.png"
+    />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/src/style.css" />
+    <link rel="stylesheet" href="/src/privacy.css" />
+    <link rel="stylesheet" href="/src/guide.css" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "TechArticle",
+        "headline": "How to use CraveLens",
+        "description": "A practical guide to food detection, personalized carts, local AI, Telegram delivery and Swiggy checkout.",
+        "url": "https://cravelens.nishithp.page/guide/",
+        "dateModified": "2026-10-04",
+        "author": {
+          "@type": "Person",
+          "name": "Nishith P"
+        }
+      }
+    </script>
+    <link rel="stylesheet" href="/src/theme.css" />
+    <link rel="stylesheet" href="/theme-colors.css" />
+    <link rel="stylesheet" href="/theme-control.css" />
+    <link rel="stylesheet" href="/site-footer.css" />
+    <link rel="stylesheet" href="/site-header.css" />
+    <link rel="stylesheet" href="/site-motion.css" />
+    <link rel="stylesheet" href="/site-ui.css" />
+    <script src="/site-motion.js" defer></script>
+    <script src="/site-header.js" defer></script>
+  </head>
+
+  <body class="policy-page guide-page">
+    <!-- Google Tag Manager (noscript) -->
+    <noscript
+      ><iframe
+        src="https://www.googletagmanager.com/ns.html?id=GTM-W3KTPK7D"
+        height="0"
+        width="0"
+        style="display: none; visibility: hidden"
+      ></iframe
+    ></noscript>
+    <!-- End Google Tag Manager (noscript) -->
+
+    <a class="guide-skip" href="#guide-content">Skip to the guide</a>
+    <!-- CRAVELENS_SHARED_HEADER -->
+    <main class="policy-shell">
+      <header class="policy-hero">
+        <span class="kicker">THE CRAVELENS FIELD GUIDE</span>
+        <h1>From craving<br />to cart.</h1>
+        <p>
+          Find food in a video or select it on a page. Prepare a cart that
+          reflects your preferences, review it in your browser or Telegram, and
+          confirm when you’re ready.
+        </p>
+        <div class="policy-meta">
+          <span>Updated October 5, 2026</span
+          ><span>Chrome extension · Swiggy</span>
+        </div>
+        <a
+          class="button guide-install"
+          href="https://chromewebstore.google.com/detail/gehijhngicamfekokcbcdkjnjkmfofpn"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Get CraveLens <span>↗</span></a
+        >
+      </header>
+      <div class="policy-layout">
+        <nav class="policy-toc" aria-label="Feature guide sections">
+          <strong>On this page</strong
+          ><a href="#start">Install and connect Swiggy</a
+          ><a href="#detect">Find food in videos</a
+          ><a href="#manual">Scan a frame or select an area</a
+          ><a href="#preferences">Personalize your cart</a
+          ><a href="#models">Choose your AI models</a
+          ><a href="#fallback">Set local-model failure behavior</a
+          ><a href="#experience">Choose how your cart arrives</a
+          ><a href="#telegram">Connect and use Telegram</a
+          ><a href="#review">Review, customize and understand your cart</a
+          ><a href="#payments">Confirm and pay</a
+          ><a href="#multiple-dishes">Multiple dishes in one scan</a
+          ><a href="#troubleshooting">Troubleshoot and manage privacy</a>
+        </nav>
+        <article class="policy-content" id="guide-content">
+          <section class="policy-summary" aria-label="Getting started summary">
+            <div>
+              <b>1. Connect</b
+              ><span>Install, authorize Swiggy and pick your address.</span>
+            </div>
+            <div>
+              <b>2. Discover</b
+              ><span>Scan food and receive a verified cart your way.</span>
+            </div>
+            <div>
+              <b>3. Review</b
+              ><span>Check the receipt and explicitly confirm an order.</span>
+            </div>
+          </section>
+          <p>
+            The shared header’s compact theme icons choose System (monitor,
+            default), Light (sun) or Dark (moon). Hover or focus the buttons to
+            identify them. Your choice is saved in this browser; System follows
+            your device’s appearance. Buttons, cards and reading text use one
+            shared light/dark color palette on all pages in both themes. Pages
+            use subtle section, menu and dialog animations. Enable Reduce motion
+            in your device settings to disable animations and smooth scrolling.
+            The “On this page” navigation uses a soft highlighted background for
+            your current reading section as you scroll; click any entry to jump
+            to it. The shared footer links to Home, User guide, Privacy, Terms
+            and support on every page.
+          </p>
+          <section id="start">
+            <h2>1. Install and connect Swiggy</h2>
+            <ol>
+              <li>
+                <a
+                  href="https://chromewebstore.google.com/detail/gehijhngicamfekokcbcdkjnjkmfofpn"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  >Install CraveLens from the Chrome Web Store</a
+                >, then pin it using Chrome’s Extensions menu.
+              </li>
+              <li>
+                Open the popup. Keep <strong>Server environment</strong> on
+                <strong>Prod</strong> for normal use. Dev is for a separately
+                configured local development server.
+              </li>
+              <li>
+                Click <strong>Connect Swiggy</strong> and complete authorization
+                in the tab that opens. Return to the popup once connected.
+              </li>
+              <li>
+                Select a saved <strong>Delivery address</strong>. Check the
+                label and address before preparing a cart. If you allow location
+                access, CraveLens can select the nearest saved address; that
+                comparison happens locally.
+              </li>
+              <li>
+                Turn on CraveLens, configure your models and preferences below,
+                then click <strong>Save</strong>.
+              </li>
+            </ol>
+            <p>
+              You need a supported Swiggy account, a serviceable saved address
+              and a Chrome device capable of running your chosen local vision
+              model. Connecting authorizes cart preparation; it does not
+              authorize placing an order.
+            </p>
+            <figure class="guide-screenshot">
+              <a
+                href="/guide/screenshots/swiggy-connected.jpg"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open full-size screenshot: CraveLens popup showing Swiggy connected and the collapsed settings sections."
+                ><img
+                  src="/guide/screenshots/swiggy-connected.jpg"
+                  width="788"
+                  height="1228"
+                  loading="lazy"
+                  decoding="async"
+                  alt="CraveLens popup showing Swiggy connected and the collapsed settings sections."
+              /></a>
+              <figcaption>
+                A successful Swiggy connection appears at the top of the popup.
+                This capture uses Dev; keep Prod selected for normal use.
+                <span>Click the image to enlarge it.</span>
+              </figcaption>
+            </figure>
+          </section>
+          <section id="detect">
+            <h2>2. Find food in videos</h2>
+            <p>
+              Open a YouTube video or Short, an Instagram Reel, or a Facebook
+              Watch/video post. Enable that site under the popup’s
+              auto-detection controls, turn on CraveLens and let the video play.
+              Scheduled scans use a small local food detector before asking your
+              local vision model to identify the dish.
+            </p>
+            <ul>
+              <li>
+                <strong>Food sensitivity:</strong> adjust the detector threshold
+                when scenes are missed or too many candidates are being checked.
+                It does not bypass the final food-verification confidence check.
+              </li>
+              <li>
+                <strong>Model scan interval:</strong> increase it to reduce
+                scanning work or decrease it to sample more often.
+              </li>
+              <li>
+                <strong>Per-site controls:</strong> disable automatic scanning
+                on individual supported services while retaining manual scans.
+              </li>
+              <li>
+                <strong>Enable switch:</strong> pause CraveLens when you do not
+                want it preparing suggestions.
+              </li>
+            </ul>
+            <p>
+              Only a valid local food identification with sufficient confidence
+              proceeds. The extension remembers confirmed dishes and scene
+              signatures to suppress duplicates. A quiet scene, an uncertain
+              identification, or a repeat may produce no visible response.
+            </p>
+            <figure class="guide-screenshot">
+              <a
+                href="/guide/screenshots/detection-settings.jpg"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open full-size screenshot: Detection context settings with sensitivity, scan interval, enabled video sites, shortcut behavior and manual scan button."
+                ><img
+                  src="/guide/screenshots/detection-settings.jpg"
+                  width="788"
+                  height="1228"
+                  loading="lazy"
+                  decoding="async"
+                  alt="Detection context settings with sensitivity, scan interval, enabled video sites, shortcut behavior and manual scan button."
+              /></a>
+              <figcaption>
+                Detection context: adjust automatic scans, choose supported
+                sites and find the manual scan shortcut.
+                <span>Click the image to enlarge it.</span>
+              </figcaption>
+            </figure>
+          </section>
+          <section id="manual">
+            <h2>3. Scan a frame or select an area</h2>
+            <p>
+              Use <strong>Scan current frame</strong> or the default keyboard
+              shortcut <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Y</kbd> on a
+              supported video page. A manual frame scan goes directly to the
+              local vision model instead of waiting for the scheduled detector
+              gate.
+            </p>
+            <p>
+              On another normal webpage, use the shortcut and drag a rectangle
+              around the food you want identified. Only that selected region is
+              analyzed. Under <strong>Keyboard shortcut behavior</strong>,
+              choose <strong>Auto</strong> for video-frame scans on supported
+              sites and lasso elsewhere, or <strong>Lasso</strong> to always
+              select an area.
+            </p>
+            <p>
+              If Chrome has assigned a different shortcut or another extension
+              uses it, check <code>chrome://extensions/shortcuts</code>.
+              Chrome’s protected pages, including its settings pages, do not
+              permit ordinary page capture.
+            </p>
+            <figure class="guide-screenshot guide-screenshot-wide">
+              <a
+                href="/guide/screenshots/manual-scan-progress.jpg"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open full-size screenshot: CraveLens identifies pizza in a YouTube Short and shows live cart preparation steps beside the video."
+                ><img
+                  src="/guide/screenshots/manual-scan-progress.jpg"
+                  width="2940"
+                  height="1728"
+                  loading="lazy"
+                  decoding="async"
+                  alt="CraveLens identifies pizza in a YouTube Short and shows live cart preparation steps beside the video."
+              /></a>
+              <figcaption>
+                A real manual scan identified pizza and started cart
+                preparation. Progress reports completed restaurant and menu
+                searches; preparation still requires a verified receipt and your
+                confirmation before checkout.
+                <span>Click the image to enlarge it.</span>
+              </figcaption>
+            </figure>
+          </section>
+          <section id="preferences">
+            <h2>4. Personalize your cart</h2>
+            <p>
+              In <strong>Food preferences and routines</strong>, describe the
+              constraints you want the cart model to consider: vegetarian meals,
+              preferred cuisine, spice level, portion needs, budget, or routines
+              tied to a day or time. Save your changes before the next scan.
+            </p>
+            <h3>Automatic preferences on your first cart</h3>
+            <p>
+              If <strong>Food preferences and routines</strong> is empty,
+              CraveLens automatically reads verified order history for your
+              selected delivery address before preparing a cart. It saves
+              tentative preferences and routines, when supported by the actual
+              history, and reuses that profile for up to 30 days. No verified
+              history means no invented preferences; that check is repeated
+              after a day. Existing preferences you enter take priority. A
+              failed history or model step stops preparation before cart edits:
+              check your Swiggy connection, address and model, then scan again.
+            </p>
+            <p>
+              After a completed cart,
+              <strong>Saved inferred preferences</strong> appears below the
+              empty editor for that address, with a tentative label, order
+              coverage and update date. Expand
+              <strong>History &amp; evidence</strong> to read its supporting
+              notes. Suggested preferences use the same layout, with order
+              coverage and a <strong>Not saved yet</strong> label;
+              <strong>Use suggestion</strong> accepts the draft and
+              <strong>Keep original</strong> leaves your preferences unchanged.
+              Review these patterns and enter and save your own constraints to
+              override them. Disconnecting or reconnecting Swiggy clears the
+              saved server profile. Keep Chrome running for local inference; the
+              selected cart model and hosted-fallback policy also apply to
+              automatic generation.
+            </p>
+            <h3>Build my preferences from order history</h3>
+            <ol>
+              <li>
+                Connect Swiggy, select a saved delivery address and configure
+                your cart reasoning model. Write any preferences you already
+                know, or leave the box empty.
+              </li>
+              <li>
+                Click the sparkle inside
+                <strong>Food preferences and routines</strong>. The agent
+                requests 15 recent orders per history call (including active and
+                past orders), verifies each order’s delivery address ID, and
+                uses the latest seven matching orders to draft a refined
+                preference prompt when available. Orders from other addresses or
+                with unverifiable details are excluded.
+              </li>
+              <li>
+                Follow the live progress beneath the editor. A rotating glow
+                indicates work in progress. If the local model fails, your saved
+                hosted-fallback policy applies; approve in the popup or linked
+                Telegram chat when asked.
+              </li>
+              <li>
+                Review <strong>Suggested preferences</strong> and its evidence
+                notes against your original text. Check allergies, dietary
+                restrictions, budgets and routines. Past purchases can suggest
+                tentative preferences, but do not establish medical or dietary
+                requirements.
+              </li>
+              <li>
+                Choose <strong>Use suggestion</strong> to save the refined
+                prompt, or <strong>Keep original</strong> to discard it without
+                replacing your text.
+              </li>
+            </ol>
+            <p>
+              This action only reads history and drafts text; it does not change
+              a cart or order food. Keep Chrome running for local AI. You can
+              reopen the popup to recover an active run or draft while its
+              ten-minute retention window remains valid. Runs can fail if the
+              account, model or server is unavailable. Swiggy may expose fewer
+              than seven matching orders; progress and evidence notes report how
+              many were verified and any coverage limits. With no verified order
+              history for the selected address, your original preferences are
+              returned unchanged without generating new inferred preferences.
+            </p>
+            <p>
+              The cart model receives your explicit preferences, the identified
+              dish, dining context and observation time. It is instructed to
+              consult relevant Swiggy order history, but fresh history retrieval
+              inside the cart loop is not enforced on every run. Automatic
+              first-cart generation reads verified history when there is no
+              saved profile and your explicit preferences are empty. A
+              preference inferred from past orders can only inform an
+              explanation when that evidence was actually retrieved.
+            </p>
+            <p>
+              Visual identification and menu descriptions can be incomplete.
+              Review the final item, variant and add-ons, particularly for
+              allergies and dietary restrictions. A description in your
+              preferences is guidance for cart preparation, not a restaurant
+              guarantee.
+            </p>
+            <figure class="guide-screenshot">
+              <a
+                href="/guide/screenshots/preference-builder.jpg"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open full-size screenshot: Food preferences editor with an AI sparkle button and its built-in example placeholder."
+                ><img
+                  src="/guide/screenshots/preference-builder.jpg"
+                  width="788"
+                  height="1228"
+                  loading="lazy"
+                  decoding="async"
+                  alt="Food preferences editor with an AI sparkle button and its built-in example placeholder."
+              /></a>
+              <figcaption>
+                The AI sparkle starts Build my preferences. The editor is empty
+                here and shows the built-in placeholder; personal preference
+                text and the delivery address are excluded.
+                <span>Click the image to enlarge it.</span>
+              </figcaption>
+            </figure>
+            <figure class="guide-screenshot">
+              <a
+                href="/guide/screenshots/preference-progress.jpg"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open full-size screenshot: Preference agent progress after reading recent orders and five order details, with Allow hosted model and Stop buttons."
+                ><img
+                  src="/guide/screenshots/preference-progress.jpg"
+                  width="788"
+                  height="1228"
+                  loading="lazy"
+                  decoding="async"
+                  alt="Preference agent progress after reading recent orders and five order details, with Allow hosted model and Stop buttons."
+              /></a>
+              <figcaption>
+                An earlier real capture after reading order history and five
+                order details; current runs target seven recent account orders
+                without additional address matching. Local inference requested
+                hosted fallback; Allow hosted model and Stop let you choose
+                whether to continue. This capture is a permission request, not a
+                finished draft. <span>Click the image to enlarge it.</span>
+              </figcaption>
+            </figure>
+          </section>
+          <section id="models">
+            <h2>5. Choose your AI models</h2>
+            <h3>Frame verification model</h3>
+            <p>
+              Under <strong>VLM configuration</strong>, choose
+              <strong>Auto · browser-local first</strong>,
+              <strong>Gemini Nano</strong>, <strong>Gemma 3n</strong>, or an
+              installed <strong>Ollama vision model</strong>. Availability
+              depends on your browser, hardware and installed models. Frames and
+              selected page regions stay on your device.
+            </p>
+            <p>
+              Gemma 3n downloads into the browser after saving. Keep the browser
+              open, watch the download indicator and wait for readiness before
+              scanning. You can cancel a download or remove a cached VLM from
+              the popup. Gemini Nano requires compatible Chrome support. For
+              Ollama, enter the local host, press <strong>Test</strong>, grant
+              the requested host permission if necessary and select a discovered
+              vision-capable model. Follow <strong>Local AI setup</strong> in
+              the popup if the connection needs configuration.
+            </p>
+            <h3>Cart reasoning model</h3>
+            <p>
+              Under <strong>Agentic orchestration</strong>, choose browser-local
+              <strong>LiteRT</strong>, local <strong>Ollama</strong>,
+              <strong>Google Gemini</strong>, or an
+              <strong>OpenAI-compatible</strong> provider. Local cart inference
+              still uses the CraveLens server and Swiggy for orchestration and
+              shopping data; it is not an entirely offline ordering flow.
+            </p>
+            <p>
+              LiteRT offers Gemma 4 E2B, E4B, 12B, 26B A4B and 31B. Model
+              downloads range from roughly 1.9 GB to 17.9 GB. A listed model may
+              exceed your device’s available memory; downloaded bytes do not
+              guarantee it can initialize. Start with a smaller model, keep
+              Chrome running and check readiness. The popup lets you cancel
+              downloads or remove cached models.
+            </p>
+            <p>
+              For local cart models, <strong>Context length</strong> controls
+              how much context is retained and affects memory use.
+              <strong>Thinking mode</strong> requests extra reasoning where
+              supported and can increase latency. For hosted providers, the
+              deployment’s configured default can be used with blank fields for
+              its matching provider. A different hosted provider may require
+              your own model, API key and compatible base URL. Keys are
+              write-only in the popup and stored encrypted by the server.
+            </p>
+            <figure class="guide-screenshot">
+              <a
+                href="/guide/screenshots/cart-model-settings.jpg"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open full-size screenshot: Agentic orchestration settings showing Automatic selection, a ready Gemma 4 E2B model, 16k context and thinking mode."
+                ><img
+                  src="/guide/screenshots/cart-model-settings.jpg"
+                  width="788"
+                  height="1228"
+                  loading="lazy"
+                  decoding="async"
+                  alt="Agentic orchestration settings showing Automatic selection, a ready Gemma 4 E2B model, 16k context and thinking mode."
+              /></a>
+              <figcaption>
+                Agentic orchestration: inspect model readiness, context length
+                and thinking mode. Readiness and download size depend on your
+                device and selected model.
+                <span>Click the image to enlarge it.</span>
+              </figcaption>
+            </figure>
+            <figure class="guide-screenshot">
+              <a
+                href="/guide/screenshots/vision-model-options.jpg"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open full-size screenshot: Frame verification model menu with Automatic selection, Gemini Nano, Gemma 3n and Ollama."
+                ><img
+                  src="/guide/screenshots/vision-model-options.jpg"
+                  width="788"
+                  height="1228"
+                  loading="lazy"
+                  decoding="async"
+                  alt="Frame verification model menu with Automatic selection, Gemini Nano, Gemma 3n and Ollama."
+              /></a>
+              <figcaption>
+                The frame-verification model menu. Choose a supported on-device
+                model for images; the cart reasoning model is configured
+                separately below. <span>Click the image to enlarge it.</span>
+              </figcaption>
+            </figure>
+          </section>
+          <section id="fallback">
+            <h2>6. Set local-model failure behavior</h2>
+            <p>
+              Under <strong>When the local cart model fails</strong>, choose one
+              option and Save:
+            </p>
+            <div class="guide-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Option</th>
+                    <th>What happens</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Automatically use a hosted model</td>
+                    <td>
+                      Eligible LiteRT or Ollama cart-inference failures switch
+                      to the configured hosted provider without another
+                      permission prompt.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Ask before using a hosted model</td>
+                    <td>
+                      The default. You approve or reject the switch. In Telegram
+                      mode, the request arrives in your linked chat.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Stop without switching models</td>
+                    <td>The local error is reported and preparation stops.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p>
+              Hosted fallback sends the run’s model context to that provider. It
+              requires a configured hosted model and does not upload video
+              frames. This setting applies to cart reasoning, not a hosted
+              replacement for failed local image identification. Cancellation
+              and an unverified cart do not trigger a hosted retry. Stopping
+              does not undo cart edits already made; check Swiggy before
+              retrying a failed preparation.
+            </p>
+            <figure class="guide-screenshot">
+              <a
+                href="/guide/screenshots/hosted-fallback-options.jpg"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open full-size screenshot: Local cart model failure menu with automatic hosted fallback, permission prompt and stop options."
+                ><img
+                  src="/guide/screenshots/hosted-fallback-options.jpg"
+                  width="788"
+                  height="1228"
+                  loading="lazy"
+                  decoding="async"
+                  alt="Local cart model failure menu with automatic hosted fallback, permission prompt and stop options."
+              /></a>
+              <figcaption>
+                Choose what happens when local cart inference fails. Ask before
+                using a hosted model is selected here.
+                <span>Click the image to enlarge it.</span>
+              </figcaption>
+            </figure>
+          </section>
+          <section id="experience">
+            <h2>7. Choose how your cart arrives</h2>
+            <p>
+              Open <strong>Cart experience</strong>, select
+              <strong>While you watch</strong>, and Save. All three modes can
+              prepare a cart; every mode requires a separate confirmation to
+              order.
+            </p>
+            <div class="guide-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Experience</th>
+                    <th>How to use it</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Show progress on screen</td>
+                    <td>
+                      Follow preparation on the page, then review the receipt
+                      and the source-aware cart shelf.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Notify me when my cart is ready</td>
+                    <td>
+                      Preparation runs without progress overlays. Click the
+                      small cart-ready nudge to open the regular receipt, or
+                      dismiss the nudge.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Send my cart to Telegram</td>
+                    <td>
+                      Receive the prepared receipt in a verified private bot
+                      chat with explanation and checkout buttons. Connect
+                      Telegram first.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p>
+              CraveLens permits one active cart per extension connection.
+              Another cart waits until the current reservation is released or
+              expires. Different devices have separate connections; avoid
+              simultaneously preparing carts for the same Swiggy account on
+              several devices. Keep the browser running for local AI, even when
+              the final receipt goes to Telegram.
+            </p>
+            <figure class="guide-screenshot">
+              <a
+                href="/guide/screenshots/cart-delivery-options.jpg"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open full-size screenshot: Cart experience menu showing progress on screen, a cart-ready notification and Telegram delivery, with silent Telegram messages off."
+                ><img
+                  src="/guide/screenshots/cart-delivery-options.jpg"
+                  width="788"
+                  height="1228"
+                  loading="lazy"
+                  decoding="async"
+                  alt="Cart experience menu showing progress on screen, a cart-ready notification and Telegram delivery, with silent Telegram messages off."
+              /></a>
+              <figcaption>
+                Choose how your cart arrives. The Telegram account is linked
+                here, and silent delivery is off.
+                <span>Click the image to enlarge it.</span>
+              </figcaption>
+            </figure>
+          </section>
+          <section id="telegram">
+            <h2>8. Connect and use Telegram</h2>
+            <p>
+              Telegram delivery must be enabled by the CraveLens service
+              operator. If the popup reports that Telegram is unavailable, you
+              cannot enable it by entering a username. For self-hosted
+              deployments, the operator setup is documented in the repository’s
+              <a
+                href="https://github.com/NishithP2004/CraveLens/blob/main/TELEGRAM.md"
+                >Telegram setup guide</a
+              >.
+            </p>
+            <ol>
+              <li>
+                In the popup’s <strong>Cart experience</strong> section, click
+                <strong>Connect Telegram</strong>.
+              </li>
+              <li>
+                Open the bot link in Telegram and press
+                <strong>Start</strong> in a private chat. The link is single-use
+                and expires after five minutes; request another link if needed.
+              </li>
+              <li>
+                Reopen the extension and check the displayed account. Click
+                <strong>Confirm this Telegram account</strong> only when it is
+                yours.
+              </li>
+              <li>
+                Select <strong>Send my cart to Telegram</strong> and Save. Below
+                the account connection controls, enable
+                <strong>Silent Telegram messages</strong> to deliver without a
+                notification sound. It is off by default.
+              </li>
+              <li>
+                When a cart arrives, an available product photo appears above a
+                formatted receipt with clear restaurant, item, amount and
+                delivery sections. If the image cannot be sent, you still
+                receive the receipt. Longer receipts may span messages, with
+                checkout buttons on the final one. Review its restaurant, items,
+                delivery address, payable amount, delivery estimate and expiry.
+                Use <strong>Why this cart?</strong> for the explanation or
+                <strong>Dismiss</strong> to reject the cart.
+              </li>
+              <li>
+                Select an offered payment method, then use the separate
+                confirmation button to proceed. Selecting the method alone does
+                not place an order.
+              </li>
+            </ol>
+            <p>
+              UPI checkout sends a payment link when available and a QR image.
+              The server checks payment status;
+              <strong>Check payment</strong> requests a manual refresh.
+              <strong>Cancel payment process</strong> rechecks the live status
+              and stops CraveLens tracking while still pending. It does not
+              cancel or refund a transfer in your UPI app. A paid or uncertain
+              result must be reviewed in Swiggy. Treat any uncertain payment
+              result as a reason to check Swiggy before trying again.
+            </p>
+            <p>
+              Your linked name appears prominently in the account card. Use
+              <strong>Disconnect account</strong> in the popup to revoke old
+              bot-button access and return to the on-screen experience. Telegram
+              receives your cart, selected delivery address, explanations you
+              request and payment status or UPI requests. It does not receive
+              video frames. Blocking the bot prevents delivery; expired carts
+              and stale buttons cannot be used to confirm an order.
+            </p>
+            <figure class="guide-screenshot">
+              <a
+                href="/guide/screenshots/telegram-linked.jpg"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open full-size screenshot: Telegram account card showing a linked display name, Disconnect account button and Silent Telegram messages unchecked."
+                ><img
+                  src="/guide/screenshots/telegram-linked.jpg"
+                  width="788"
+                  height="1228"
+                  loading="lazy"
+                  decoding="async"
+                  alt="Telegram account card showing a linked display name, Disconnect account button and Silent Telegram messages unchecked."
+              /></a>
+              <figcaption>
+                A verified Telegram connection shows the linked display name and
+                Disconnect account. Silent Telegram messages appears below and
+                is off in this capture.
+                <span>Click the image to enlarge it.</span>
+              </figcaption>
+            </figure>
+            <figure class="guide-screenshot">
+              <a
+                href="/guide/screenshots/telegram-cart-receipt.jpg"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open full-size screenshot: Real Telegram cart message with a Manchow Soup photo, formatted receipt, masked delivery address and payment buttons."
+                ><img
+                  src="/guide/screenshots/telegram-cart-receipt.jpg"
+                  width="496"
+                  height="990"
+                  loading="lazy"
+                  decoding="async"
+                  alt="Real Telegram cart message with a Manchow Soup photo, formatted receipt, masked delivery address and payment buttons."
+              /></a>
+              <figcaption>
+                A real Telegram receipt includes the product photo, item,
+                payable total, delivery estimate and review deadline, followed
+                by UPI, Cash on delivery, Swiggy Money, Why this cart? and
+                Dismiss buttons. The address is censored and unrelated chats are
+                cropped out. This historical receipt illustrates the controls;
+                it does not establish current payment availability or a
+                completed order. <span>Click the image to enlarge it.</span>
+              </figcaption>
+            </figure>
+          </section>
+          <section id="review">
+            <h2>9. Review, customize and understand your cart</h2>
+            <p>
+              The browser receipt shows the verified restaurant, line items,
+              quantities, savings, fees, taxes and final payable amount. Check
+              the selected address and delivery estimate. The cart shelf keeps
+              prepared suggestions associated with their source in the current
+              tab.
+            </p>
+            <p>
+              Use the receipt’s follow-up instruction field to ask for changes,
+              browse or search the restaurant menu, adjust quantities, add or
+              remove items, or apply an eligible coupon when those controls are
+              available. Changes refresh the verified receipt; review the new
+              amount before confirming. For a Telegram-delivered cart, send a
+              follow-up request of up to 500 characters in the private bot chat,
+              or reply to the receipt/product photo. CraveLens uses the current
+              cart and conversation to prepare and verify your changes, then
+              sends a refreshed receipt for a new review and confirmation.
+              Expired carts and carts in payment or checkout cannot be edited.
+              Old bot buttons cannot authorize a changed cart.
+            </p>
+            <p>
+              <strong>Why this cart?</strong> presents spaced bullet points
+              explaining the recorded selection evidence: relevance to the
+              detected dish, explicit preferences, order history when consulted,
+              menu availability and verified pricing or discounts. Local and
+              hosted cart models both use personalized explanations. If
+              explanation generation fails, an evidence-based explanation is
+              returned. It summarizes the decision evidence, not the model’s
+              hidden internal reasoning.
+            </p>
+            <p>
+              Coupons depend on Swiggy’s live eligibility and may be limited to
+              a payment method. No available coupon means no guaranteed coupon
+              savings. Prepared suggestions normally expire after ten minutes;
+              create a fresh cart rather than trying to use an expired receipt.
+            </p>
+            <figure class="guide-screenshot">
+              <a
+                href="/guide/screenshots/verified-cart-receipt.jpg"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open full-size screenshot: Verified browser cart receipt showing the restaurant, pizza, quantity, fees and total, with the delivery address masked."
+                ><img
+                  src="/guide/screenshots/verified-cart-receipt.jpg"
+                  width="802"
+                  height="1456"
+                  loading="lazy"
+                  decoding="async"
+                  alt="Verified browser cart receipt showing the restaurant, pizza, quantity, fees and total, with the delivery address masked."
+              /></a>
+              <figcaption>
+                A real prepared cart, before checkout. Review the item,
+                quantity, charges and payable total; the delivery address is
+                masked for privacy. <span>Click the image to enlarge it.</span>
+              </figcaption>
+            </figure>
+            <figure class="guide-screenshot guide-screenshot-wide">
+              <a
+                href="/guide/screenshots/why-this-cart.jpg"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open full-size screenshot: Excerpt from Why this cart showing the personalized explanation as spaced bullet points."
+                ><img
+                  src="/guide/screenshots/why-this-cart.jpg"
+                  width="720"
+                  height="320"
+                  loading="lazy"
+                  decoding="async"
+                  alt="Excerpt from Why this cart showing the personalized explanation as spaced bullet points."
+              /></a>
+              <figcaption>
+                An excerpt from the real Why this cart? explanation. Its bullet
+                points describe the detected dish and selection factors;
+                explanations vary with the evidence available in each run.
+                <span>Click the image to enlarge it.</span>
+              </figcaption>
+            </figure>
+            <figure class="guide-screenshot guide-screenshot-wide">
+              <a
+                href="/guide/screenshots/telegram-cart-followup.jpg"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open full-size screenshot: Telegram follow-up asking for Manchow Soup, followed by the cart update acknowledgement, product photo and refreshed receipt."
+                ><img
+                  src="/guide/screenshots/telegram-cart-followup.jpg"
+                  width="715"
+                  height="683"
+                  loading="lazy"
+                  decoding="async"
+                  alt="Telegram follow-up asking for Manchow Soup, followed by the cart update acknowledgement, product photo and refreshed receipt."
+              /></a>
+              <figcaption>
+                Send a follow-up in the bot chat to request a cart change. This
+                real conversation shows a request for Manchow Soup, the update
+                acknowledgement and the refreshed item and payable amount.
+                Private address details and unrelated chats are excluded; review
+                the refreshed receipt before confirming checkout.
+                <span>Click the image to enlarge it.</span>
+              </figcaption>
+            </figure>
+          </section>
+          <section id="payments">
+            <h2>10. Confirm and pay</h2>
+            <ol>
+              <li>Review the final receipt, delivery address and total.</li>
+              <li>
+                Choose one of the payment methods Swiggy currently offers for
+                that cart.
+              </li>
+              <li>
+                Press the explicit confirmation control. The server rechecks the
+                actual cart and amount before submitting.
+              </li>
+            </ol>
+            <ul>
+              <li>
+                <strong>Cash on Delivery:</strong> confirm the order and pay
+                according to Swiggy’s COD flow.
+              </li>
+              <li>
+                <strong>UPI:</strong> use the Swiggy payment link or scan the QR
+                with your UPI app. Complete payment there. CraveLens checks the
+                payment result before finalizing a paid order. Browser checkout
+                also offers status and pending-payment controls where available.
+              </li>
+              <li>
+                <strong>Swiggy Money:</strong> appears only when Swiggy
+                explicitly reports it available for the cart. Confirmation
+                submits wallet checkout; there is no UPI QR step.
+              </li>
+            </ul>
+            <p>
+              Availability depends on your account and cart. CraveLens checks
+              the Builders Club ₹1,000 payable limit before ordering. A changed
+              cart requires a fresh review. Neither automatic detection, receipt
+              delivery nor selecting a payment method places an order.
+            </p>
+            <p>
+              When placement or payment has an uncertain result, check your
+              Swiggy cart, orders and payment activity before repeating the
+              flow. CraveLens does not automatically retry order placement. An
+              uncertain checkout remains held for review rather than submitting
+              a second order.
+            </p>
+            <figure class="guide-screenshot">
+              <a
+                href="/guide/screenshots/cart-payment-options.jpg"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open full-size screenshot: Cart follow-up field, UPI, Cash on delivery and Swiggy Money options, and the separate Pay with UPI button."
+                ><img
+                  src="/guide/screenshots/cart-payment-options.jpg"
+                  width="802"
+                  height="1306"
+                  loading="lazy"
+                  decoding="async"
+                  alt="Cart follow-up field, UPI, Cash on delivery and Swiggy Money options, and the separate Pay with UPI button."
+              /></a>
+              <figcaption>
+                This cart offered UPI, Cash on delivery and Swiggy Money.
+                Selecting a method is separate from confirming checkout. No
+                payment was initiated for this screenshot; availability can vary
+                by cart. <span>Click the image to enlarge it.</span>
+              </figcaption>
+            </figure>
+          </section>
+          <section id="multiple-dishes">
+            <h2>Multiple dishes in one scan</h2>
+            <p>
+              A video frame or lasso selection can identify up to eight main
+              prepared dishes in focus, excluding garnishes, condiments, small
+              side accompaniments, drinks and background food, each with
+              separate confidence and ingredient evidence. Missing cuisine
+              labels are treated as unknown and do not prevent the scan from
+              completing. The cart agent considers the list, your preferences
+              and live availability to prepare one cart from one restaurant.
+              Menu and restaurant searches have no per-tool quotas; cart
+              planning has no cumulative model-call or graph-step limit. The
+              cart loop still has a three-minute deadline and stops repeated
+              invalid or missing tool calls. It may omit uncertain dishes or
+              suggest alternatives; review the receipt rather than assuming
+              everything in the image was added. Frames and selected images stay
+              on-device; the structured dish list reaches the service and the
+              selected cart model.
+            </p>
+          </section>
+          <section id="troubleshooting">
+            <h2>11. Troubleshoot and manage privacy</h2>
+            <h3>No food prompt or cart</h3>
+            <p>
+              Check that CraveLens is enabled, your site’s auto-detection is on,
+              the video is playing, Swiggy is connected and a saved address is
+              selected. Verify that the local vision model is ready. Try a
+              manual scan of a clear food frame. Duplicate scenes,
+              low-confidence identifications and an existing active cart can
+              suppress another suggestion. In quiet modes, progress overlays are
+              intentionally absent.
+            </p>
+            <h3>Preparing cart disappears</h3>
+            <p>
+              If another cart is active, the on-screen flow shows
+              <strong>Cart preparation paused</strong>. If the cart is ready for
+              review, click <strong>Review existing cart</strong> to reopen its
+              receipt on this page, then review or reject it before scanning
+              again. If preparation or payment is still active, wait for it to
+              finish or check its payment status in Swiggy. A manual selection
+              shows the outcome even in a quiet mode. If live progress cannot
+              connect, preparation still runs and its final result or error
+              appears when available. Automatic quiet scans record unsuccessful
+              outcomes in debug state and the browser console.
+            </p>
+            <h3>Build my preferences fails</h3>
+            <p>
+              Select a saved delivery address before clicking the sparkle:
+              Swiggy requires it to read order history. If history retrieval
+              fails, check the selected address and reconnect Swiggy. Preference
+              building reads recent account orders without checking their saved
+              delivery-address IDs, so orders from other addresses may
+              contribute. Structured details and Swiggy text receipts are
+              supported. If no details can be read or order IDs do not match,
+              enter preferences manually; no suggestion is generated. Automatic
+              cart preparation continues without inferred preferences when
+              history cannot be verified. If model generation or draft
+              validation fails, check the cart model and fallback settings, keep
+              Chrome running for local inference, or try another model. The
+              popup identifies the failed stage; your original preferences stay
+              unchanged.
+            </p>
+            <h3>Local model offline, slow or out of memory</h3>
+            <p>
+              Keep Chrome running and wait for downloads to finish. Try a
+              smaller LiteRT model, reduce context length, or test your Ollama
+              host. The configured fallback policy applies only when a
+              compatible hosted provider is available. Selecting a local model
+              does not make shopping work without a server connection.
+            </p>
+            <h3>Telegram link, delivery or buttons fail</h3>
+            <p>
+              Request a new link if it expired; press Start in the private bot
+              chat and confirm the account in the popup. Make sure the bot is
+              not blocked and the cart has not expired. A changed receipt,
+              disconnected account or stale callback requires a fresh review. If
+              the bot is unavailable, choose an on-screen mode and contact the
+              service operator.
+            </p>
+            <h3>Find your extension version</h3>
+            <p>
+              The version appears below the links at the bottom of the popup. It
+              reflects the installed extension; include it when reporting a
+              problem.
+            </p>
+            <h3>Debug and disconnect</h3>
+            <p>
+              Enable <strong>Debug overlay</strong> to inspect detection boxes,
+              confidence, local verification results, timings and errors. The
+              VLM section uses a compact panel and shows one identified dish at
+              a time in a scrollable list that shrinks for a single result, with
+              separate confidence, cuisine, description and visible ingredients;
+              uncertain entries are marked. Turn it off again for a quiet
+              viewing experience. Use the popup’s connection controls to
+              disconnect Swiggy or Telegram when you no longer want them linked.
+            </p>
+            <p>
+              Frames and lasso selections stay local. The service receives
+              structured dish and source information for cart preparation;
+              Swiggy supplies account and shopping data. Hosted cart models and
+              optional Telegram delivery receive the context needed for those
+              features. When service diagnostics are enabled, the operator can
+              correlate cart preparation and checkout using opaque identifiers
+              and metadata such as tool names, timings and outcome codes.
+              Screenshots, preferences, history, prompts, model responses and
+              payment payloads are excluded from these diagnostics. The service
+              also counts registrations, confirmed orders and dish labels
+              already submitted for cart preparation for aggregate operational
+              reporting. Browser-only scans are not added to these server
+              counters. Read the <a href="/privacy/">privacy policy</a> for
+              storage and sharing details, or
+              <a href="mailto:me@nishithp.page">contact support</a> with the
+              error and the steps that caused it.
+            </p>
+            <figure class="guide-screenshot">
+              <a
+                href="/guide/screenshots/local-ai-setup.jpg"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open full-size screenshot: Local AI setup accordion with Ollama connection instructions and the extension version in the footer."
+                ><img
+                  src="/guide/screenshots/local-ai-setup.jpg"
+                  width="788"
+                  height="1228"
+                  loading="lazy"
+                  decoding="async"
+                  alt="Local AI setup accordion with Ollama connection instructions and the extension version in the footer."
+              /></a>
+              <figcaption>
+                Expand Local AI setup for connection help. The installed version
+                appears beneath the footer links and is useful when reporting a
+                problem. <span>Click the image to enlarge it.</span>
+              </figcaption>
+            </figure>
+          </section>
+        </article>
+      </div>
+    </main>
+    <!-- CRAVELENS_SHARED_FOOTER -->
+    <dialog class="guide-image-modal" aria-labelledby="guide-image-title">
+      <div class="guide-image-toolbar">
+        <h2 id="guide-image-title">Screenshot preview</h2>
+        <button type="button" class="guide-image-zoom" aria-pressed="false">
+          Zoom in
+        </button>
+        <button
+          type="button"
+          class="guide-image-close"
+          aria-label="Close image preview"
+          autofocus
+        >
+          Close <span aria-hidden="true">×</span>
+        </button>
+      </div>
+      <div class="guide-image-view"><img alt="" /></div>
+      <p class="guide-image-description"></p>
+    </dialog>
+    <script type="module" src="/src/guide.js"></script>
+  </body>
+</html>

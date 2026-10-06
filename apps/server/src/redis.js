@@ -54,6 +54,7 @@ export const redisKeys = {
   refreshFamily: (familyId) => `cravelens:refresh-family:${familyId}`,
   oauthState: (stateHash) => `cravelens:oauth-state:${stateHash}`,
   swiggyCredential: (deviceId) => `cravelens:swiggy:${deviceId}`,
+  preferenceProfiles: (deviceId) => `cravelens:preference-profiles:${deviceId}`,
   modelSettings: (deviceId) => `cravelens:model-settings:${deviceId}`,
   modelCredential: (deviceId, provider) => `cravelens:model-credential:${deviceId}:${provider}`,
   fallback: (deviceId, runId) => `cravelens:fallback:${deviceId}:${runId}`,

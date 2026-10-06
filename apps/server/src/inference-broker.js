@@ -51,7 +51,10 @@ class InferenceBroker {
       if (!response.ok) throw inferenceError(response.error?.message || "Browser inference failed", response.error?.code || "INFERENCE_FAILED", 502);
       return InferenceResultSchema.parse(response.result);
     } catch (error) {
-      if (/operation has timed out/i.test(error?.message || "")) throw inferenceError("Browser inference timed out", "INFERENCE_TIMEOUT", 504);
+      if (/operation has timed out/i.test(error?.message || "")) {
+        abort();
+        throw inferenceError("Browser inference timed out", "INFERENCE_TIMEOUT", 504);
+      }
       throw error;
     } finally {
       signal?.removeEventListener("abort", abort);

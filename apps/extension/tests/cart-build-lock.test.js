@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createCartBuildLock } from "./cart-build-lock.js";
+import { createCartBuildLock } from "../src/cart-build-lock.js";
 
 test("allows only one in-flight cart build for the same dish and video", () => {
   const lock = createCartBuildLock();

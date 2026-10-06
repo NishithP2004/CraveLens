@@ -1,0 +1,77 @@
+/* Canonical website palette. All pages, including admin, load this file. */
+:root,
+html[data-theme="light"] {
+  color-scheme: light;
+  --cream: #f7f1e7;
+  --paper: #fffaf2;
+  --ink: #181814;
+  --muted: #716f65;
+  --line: #d9d1c2;
+  --theme-track: #eee7dc;
+  --theme-active: #fffaf2;
+  --theme-accent: var(--coral);
+  --theme-shadow: #49331c12;
+}
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --cream: #10110e;
+  --paper: #1c1d18;
+  --ink: #fff8ee;
+  --muted: #b6b2a7;
+  --line: #3e4036;
+  --theme-track: #24261f;
+  --theme-active: #383b30;
+  --theme-accent: var(--coral);
+  --theme-shadow: #0003;
+}
+html[data-theme="light"] {
+  --text-body: #555349;
+  --surface-soft: #eee7dc;
+  --primary: var(--coral);
+  --primary-hover: var(--coral-dark);
+  --on-primary: #fff;
+  --surface-inverse: #24261f;
+  --on-inverse: #fff8ee;
+  --success: #3c702e;
+}
+html[data-theme="dark"] {
+  --text-body: #c7c3b8;
+  --surface-soft: #24261f;
+  --primary: var(--coral);
+  --primary-hover: var(--coral-dark);
+  --on-primary: #fff;
+  --surface-inverse: #24261f;
+  --on-inverse: #fff8ee;
+  --success: #a9d28d;
+}
+/* Shared brand constants and aliases for existing components/charts. */
+:root {
+  --coral: #ff5b38;
+  --coral-dark: #ec4525;
+  --lime: #d9ed72;
+  --bg: var(--cream);
+  --panel: var(--paper);
+  --text: var(--ink);
+  --sidebar: var(--paper);
+  --control: var(--paper);
+  --accent: var(--theme-accent);
+  --grid: var(--line);
+  --metric-start: var(--surface-soft);
+}
+html[data-theme="light"] {
+  --failure: #b84423;
+  --orange: #b84423;
+}
+html[data-theme="dark"] {
+  --failure: #ffad7b;
+  --orange: #ffad7b;
+}
+/* Reading navigation stays gentle on the light page surface. */
+html[data-theme="light"] {
+  --toc-fill: color-mix(in srgb, var(--coral) 12%, var(--paper));
+  --toc-border: color-mix(in srgb, var(--coral) 25%, var(--paper));
+}
+html[data-theme="dark"] {
+  --toc-fill: color-mix(in srgb, var(--coral) 18%, var(--paper));
+  --toc-border: color-mix(in srgb, var(--coral) 35%, var(--paper));
+}

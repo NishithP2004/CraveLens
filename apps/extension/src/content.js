@@ -1,4 +1,7 @@
 import { frameFeatures, selectKeyframe } from "./detector.js";
+import { foodCravingIdentity } from "@cravelens/shared";
+import { renderVlmDebugResult } from "./debug-vlm.js";
+import { withCartProgress, cartPreparationNotice } from "./cart-flow.js";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { io } from "socket.io-client";
@@ -28,7 +31,9 @@ const api = (path, options = {}) => chrome.runtime.sendMessage({ type: "CRAVELEN
 const settings = async () => {
   if (extensionContextStopped || !chrome.runtime?.id) throw new Error("Extension context invalidated.");
   try {
-    return await chrome.storage.local.get({ enabled: true, debug: false, apiUrl: "https://cravelens.nishithp.page", addressId: "", addressLabel: "", sensitivity: .38, scanIntervalMs: DEFAULT_SCAN_INTERVAL_MS, autoDetectYouTube: true, autoDetectInstagram: true, autoDetectFacebook: true, themeMode: "system", personalContext: "" });
+    const saved = await chrome.storage.local.get({ enabled: true, debug: false, apiUrl: "https://cravelens.nishithp.page", addressId: "", addressLabel: "", sensitivity: .38, scanIntervalMs: DEFAULT_SCAN_INTERVAL_MS, autoDetectYouTube: true, autoDetectInstagram: true, autoDetectFacebook: true, themeMode: "system", personalContext: "", cartExperience: "screen", telegramSilent: false });
+    state.cartExperience = saved.cartExperience;
+    return saved;
   } catch (error) {
     if (isExtensionContextInvalidated(error)) stopInvalidatedExtensionContext();
     throw error;
@@ -198,6 +203,7 @@ async function trigger(video, confidence, signature, { forceVerification = false
       confidence,
       signature,
       sourceTitle: document.title.replace(" - YouTube", ""),
+      manual: throwOnError,
       navigationVersion,
       cfg,
     });
@@ -205,17 +211,17 @@ async function trigger(video, confidence, signature, { forceVerification = false
     if (!isCurrentNavigation(navigationVersion)) return;
     closeAgentStream();
     state.error = error.message; renderDebug();
-    if (vlmConfirmed) showToast({ error: error.message });
+    if (vlmConfirmed && state.cartExperience === "screen") showToast({ error: error.message });
     if (throwOnError) throw error;
   }
 }
 
-async function runVerifiedFoodFlow({ verification, frameTimestamp, confidence, signature, sourceTitle, navigationVersion, cfg }) {
+async function runVerifiedFoodFlow({ verification, frameTimestamp, confidence, signature, sourceTitle, navigationVersion, cfg, manual = false }) {
   let cartBuildClaim;
   try {
-    const dishKey = normalizeDish(verification.dish);
+    const dishKey = stableHash(JSON.stringify({ food: foodCravingIdentity(verification), addressId: cfg.addressId || "", personalContext: cfg.personalContext || "" }));
     const existing = state.foodHistory.find((entry) => entry.dishKey === dishKey);
-    const existingCart = state.carts.find((cart) => normalizeDish(cart.detectedDish || cart.item) === dishKey && !isCartExpired(cart));
+    const existingCart = state.carts.find((cart) => cart.cravingKey === dishKey && !isCartExpired(cart));
     if (existing && existingCart) {
       console.info(`[CraveLens] Agent flow skipped: an active ${verification.dish} cart already exists for this source`);
       return verification;
@@ -230,12 +236,18 @@ async function runVerifiedFoodFlow({ verification, frameTimestamp, confidence, s
       persistVideoState();
     }
     state.agentEvents = [{ message: `${verification.dish} confirmed by the configured VLM`, state: "done" }, { message: "Connecting to the cart agent...", state: "active" }];
-    showToast({ loading: true, dish: verification.dish });
+    if (cfg.cartExperience === "screen") showToast({ loading: true, dish: verification.dish });
     renderAgentEvents();
     const streamId = crypto.randomUUID();
-    await connectAgentStream(cfg.apiUrl, streamId);
-    if (!isCurrentNavigation(navigationVersion)) { closeAgentStream(); return; }
-    const result = await api("/api/orchestrate", { method: "POST", body: {
+    const result = await withCartProgress({
+      connect: () => connectAgentStream(cfg.apiUrl, streamId),
+      disconnect: closeAgentStream,
+      onUnavailable: (error) => {
+        console.warn("[CraveLens] Cart progress unavailable; continuing cart preparation", error.message);
+        state.agentEvents.push({ message: "Live progress unavailable. Cart preparation is continuing…", state: "active" });
+        renderAgentEvents();
+      },
+      prepare: () => isCurrentNavigation(navigationVersion) ? api("/api/orchestrate", { method: "POST", body: {
       videoId: state.videoId || pageSourceId(),
       timestamp: frameTimestamp,
       triggerConfidence: confidence,
@@ -245,14 +257,36 @@ async function runVerifiedFoodFlow({ verification, frameTimestamp, confidence, s
       streamId,
       personalContext: String(cfg.personalContext || "").trim(),
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    } });
+      } }) : undefined,
+    });
     if (!isCurrentNavigation(navigationVersion)) return;
-    closeAgentStream();
+    const notice = cartPreparationNotice(result);
+    if (notice) {
+      console.warn("[CraveLens] Cart preparation did not produce a cart", { paused: result?.paused === true, code: result?.code || "NO_CART_PREPARED" });
+      state.error = notice.message;
+      state.agentEvents.push({ message: notice.message, state: "failed" });
+      renderDebug();
+      if (cfg.cartExperience === "screen" || manual) showNoticeToast(notice.title, notice.message, result?.activeCart ? {
+        label: "Review existing cart",
+        onClick: () => {
+          const cart = { ...result.activeCart, addedAt: Date.now() };
+          if (!state.carts.some((entry) => entry.threadId === cart.threadId)) state.carts.push(cart);
+          persistVideoState(); renderCartHistory(); showToast({ suggestion: cart });
+        },
+      } : undefined);
+      return verification;
+    }
     if (result.detected) {
-      const cart = { ...result.suggestion, detectedDish: verification.dish, frameTimestamp, addedAt: Date.now(), status: "ready" };
-      state.carts.push(cart); persistVideoState(); renderCartHistory(); showToast({ suggestion: cart });
-    } else removeToast();
+      const cart = { ...result.suggestion, cravingKey: dishKey, detectedDish: verification.dish, frameTimestamp, addedAt: Date.now(), status: "ready" };
+      state.carts.push(cart); persistVideoState();
+      if (result.experience === "telegram" || cfg.cartExperience === "telegram") return verification;
+      if (cfg.cartExperience === "nudge") showCartNudge(cart);
+      else { renderCartHistory(); showToast({ suggestion: cart }); }
+    }
     return verification;
+  } catch (error) {
+    console.error("[CraveLens] Cart preparation failed after VLM identification", error);
+    throw error;
   } finally {
     cartBuildLock.release(cartBuildClaim);
   }
@@ -327,6 +361,7 @@ function appendAgentEvent(payload) {
 }
 
 async function requestHostedFallbackDecision(details) {
+  if (details.delivery === "telegram") return;
   const existingDecision = fallbackDecisions.get(details.runId);
   const approved = existingDecision === undefined
     ? window.confirm(`The local ${details.provider || "AI"} model stopped responding. Allow this cart run to send its model context to the configured ${details.hostedProvider || "hosted"} provider? No order will be placed without your normal confirmation.`)
@@ -344,6 +379,7 @@ async function requestHostedFallbackDecision(details) {
 }
 
 function agentEventMessage({ event, details = {} }) {
+  if (event === "preferences_progress") return details.message;
   const tools = {
     get_addresses: "Checking your selected delivery address",
     get_food_orders: "Reviewing your recent orders",
@@ -359,18 +395,17 @@ function agentEventMessage({ event, details = {} }) {
     metadata_retry: "Refreshing restaurant details",
   };
   if (event === "orchestration_started") return `Preparing a ${details.dish || "food"} cart`;
+  if (event === "orchestration_paused") return "Another cart is active; review or reject it before preparing another";
   if (event === "orchestration_joined") return `Using the ${details.dish || "food"} cart build already in progress`;
   if (event === "customization_started") return "Understanding your requested changes";
   if (event === "started") return "Personalization agent started";
   if (event === "tools_ready") return `${details.count || 0} Swiggy tools connected`;
   if (event === "reasoning_started") return "Planning the best cart for you";
   if (event === "model:fallback-required") return "Waiting for approval before using a hosted model";
-  if (event === "model:fallback-approved") return `Hosted fallback approved · continuing with ${details.hostedProvider || "the configured provider"}`;
+  if (event === "model:fallback-approved") return `${details.automatic ? "Automatically switched to a hosted model" : "Hosted fallback approved"} · continuing with ${details.hostedProvider || "the configured provider"}`;
   if (event === "metadata_retry") return tools.metadata_retry;
   if (event === "tool_call") return tools[details.tool] || `Using ${String(details.tool || "Swiggy")}`;
-  if (event === "tool_skipped") return details.reason === "DUPLICATE_SEARCH"
-    ? "Skipping a repeated search"
-    : "Search limit reached · choosing from current results";
+  if (event === "tool_skipped") return "Checking menu evidence before continuing";
   if (event === "tool_complete") return tools[details.tool] ? `${tools[details.tool]} · done` : null;
   if (event === "completed") return "Cart research and personalization complete";
   if (event === "cart_ready") return `Cart ready from ${details.restaurant || "Swiggy"}`;
@@ -618,6 +653,7 @@ async function verifyLassoSelection(rect) {
       confidence: 1,
       signature: cropped.signature,
       sourceTitle: selectionTitle(),
+      manual: true,
       navigationVersion,
       cfg,
     });
@@ -679,6 +715,7 @@ async function renderDebug(forceDebug = false) {
     throw error;
   }
   state.themeMode = cfg.themeMode || state.themeMode;
+  const dishScroll = document.getElementById("cravelens-debug")?.querySelector(".debug-vlm-dishes")?.scrollTop || 0;
   document.getElementById("cravelens-debug")?.remove();
   if (!cfg.debug && !forceDebug) return;
   const video = getActiveVideo();
@@ -690,15 +727,13 @@ async function renderDebug(forceDebug = false) {
   const currentSecond = Math.floor(video?.currentTime || 0);
   const detectorTime = state.lastResult ? `${Number(state.lastResult.inferenceMs || 0).toLocaleString()} ms` : "—";
   const gemmaTime = state.vlmResult ? `${Number(state.vlmResult.inferenceMs || 0).toLocaleString()} ms` : "—";
-  const gemmaResult = state.vlmResult
-    ? `<div class="debug-gemma-result"><strong>${escapeHtml(state.vlmResult.dish || "Food")}</strong><b>${(state.vlmResult.confidence * 100).toFixed(0)}%</b></div><p>${state.vlmResult.isFood ? "Food detected" : "Not food"} · ${escapeHtml(humanizeDebugValue(state.vlmResult.context))}</p>`
-    : `<div class="debug-gemma-empty">${escapeHtml(humanizeDebugValue(state.vlmStatus))}</div>`;
+  const gemmaResult = renderVlmDebugResult(state.vlmResult, humanizeDebugValue(state.vlmStatus));
   panel.setAttribute("role", "status");
   panel.setAttribute("aria-live", "polite");
   panel.innerHTML = `<style>
-    #cravelens-debug{--debug-bg:${lightTheme ? "linear-gradient(155deg,#ffffffdc,#f8f8f4b3)" : "linear-gradient(160deg,#181814dc,#0d0d0bc4)"};--debug-card:${lightTheme ? "#ffffff73" : "#ffffff07"};--debug-line:${lightTheme ? "#8f887b8f" : "#ffffff2e"};--debug-rule:${lightTheme ? "#1818141c" : "#ffffff12"};--debug-text:${lightTheme ? "#181814" : "#f8f5ea"};--debug-muted:${lightTheme ? "#716f65" : "#aaa69d"};--debug-coral:${lightTheme ? "#b74628" : "#ff8f6e"};--debug-coral-bg:${lightTheme ? "#fff0e8c7" : "#ff704310"};--debug-green:${lightTheme ? "#216a37" : "#9ce8ad"};--debug-green-bg:${lightTheme ? "#e6f4e9c7" : "#62c87a14"};position:fixed;left:16px;bottom:16px;width:min(340px,calc(100vw - 32px));max-height:calc(100vh - 32px);z-index:2147483647;box-sizing:border-box;padding:14px;overflow:auto;border:1px solid var(--debug-line);border-radius:20px;background:var(--debug-bg);background-clip:padding-box;color:var(--debug-text);box-shadow:${lightTheme ? "0 20px 64px #1b1b1845,inset 0 1px 0 #ffffffed" : "0 24px 72px #0009,inset 0 1px 0 #ffffff18"};-webkit-backdrop-filter:blur(22px) saturate(130%);backdrop-filter:blur(22px) saturate(130%);font:10px/1.4 Inter,Arial,sans-serif;pointer-events:none}
+    #cravelens-debug{--debug-bg:${lightTheme ? "linear-gradient(155deg,#ffffffdc,#f8f8f4b3)" : "linear-gradient(160deg,#181814dc,#0d0d0bc4)"};--debug-card:${lightTheme ? "#ffffff73" : "#ffffff07"};--debug-line:${lightTheme ? "#8f887b8f" : "#ffffff2e"};--debug-rule:${lightTheme ? "#1818141c" : "#ffffff12"};--debug-text:${lightTheme ? "#181814" : "#f8f5ea"};--debug-muted:${lightTheme ? "#716f65" : "#aaa69d"};--debug-coral:${lightTheme ? "#b74628" : "#ff8f6e"};--debug-coral-bg:${lightTheme ? "#fff0e8c7" : "#ff704310"};--debug-green:${lightTheme ? "#216a37" : "#9ce8ad"};--debug-green-bg:${lightTheme ? "#e6f4e9c7" : "#62c87a14"};position:fixed;left:16px;bottom:16px;width:min(300px,calc(100vw - 32px));max-height:calc(100vh - 32px);z-index:2147483647;box-sizing:border-box;padding:10px;overflow:auto;border:1px solid var(--debug-line);border-radius:20px;background:var(--debug-bg);background-clip:padding-box;color:var(--debug-text);box-shadow:${lightTheme ? "0 20px 64px #1b1b1845,inset 0 1px 0 #ffffffed" : "0 24px 72px #0009,inset 0 1px 0 #ffffff18"};-webkit-backdrop-filter:blur(22px) saturate(130%);backdrop-filter:blur(22px) saturate(130%);font:10px/1.4 Inter,Arial,sans-serif;pointer-events:none}
     #cravelens-debug *{box-sizing:border-box}
-    #cravelens-debug .debug-head{display:flex;align-items:center;justify-content:space-between;gap:9px;margin-bottom:10px}
+    #cravelens-debug .debug-head{display:flex;align-items:center;justify-content:space-between;gap:7px;margin-bottom:7px}
     #cravelens-debug .debug-brand{display:flex;align-items:center;min-width:0;gap:7px}
     #cravelens-debug .debug-brand-mark{display:grid;place-items:center;width:27px;height:27px;flex:none;border-radius:9px;background:#ff6440;color:#fff;box-shadow:0 6px 18px #ff593733;font-size:14px}
     #cravelens-debug .debug-brand small,#cravelens-debug .debug-brand strong{display:block}
@@ -719,14 +754,24 @@ async function renderDebug(forceDebug = false) {
     #cravelens-debug .debug-gemma-head{display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--debug-coral);font-size:8px;font-weight:900;letter-spacing:1px;text-transform:uppercase}
     #cravelens-debug .debug-gemma-head time{font:9px ui-monospace,SFMono-Regular,monospace;letter-spacing:0;text-transform:none}
     #cravelens-debug .debug-gemma-result{display:flex;align-items:baseline;justify-content:space-between;gap:7px;margin-top:5px}
-    #cravelens-debug .debug-gemma-result strong{font-size:13px;overflow-wrap:anywhere}
-    #cravelens-debug .debug-gemma-result b{color:var(--debug-coral);font-size:11px}
+    #cravelens-debug .debug-gemma-result strong{min-width:0;flex:1;font-size:13px;overflow-wrap:anywhere}
+    #cravelens-debug .debug-gemma-result b{flex:none;color:var(--debug-coral);font-size:11px}
     #cravelens-debug .debug-gemma p{margin:2px 0 0;color:${lightTheme ? "#65483e" : "#d7b8ae"};font-size:8px}
     #cravelens-debug .debug-gemma-empty{margin-top:5px;color:var(--debug-muted);font-weight:750}
+    #cravelens-debug .debug-vlm-dishes{height:96px;overflow-y:auto;overscroll-behavior:contain;scroll-snap-type:y mandatory;pointer-events:auto;margin:5px 0 0;padding:0;list-style:none}
+    #cravelens-debug .debug-vlm-dishes:has(>li:only-child){height:auto;max-height:96px}
+    #cravelens-debug .debug-vlm-dishes>li:only-child{height:auto;max-height:96px}
+    #cravelens-debug .debug-vlm-dishes:focus-visible{outline:2px solid var(--debug-coral);outline-offset:2px}
+    #cravelens-debug .debug-vlm-dish{height:96px;padding:4px 0;overflow:auto;overflow-wrap:anywhere;scroll-snap-align:start;scroll-snap-stop:always}
+    #cravelens-debug .debug-vlm-dish+.debug-vlm-dish{border-top:1px solid var(--debug-rule)}
+    #cravelens-debug .debug-vlm-dish.low-confidence{opacity:.8}
+    #cravelens-debug .debug-vlm-summary,#cravelens-debug .debug-vlm-count{overflow-wrap:anywhere}
     #cravelens-debug .debug-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:7px}
     #cravelens-debug .debug-stat{display:flex;align-items:center;justify-content:space-between;gap:4px;padding:7px 8px;border:1px solid var(--debug-line);border-radius:10px;background:var(--debug-card);box-shadow:inset 0 1px 0 ${lightTheme ? "#fff" : "#ffffff0b"}}
     #cravelens-debug .debug-stat b{font:800 10px ui-monospace,SFMono-Regular,monospace}
   </style><div class="debug-head"><div class="debug-brand"><span class="debug-brand-mark">◉</span><div><small>CRAVELENS</small><strong>Detection debug</strong></div></div><div class="debug-status ${state.error ? "bad" : ""}">${escapeHtml(state.error || `ONNX ${state.modelStatus}${state.running ? " · scanning" : ""}`)}</div></div><div class="debug-video"><span>${escapeHtml(source.label)}</span><strong>${escapeHtml(state.videoId || "—")}</strong><time>@ ${currentSecond}s</time></div><dl class="debug-detector"><div class="debug-row"><dt>Detector</dt><dd>${escapeHtml(state.lastResult?.source || "—")}</dd><em>${detectorTime}</em></div><div class="debug-row"><dt>Food gate</dt><dd>${escapeHtml(food)}</dd><em></em></div><div class="debug-row"><dt>Boxes</dt><dd>${escapeHtml(top)}</dd><em></em></div></dl><section class="debug-gemma"><div class="debug-gemma-head"><span>Configured VLM</span><time>${gemmaTime}</time></div>${gemmaResult}</section><div class="debug-stats"><div class="debug-stat"><span>Foods</span><b>${state.foodHistory.length}</b></div><div class="debug-stat"><span>Carts</span><b>${state.carts.length}</b></div><div class="debug-stat"><span>Frame</span><b>${state.vlmResult ? `${Math.floor(state.vlmResult.timestamp)}s` : `${currentSecond}s`}</b></div></div>`;
+  const dishList = panel.querySelector(".debug-vlm-dishes");
+  if (dishList) dishList.scrollTop = dishScroll;
   document.body.append(panel);
 }
 
@@ -875,6 +920,7 @@ window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () 
 });
 function renderCartHistory() {
   document.getElementById("cravelens-cart-history")?.remove();
+  if (["nudge", "telegram"].includes(state.cartExperience)) return;
   const activeCarts = pruneExpiredCarts(state.carts);
   if (activeCarts.length !== state.carts.length) {
     state.carts = activeCarts;
@@ -907,6 +953,7 @@ function renderCartHistory() {
 function formatTimestamp(seconds) { const value = Math.max(0, Math.floor(Number(seconds) || 0)); return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, "0")}`; }
 function cartStatusLabel(cart) {
   if (cart.status === "ordered") return "Ordered";
+  if (cart.status === "payment_review_required") return "Check payment in Swiggy";
   if (cart.status === "payment_pending") return "UPI payment pending";
   if (cart.status === "payment_failed") return "Payment expired";
   if (cart.status === "payment_cancelled") return "UPI payment cancelled";
@@ -914,6 +961,7 @@ function cartStatusLabel(cart) {
 }
 function cartAction(cart) {
   if (cart.status === "ordered") return { disabled: true, label: "Ordered" };
+  if (cart.status === "payment_review_required") return { disabled: true, label: "Check Swiggy app" };
   if (cart.status === "payment_failed") return { disabled: true, label: "Expired" };
   if (cart.status === "payment_cancelled") return { disabled: true, label: "Cancelled" };
   if (cart.status === "payment_pending") return { disabled: false, label: "Finish UPI" };
@@ -928,6 +976,7 @@ async function deleteStoredCart(threadId, button) {
       const payment = await api(`/api/orchestrate/${threadId}/cancel-payment`, { method: "POST" });
       if (payment.status === "paid") {
         const confirmed = await api(`/api/orchestrate/${threadId}/confirm-payment`, { method: "POST" });
+        if (confirmed.status !== "ordered") { markPaymentReviewRequired(cart); return; }
         cart.status = "ordered"; cart.order = confirmed.order; persistVideoState(); renderCartHistory();
         showOrderSuccess(cart, confirmed.order);
         return;
@@ -937,6 +986,7 @@ async function deleteStoredCart(threadId, button) {
         showOrderSuccess(cart, payment.order);
         return;
       }
+      if (payment.status === "payment_review_required") { markPaymentReviewRequired(cart); return; }
       if (!["cancelled", "failed"].includes(payment.status)) throw new Error("Payment is still being checked. Try again shortly.");
     } else if (!["ordered", "payment_failed", "payment_cancelled"].includes(cart.status)) {
       await api(`/api/orchestrate/${threadId}/decision`, { method: "POST", body: { decision: "reject" } }).catch(() => {});
@@ -959,10 +1009,24 @@ async function orderStoredCart(threadId, button, paymentMethod) {
     showToast({ error: "Cart expired. Build a fresh Swiggy cart." });
     return;
   }
-  if (!["COD", "UPI"].includes(paymentMethod)) { button.textContent = "Choose a payment method"; return; }
-  button.disabled = true; button.textContent = paymentMethod === "UPI" ? "Starting UPI…" : "Placing COD order…";
+  if (!["COD", "UPI", "SWIGGYPAY"].includes(paymentMethod)) { button.textContent = "Choose a payment method"; return; }
+  button.disabled = true; button.textContent = paymentMethod === "UPI" ? "Starting UPI…" : paymentMethod === "SWIGGYPAY" ? "Paying with Swiggy Money…" : "Placing COD order…";
   try {
     const data = await api(`/api/orchestrate/${threadId}/decision`, { method: "POST", body: { decision: "approve", paymentMethod } });
+    if (data.status === "payment_review_required") {
+      cart.status = data.status; cart.paymentMethod = paymentMethod; cart.order = data.order; cart.placementError = data.message;
+      persistVideoState(); renderCartHistory();
+      showNoticeToast("Check your Swiggy Money payment", data.message);
+      return;
+    }
+    if (data.status === "payment_declined") {
+      Object.assign(cart, data.suggestion, { status: "awaiting_confirmation", paymentMethod: "" });
+      persistVideoState(); renderCartHistory(); showToast({ suggestion: cart });
+      const root = document.getElementById("cravelens-root");
+      const note = document.createElement("p"); note.textContent = data.message; note.setAttribute("role", "alert");
+      root?.shadowRoot?.querySelector(".payment-choice")?.append(note);
+      return;
+    }
     if (data.status === "payment_pending" || data.status === "payment_paid") {
       cart.status = "payment_pending"; cart.paymentMethod = "UPI"; cart.payment = data.payment; persistVideoState(); renderCartHistory();
       showPaymentToast(cart, data.payment);
@@ -974,6 +1038,7 @@ async function orderStoredCart(threadId, button, paymentMethod) {
   } catch (error) { button.disabled = false; button.textContent = error.message || "Try again"; }
 }
 function showToast(view) {
+  if (view.suggestion?.status === "payment_review_required") { showNoticeToast("Check your Swiggy Money payment", view.suggestion.placementError || "Check recent orders and your Swiggy Money balance in the Swiggy app before trying again."); return; }
   if (view.suggestion?.status === "payment_pending" && view.suggestion.payment) { showPaymentToast(view.suggestion, view.suggestion.payment); return; }
   if (view.suggestion?.status === "payment_cancelled") { showNoticeToast("UPI payment cancelled", "No order was placed. Build a fresh cart whenever you’re ready."); return; }
   if (view.suggestion?.status === "payment_failed") { showNoticeToast("UPI payment expired", "No order was placed. Build a fresh cart to try again."); return; }
@@ -1520,10 +1585,12 @@ function paymentChoiceHtml(s) {
   const options = s.paymentOptions || {
     upi: { available: s.availablePaymentMethods?.includes("UPI") },
     cod: { available: s.availablePaymentMethods?.some((item) => /cod|cash/i.test(item)) },
+    swiggypay: { available: s.availablePaymentMethods?.includes("SWIGGYPAY") },
   };
   const choices = [
     options.upi?.available && { value: "UPI", title: "UPI", note: "Scan a secure QR and pay in your UPI app", icon: "⌁" },
     options.cod?.available && { value: "COD", title: "Cash on delivery", note: "Pay when your order arrives", icon: "₹" },
+    options.swiggypay?.available && { value: "SWIGGYPAY", title: "Swiggy Money", note: "Pay from your Swiggy Money balance · Top up in the Swiggy app", icon: "₹" },
   ].filter(Boolean);
   if (!choices.length) return `<section class="payment-choice unavailable"><div class="section-title">Payment method</div><p>No supported payment method is available for this cart.</p></section>`;
   const selected = choices.some((choice) => choice.value === s.paymentMethod) ? s.paymentMethod : choices[0].value;
@@ -1542,6 +1609,7 @@ function updateConfirmButton(shadow, suggestion) {
   button.disabled = !method;
   button.textContent = method === "UPI"
     ? `Pay ${currency(suggestion.finalAmount)} with UPI`
+    : method === "SWIGGYPAY" ? `Pay ${currency(suggestion.finalAmount)} with Swiggy Money`
     : method === "COD" ? `Place COD order · ${currency(suggestion.finalAmount)}` : "Payment unavailable";
 }
 
@@ -1582,6 +1650,7 @@ async function pollUPIPayment(cart, root) {
     }
     if (data.status === "ordered") { cart.status = "ordered"; cart.order = data.order; persistVideoState(); renderCartHistory(); showOrderSuccess(cart, data.order); return; }
     if (data.status === "cancelled") { markPaymentCancelled(cart); return; }
+    if (data.status === "payment_review_required") { markPaymentReviewRequired(cart); return; }
     cart.status = "payment_failed"; persistVideoState(); renderCartHistory();
     setPaymentStatus(shadow, "Payment window closed · no order placed", "failed");
     clearInterval(paymentCountdownTimer);
@@ -1599,10 +1668,12 @@ async function cancelUPIPayment(cart, root, button) {
     const data = await api(`/api/orchestrate/${cart.threadId}/cancel-payment`, { method: "POST" });
     if (data.status === "paid") { await finalizePaidUPI(cart, shadow); return; }
     if (data.status === "ordered") { cart.status = "ordered"; cart.order = data.order; persistVideoState(); renderCartHistory(); showOrderSuccess(cart, data.order); return; }
+    if (data.status === "payment_review_required") { markPaymentReviewRequired(cart); return; }
     if (data.status === "failed") {
       cart.status = "payment_failed"; persistVideoState(); renderCartHistory();
       showNoticeToast("UPI payment expired", "No order was placed. Build a fresh cart to try again."); return;
     }
+    if (data.status !== "cancelled") throw new Error("Payment is still being checked. Try again shortly.");
     markPaymentCancelled(cart);
   } catch (error) {
     button.disabled = false; button.textContent = "Cancel UPI payment";
@@ -1615,12 +1686,19 @@ async function cancelUPIPayment(cart, root, button) {
 async function finalizePaidUPI(cart, shadow) {
   setPaymentStatus(shadow, "Payment received · confirming order…", "paid");
   const confirmed = await api(`/api/orchestrate/${cart.threadId}/confirm-payment`, { method: "POST" });
+  if (confirmed.status !== "ordered") throw new Error("Swiggy has not confirmed this order. Check its payment status in the Swiggy app.");
   cart.status = "ordered"; cart.order = confirmed.order; persistVideoState(); renderCartHistory(); showOrderSuccess(cart, confirmed.order);
 }
 
 function markPaymentCancelled(cart) {
   cart.status = "payment_cancelled"; persistVideoState(); renderCartHistory();
-  showNoticeToast("UPI payment cancelled", "No order was placed. Don’t complete the old request in your UPI app; Swiggy will let it expire.");
+  showNoticeToast("Payment tracking stopped", "This does not cancel or refund a payment made in your UPI app. Check Swiggy before retrying.");
+}
+
+function markPaymentReviewRequired(cart) {
+  clearTimeout(paymentPollTimer); clearInterval(paymentCountdownTimer);
+  cart.status = "payment_review_required"; persistVideoState(); renderCartHistory();
+  showNoticeToast("Check payment in Swiggy", "The payment outcome could not be verified. Check recent orders and payment status in Swiggy before retrying.");
 }
 
 function setPaymentStatus(shadow, label, stateName) {
@@ -1639,12 +1717,13 @@ function showOrderSuccess(cart, order) {
   document.body.append(root); shadow.querySelector(".quiet")?.addEventListener("click", removeToast);
 }
 
-function showNoticeToast(title, detail) {
+function showNoticeToast(title, detail, action) {
   removeToast(); const root = document.createElement("div"); root.id = "cravelens-root";
   applyThemeToHost(root);
   const shadow = root.attachShadow({ mode: "open" });
-  shadow.innerHTML = `<style>${toastCss}${paymentCss}${interfaceThemeCss}</style><aside class="success-view">${brandRowHtml()}<div class="notice-mark">!</div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(detail)}</p><button class="quiet">Done</button></aside>`;
+  shadow.innerHTML = `<style>${toastCss}${paymentCss}${interfaceThemeCss}</style><aside class="success-view">${brandRowHtml()}<div class="notice-mark">!</div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(detail)}</p>${action ? `<button class="review-existing">${escapeHtml(action.label)}</button>` : ""}<button class="quiet">Done</button></aside>`;
   document.body.append(root); shadow.querySelector(".quiet")?.addEventListener("click", removeToast);
+  shadow.querySelector(".review-existing")?.addEventListener("click", action?.onClick);
 }
 
 function orderEta(order) {
@@ -1664,10 +1743,20 @@ const productCss = `.product-head{display:flex;gap:13px;align-items:flex-start}.
 const cartUiExtraCss = `.cart-limit-warning{margin-top:10px;padding:8px 9px;border:1px solid #d66b473f;border-radius:9px;background:#411f17;color:#ffac95;font-size:9px;font-weight:750}.item-remove:disabled{opacity:.35;cursor:not-allowed}.menu-picker-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.menu-picker-head>div{min-width:0}.menu-picker-head .swiggy-powered{flex:none;margin-top:1px}.menu-search{display:grid;grid-template-columns:minmax(0,1fr) 38px;gap:7px;margin:11px 0 4px}.menu-search input{box-sizing:border-box;width:100%;min-width:0;height:38px;padding:0 11px;border:1px solid #ffffff18;border-radius:11px;background:#0e0e0c;color:#f4f0e6;font:10px Inter,Arial,sans-serif;outline:none}.menu-search input::placeholder{color:#77736b}.menu-search input:focus{border-color:#ff7043;box-shadow:0 0 0 2px #ff70431c}.menu-search button{display:grid;place-items:center;width:38px;height:38px;padding:0;border:1px solid #ff704344;border-radius:11px;background:#342018;color:#ff9677}.menu-search svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}.menu-mutation-status{display:none;margin:8px 0 0;padding:7px 8px;border-radius:8px;background:#223729;color:#a9ddb4;font-size:8.5px}.menu-mutation-status.visible{display:block}.menu-mutation-status.error{background:#442019;color:#ffab96}.menu-state:empty{display:none}.menu-filters{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:9px}.menu-filters>div{display:flex;gap:5px}.menu-filters button,.menu-filters select{height:28px;border:1px solid #ffffff14;border-radius:8px;background:#ffffff08;color:#aaa69d;font:700 8px Inter,Arial,sans-serif}.menu-filters button{display:flex;align-items:center;gap:4px;padding:0 7px}.menu-filters button.active{border-color:#ff70435c;background:#3b2119;color:#ff9a7c}.menu-filters .dietary-icon{width:9px;height:9px;margin:0}.menu-filters .dietary-icon i{width:4px;height:4px}.menu-filters label{display:flex;align-items:center;gap:5px;color:#817d74;font-size:8px}.menu-filters select{max-width:125px;padding:0 6px;outline:none}.menu-item-rating{display:inline-flex!important;align-items:center;gap:2px;margin-top:3px;padding:2px 5px;border-radius:6px;background:#143c32;color:#66d5b3;font-size:8px;font-weight:800}.menu-item-rating small{display:inline!important;max-height:none!important;margin:0!important;padding:0!important;overflow:visible!important;color:inherit!important;font-size:7px!important}.menu-add.customize{white-space:nowrap}.menu-options{max-height:min(82vh,720px);overflow:hidden}.menu-options>form{box-sizing:border-box;max-height:min(82vh,720px);padding:18px;overflow-y:auto}.menu-options>form>p{margin:5px 0 12px}.option-groups{display:grid;gap:10px}.option-groups fieldset{margin:0;padding:10px;border:1px solid #ffffff10;border-radius:12px;background:#ffffff04}.option-groups legend{display:flex;align-items:baseline;justify-content:space-between;gap:12px;width:100%;padding:0 2px 7px;color:#eee9de;font-weight:800}.option-groups legend small{color:#8d897f;font-size:7.5px;font-weight:650}.option-groups label{display:flex;align-items:center;gap:8px;padding:8px 2px;border-top:1px solid #ffffff0b;cursor:pointer}.option-groups label.unavailable{opacity:.4;cursor:not-allowed}.option-groups input{position:absolute;opacity:0;pointer-events:none}.option-groups label>span{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;flex:1}.option-groups label b{font-size:9.5px}.option-groups label small{color:#9b978d;font-size:8px}.option-groups label>i{display:grid;place-items:center;width:14px;height:14px;flex:none;border:1.5px solid #6f6b63;border-radius:4px}.option-groups input[type="radio"]+span+i{border-radius:50%}.option-groups input:checked+span+i{border-color:#ff7043;background:#ff7043;box-shadow:inset 0 0 0 3px #211711}.option-groups input:focus-visible+span+i{outline:2px solid #ff9a7c;outline-offset:2px}.option-error{min-height:14px;margin:8px 0 0!important;color:#ff947b!important;font-size:8.5px}.menu-options .dialog-actions{position:sticky;bottom:-18px;margin:10px -18px -18px;padding:12px 18px 18px;background:#151512eF;backdrop-filter:blur(8px)}`;
 const agentEventCss = `.scan{margin-bottom:12px}.loading-copy{color:#aaa79d;margin:7px 0 15px}.food-update{display:grid;place-items:center;width:72px;height:72px;margin:2px 0 15px;border-radius:22px;background:#2b1c15;color:#ff8a64}.food-update svg{width:48px;height:48px;overflow:visible}.food-update .bowl,.food-update .steam{fill:none;stroke:currentColor;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}.food-update .bowl{transform-origin:32px 42px;animation:bowl-rock 1.4s ease-in-out infinite}.food-update .steam{animation:steam-rise 1.4s ease-in-out infinite}.food-update .steam-two{animation-delay:.28s}.agent-events{list-style:none;margin:-5px 0 0;padding:5px 6px 7px;display:grid;gap:8px;max-height:190px;overflow:auto}.agent-events li{display:flex;align-items:center;gap:9px;color:#aaa79d;font-size:12px;transition:.2s}.agent-events li i{width:8px;height:8px;flex:none;border-radius:50%;background:#68665f}.agent-events li.active{color:#f5f0e4}.agent-events li.active i{background:#ff7043;box-shadow:0 0 0 4px #ff704326;animation:pulse 1.2s infinite}.agent-events li.done i{background:#62c87a}.agent-events li.failed{color:#ff8b76}.agent-events li.failed i{background:#ff6040}@keyframes pulse{50%{opacity:.35;transform:scale(.75)}}@keyframes steam-rise{0%,100%{opacity:.25;transform:translateY(3px)}50%{opacity:1;transform:translateY(-3px)}}@keyframes bowl-rock{0%,100%{transform:rotate(-2deg)}50%{transform:rotate(2deg)}}@media(prefers-reduced-motion:reduce){.food-update .bowl,.food-update .steam,.agent-events li.active i{animation:none}}`;
 const paymentCss = `.payment-choice{min-width:0;margin:14px 0;padding:0;border:0}.payment-choice legend{width:100%;margin-bottom:9px;color:#88867e;font-size:10px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase}.payment-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.payment-options label{position:relative;display:grid;grid-template-columns:30px minmax(0,1fr) 14px;align-items:center;gap:9px;min-height:62px;padding:10px;border:1px solid #ffffff12;border-radius:14px;background:#ffffff07;cursor:pointer;transition:.18s}.payment-options label:hover{border-color:#ff704370;background:#ff70430c}.payment-options input{position:absolute;opacity:0}.payment-options label:has(input:checked){border-color:#ff7043;background:#ff704314;box-shadow:0 0 0 2px #ff70431e}.payment-icon{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;background:#ffffff0c;color:#ff8663;font-size:15px;font-weight:900}.payment-options b,.payment-options small{display:block}.payment-options b{font-size:11px}.payment-options small{margin-top:2px;color:#918d84;font-size:8.5px;line-height:1.25}.payment-options label>i{width:12px;height:12px;border:1px solid #77736a;border-radius:50%}.payment-options label:has(input:checked)>i{border:3px solid #ff7043;background:#fff}.payment-choice.unavailable{padding:11px 12px;border:1px solid #7e3027;border-radius:12px;background:#431c18}.payment-choice.unavailable p{margin:0;color:#ffb5a7;font-size:11px}.order:disabled{opacity:.5;cursor:not-allowed}.payment-view{text-align:center}.payment-view .brand{text-align:left}.payment-lede{max-width:310px;margin:8px auto 15px;color:#aaa69d;font-size:12px}.qr-shell{display:grid;place-items:center;width:244px;height:244px;margin:0 auto;padding:8px;border-radius:20px;background:#fff;color:#4b4942;font-size:12px}.qr-shell img{display:block;width:228px;height:228px;border-radius:11px}.payment-status{display:flex;align-items:center;gap:8px;margin:13px auto 0;padding:10px 12px;border-radius:12px;background:#ffffff08;color:#d9d4ca;text-align:left;font-size:11px}.payment-status i{width:8px;height:8px;flex:none;border-radius:50%;background:#ff7043;box-shadow:0 0 0 4px #ff704326;animation:pulse 1.2s infinite}.payment-status span{flex:1}.payment-status b{font-variant-numeric:tabular-nums;color:#ff9a7c}.payment-status.paid i{background:#67d982;box-shadow:0 0 0 4px #67d98222;animation:none}.payment-status.failed i{background:#ff6040;animation:none}.payment-note{margin:11px 4px;color:#7f7c74;font-size:10px;line-height:1.45}.payment-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:13px}.payment-actions a{display:inline-flex;align-items:center;justify-content:center;border-radius:12px;padding:11px 14px;text-decoration:none;font-size:11px;font-weight:750}.upi-link{background:#ff603d;color:#fff}.quiet-link{background:#ffffff0c;color:#d9d4c8}.cancel-payment{width:100%;border:1px solid #ff6f5a55;background:#431c18;color:#ffab9d}.cancel-payment:hover{background:#59231d}.cancel-payment:disabled{opacity:.55;cursor:wait}.payment-actions .quiet{width:100%}.success-view{text-align:center}.success-mark,.notice-mark{display:grid;place-items:center;width:58px;height:58px;margin:2px auto 16px;border-radius:18px;font-size:28px}.success-mark{background:#285c38;color:#9cf0ad}.notice-mark{background:#4e271f;color:#ff9a7c}.success-view p{margin:8px 0 19px;color:#aaa79d}.success-view .quiet{width:100%}@media(max-width:460px){aside{right:10px!important;bottom:10px!important;width:calc(100vw - 20px)!important;max-height:calc(100vh - 20px)!important}.payment-options{grid-template-columns:1fr}}`;
-const toastCss = `:host{all:initial}aside{position:fixed;right:24px;bottom:28px;width:400px;max-height:calc(100vh - 56px);overflow:auto;box-sizing:border-box;padding:22px;border-radius:26px;background:linear-gradient(160deg,#171713,#0e0e0c);color:#f8f5ea;box-shadow:0 28px 90px #000a;font:14px/1.45 Inter,Arial,sans-serif;z-index:2147483647;border:1px solid #ffffff17}.brand-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;margin-bottom:16px}.brand{font-size:10px;letter-spacing:2.4px;color:#ff7043;font-weight:900;margin:0}.brand span{font-size:16px}.swiggy-powered{display:inline-flex;align-items:center;gap:6px;margin:0;padding:5px 8px;border:1px solid #fc801933;border-radius:999px;background:#2f1b0d;color:#ffad63;font-size:8px;font-weight:900;letter-spacing:.75px;text-transform:uppercase}.swiggy-powered img{display:block;width:auto;height:15px;flex:none;object-fit:contain}.eyebrow{font-size:11px;color:#8f8d84;margin-bottom:5px}.title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.title-row h3,h3{font:600 25px/1.12 Georgia,serif;margin:0 0 5px}.restaurant{color:#c7c3b8;margin:0}.deal{flex:none;padding:6px 8px;border-radius:9px;background:#183c23;color:#9cf0ad;font-size:10px;font-weight:900}.receipt{margin-top:18px;padding:15px;border-radius:16px;background:#ffffff08;border:1px solid #ffffff0d}.section-title{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:#88867e;margin-bottom:10px}.receipt-row{display:flex;justify-content:space-between;gap:15px;margin:7px 0}.receipt-row>div{min-width:0}.receipt-row b{font-weight:650}.receipt-row small{display:block;color:#8f8d85;font-size:11px;margin-top:2px}.receipt-row.muted{color:#aaa79d;font-size:12px}.receipt-row.discount{color:#8ce49f}.receipt-row.total{font-size:17px;margin:12px 0 1px}.rule{height:1px;background:#ffffff12;margin:11px 0}.delivery{display:flex;gap:11px;margin:14px 0;padding:12px 13px;border-radius:14px;background:#211b14}.delivery>span{color:#ff7043}.delivery small{display:block;color:#9d978d;font-size:9px;letter-spacing:1.2px}.delivery b{display:block;font-size:12px;margin:2px 0}.delivery em{display:block;color:#aaa49a;font-size:11px;font-style:normal}details{border-top:1px solid #ffffff10;padding-top:11px}summary{cursor:pointer;color:#c9c4b9;font-size:12px;font-weight:700}.markdown{color:#aaa79e;font-size:12px;line-height:1.55;max-height:170px;overflow:auto;padding-right:4px}.markdown p{margin:8px 0}.markdown ul,.markdown ol{padding-left:18px;margin:8px 0}.markdown code{color:#ff9a7c}.actions{display:flex;gap:9px;margin:17px -4px -4px;padding:12px 4px 4px;border-top:1px solid #ffffff0d}button{border:0;border-radius:13px;padding:12px 16px;font-weight:750;cursor:pointer}.quiet{background:#ffffff0c;color:#d9d4c8}.order{flex:1;background:linear-gradient(135deg,#ff744d,#ff5234);color:#fff;box-shadow:0 8px 24px #ff593733}.scan{height:3px;background:#ffffff12;overflow:hidden;margin-bottom:5px;}.scan i{display:block;width:45%;height:100%;background:#ff6338;animation:s 1s infinite}@keyframes s{from{transform:translateX(-100%)}to{transform:translateX(260%)}}`;
+const toastCss = `:host{all:initial}aside{position:fixed;right:24px;bottom:28px;width:400px;max-height:calc(100vh - 56px);overflow:auto;box-sizing:border-box;padding:22px;border-radius:26px;background:linear-gradient(160deg,#171713,#0e0e0c);color:#f8f5ea;box-shadow:0 28px 90px #000a;font:14px/1.45 Inter,Arial,sans-serif;z-index:2147483647;border:1px solid #ffffff17}.brand-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;margin-bottom:16px}.brand{font-size:10px;letter-spacing:2.4px;color:#ff7043;font-weight:900;margin:0}.brand span{font-size:16px}.swiggy-powered{display:inline-flex;align-items:center;gap:6px;margin:0;padding:5px 8px;border:1px solid #fc801933;border-radius:999px;background:#2f1b0d;color:#ffad63;font-size:8px;font-weight:900;letter-spacing:.75px;text-transform:uppercase}.swiggy-powered img{display:block;width:auto;height:15px;flex:none;object-fit:contain}.eyebrow{font-size:11px;color:#8f8d84;margin-bottom:5px}.title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.title-row h3,h3{font:600 25px/1.12 Georgia,serif;margin:0 0 5px}.restaurant{color:#c7c3b8;margin:0}.deal{flex:none;padding:6px 8px;border-radius:9px;background:#183c23;color:#9cf0ad;font-size:10px;font-weight:900}.receipt{margin-top:18px;padding:15px;border-radius:16px;background:#ffffff08;border:1px solid #ffffff0d}.section-title{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:#88867e;margin-bottom:10px}.receipt-row{display:flex;justify-content:space-between;gap:15px;margin:7px 0}.receipt-row>div{min-width:0}.receipt-row b{font-weight:650}.receipt-row small{display:block;color:#8f8d85;font-size:11px;margin-top:2px}.receipt-row.muted{color:#aaa79d;font-size:12px}.receipt-row.discount{color:#8ce49f}.receipt-row.total{font-size:17px;margin:12px 0 1px}.rule{height:1px;background:#ffffff12;margin:11px 0}.delivery{display:flex;gap:11px;margin:14px 0;padding:12px 13px;border-radius:14px;background:#211b14}.delivery>span{color:#ff7043}.delivery small{display:block;color:#9d978d;font-size:9px;letter-spacing:1.2px}.delivery b{display:block;font-size:12px;margin:2px 0}.delivery em{display:block;color:#aaa49a;font-size:11px;font-style:normal}details{border-top:1px solid #ffffff10;padding-top:11px}summary{cursor:pointer;color:#c9c4b9;font-size:12px;font-weight:700}.markdown{color:#aaa79e;font-size:12px;line-height:1.55;max-height:170px;overflow:auto;padding-right:4px}.markdown p{margin:8px 0}.markdown li{margin:8px 0}.markdown ul,.markdown ol{padding-left:18px;margin:8px 0}.markdown code{color:#ff9a7c}.actions{display:flex;gap:9px;margin:17px -4px -4px;padding:12px 4px 4px;border-top:1px solid #ffffff0d}button{border:0;border-radius:13px;padding:12px 16px;font-weight:750;cursor:pointer}.quiet{background:#ffffff0c;color:#d9d4c8}.order{flex:1;background:linear-gradient(135deg,#ff744d,#ff5234);color:#fff;box-shadow:0 8px 24px #ff593733}.scan{height:3px;background:#ffffff12;overflow:hidden;margin-bottom:5px;}.scan i{display:block;width:45%;height:100%;background:#ff6338;animation:s 1s infinite}@keyframes s{from{transform:translateX(-100%)}to{transform:translateX(260%)}}`;
 
 settings().then((value) => updateInterfaceTheme(value.themeMode)).catch(() => {});
 queueInitialize();
 void renderDebug().catch((error) => { if (isExtensionContextInvalidated(error)) stopInvalidatedExtensionContext(); });
 initializeTimer = setInterval(queueInitialize, 1000);
 scheduleDetectorScan();
+
+function showCartNudge(cart) {
+  removeToast();
+  const root = document.createElement("div"); root.id = "cravelens-root";
+  const shadow = root.attachShadow({ mode: "open" });
+  shadow.innerHTML = `<style>:host{all:initial}section{position:fixed;right:20px;bottom:20px;z-index:2147483647;background:#1c1b19;color:#fff;padding:12px 16px;border-radius:14px;font:13px system-ui;box-shadow:0 4px 20px #0005;display:flex;align-items:center;gap:12px}button{border:0;border-radius:8px;padding:8px;cursor:pointer;background:#ff603d;color:white}.dismiss{background:transparent}</style><section role="status"><span>Your ${escapeHtml(cart.dish || "food")} cart is ready</span><button class="review">Review cart</button><button class="dismiss" aria-label="Dismiss notification">×</button></section>`;
+  shadow.querySelector(".review").addEventListener("click", () => showToast({ suggestion: cart }));
+  shadow.querySelector(".dismiss").addEventListener("click", removeToast);
+  document.body.append(root);
+}

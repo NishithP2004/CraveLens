@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Allow: /guide/
+
+Sitemap: https://cravelens.nishithp.page/sitemap.xml

@@ -1,10 +1,14 @@
-const scrollTopButton = document.querySelector('.scroll-top');
+import "./page-toc.js";
+
+const scrollTopButton = document.querySelector(".scroll-top");
 
 if (scrollTopButton) {
   const updateScrollTopVisibility = () => {
-    scrollTopButton.classList.toggle('is-visible', window.scrollY > 420);
+    scrollTopButton.classList.toggle("is-visible", window.scrollY > 420);
   };
 
   updateScrollTopVisibility();
-  window.addEventListener('scroll', updateScrollTopVisibility, { passive: true });
+  window.addEventListener("scroll", updateScrollTopVisibility, {
+    passive: true,
+  });
 }

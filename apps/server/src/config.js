@@ -9,6 +9,9 @@ dotenv.config({ path: new URL("../../../.env", import.meta.url) });
 const agentModelProvider = (process.env.AGENT_MODEL_PROVIDER || process.env.MODEL_PROVIDER || "gemini").toLowerCase();
 
 export const config = {
+  telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || "",
+  telegramTransport: process.env.TELEGRAM_TRANSPORT || "auto",
+  telegramWebhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || "",
   port: Number(process.env.PORT || 8787),
   publicBaseUrl: process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 8787}`,
   mongoUri: process.env.MONGODB_URI || "",
@@ -26,5 +29,4 @@ export const config = {
   deviceSessionSigningKey: process.env.DEVICE_SESSION_SIGNING_KEY || "",
   localInferenceTimeoutMs: Number(process.env.LOCAL_INFERENCE_TIMEOUT_MS || 120_000),
   localInferenceQueueLimit: Number(process.env.LOCAL_INFERENCE_QUEUE_LIMIT || 4),
-  localTraceContent: process.env.LANGFUSE_LOCAL_CONTENT === "true",
 };

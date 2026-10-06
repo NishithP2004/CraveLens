@@ -1,3 +1,4 @@
+import { tracedOperation } from "./trace-context.js";
 import { ChatGoogle } from "@langchain/google";
 import { ChatOpenAI } from "@langchain/openai";
 import { DEFAULT_LOCAL_CONTEXT_TOKENS } from "@cravelens/shared";
@@ -8,7 +9,7 @@ import { ApprovalFallbackChatModel } from "./approval-fallback-chat-model.js";
 
 const LOCAL_ORCHESTRATION_MAX_OUTPUT_TOKENS = 1_536;
 
-export async function resolveAgentModel(deviceId, { runId, onApprovalRequired, onFallbackActivated } = {}) {
+async function resolveAgentModelImpl(deviceId, { runId, onApprovalRequired, onFallbackActivated } = {}) {
   const settings = await getModelSettings(deviceId);
   const requested = settings.orchestration.provider;
   const provider = requested === "auto" ? "litert" : requested;
@@ -21,11 +22,12 @@ export async function resolveAgentModel(deviceId, { runId, onApprovalRequired, o
     return {
       provider,
       model: model || (provider === "litert" ? "gemma-4-E2B-it-web" : "gemma3:4b"),
-      chatModel: hosted && runId ? new ApprovalFallbackChatModel({ localModel, hostedModel: hosted.chatModel, deviceId, runId, onApprovalRequired, onFallbackActivated, localDescription: { provider, model: model || (provider === "litert" ? "gemma-4-E2B-it-web" : "gemma3:4b"), hostedProvider: hosted.provider, hostedModel: hosted.model } }) : localModel,
+      chatModel: hosted && runId ? new ApprovalFallbackChatModel({ hostedFallback: settings.hostedFallback, localModel, hostedModel: hosted.chatModel, deviceId, runId, onApprovalRequired, onFallbackActivated, localDescription: { provider, model: model || (provider === "litert" ? "gemma-4-E2B-it-web" : "gemma3:4b"), hostedProvider: hosted.provider, hostedModel: hosted.model } }) : localModel,
       local: true,
       contextTokens,
       thinkingEnabled,
-      fallbackAvailable: Boolean(hosted),
+      fallbackAvailable: Boolean(hosted) && settings.hostedFallback !== "none",
+      hostedFallback: settings.hostedFallback,
     };
   }
   if (provider === "openai-compatible") {
@@ -59,7 +61,7 @@ async function resolveHostedFallbackModel(deviceId, settings) {
 
 function createGoogleModel(model, apiKey, thinkingEnabled) {
   // Gemini accepts an explicit zero budget to disable its thinking blocks.
-  return new ChatGoogle(model, { apiKey, temperature: 0.7, maxOutputTokens: 2048, thinkingBudget: thinkingEnabled ? 8192 : 0 });
+  return new ChatGoogle(model, { apiKey, metadata: {origin: "hosted", provider: "google", model}, temperature: 0.7, maxOutputTokens: 2048, thinkingBudget: thinkingEnabled ? 8192 : 0 });
 }
 
 function createOpenAIModel({ model, apiKey, baseUrl, thinkingEnabled }) {
@@ -67,6 +69,7 @@ function createOpenAIModel({ model, apiKey, baseUrl, thinkingEnabled }) {
   // OpenAI-compatible endpoints retain normal tool-call compatibility.
   return new ChatOpenAI({
     model,
+    metadata: {origin: "hosted", provider: "openai-compatible", model},
     apiKey,
     temperature: 1,
     maxTokens: 2048,
@@ -75,3 +78,5 @@ function createOpenAIModel({ model, apiKey, baseUrl, thinkingEnabled }) {
     configuration: { baseURL: baseUrl, fetch: safeHostedFetch },
   });
 }
+
+export const resolveAgentModel = tracedOperation("model.select", resolveAgentModelImpl, (_device, options = {}) => ({runId: options.runId, phase: "model_selection"}));

@@ -1,46 +1,44 @@
-const menuButton = document.querySelector('.menu-button');
-const nav = document.querySelector('#nav');
+function initializeInstallDialog() {
+  const dialog = document.querySelector("#installDialog");
+  if (!dialog) return;
 
-menuButton.addEventListener('click', () => {
-  const open = menuButton.getAttribute('aria-expanded') === 'true';
-  menuButton.setAttribute('aria-expanded', String(!open));
-  nav.classList.toggle('open', !open);
-});
-
-nav.querySelectorAll('a').forEach((link) => link.addEventListener('click', () => {
-  nav.classList.remove('open');
-  menuButton.setAttribute('aria-expanded', 'false');
-}));
-
-const installDialog = document.querySelector('#installDialog');
-
-document.querySelectorAll('.install-trigger').forEach((trigger) => {
-  trigger.addEventListener('click', (event) => {
-    event.preventDefault();
-    installDialog.showModal();
+  document.querySelectorAll(".install-trigger").forEach((trigger) => {
+    trigger.addEventListener("click", (event) => {
+      event.preventDefault();
+      dialog.showModal();
+    });
   });
-});
-
-installDialog.querySelector('.dialog-close').addEventListener('click', () => installDialog.close());
-installDialog.addEventListener('click', (event) => {
-  if (event.target === installDialog) installDialog.close();
-});
-const quickAdd = document.querySelector('#quickAdd');
-const toast = document.querySelector('.toast');
-quickAdd.addEventListener('click', () => {
-  quickAdd.innerHTML = 'Added <span>✓</span>';
-  quickAdd.classList.add('added');
-  toast.classList.add('show');
-  window.setTimeout(() => toast.classList.remove('show'), 2600);
-});
-
-const observer = new IntersectionObserver((entries) => {
-  entries.forEach((entry) => {
-    if (entry.isIntersecting) entry.target.classList.add('visible');
+  dialog
+    .querySelector(".dialog-close")
+    .addEventListener("click", () => dialog.close());
+  dialog.addEventListener("click", (event) => {
+    if (event.target !== dialog) return;
+    const bounds = dialog.getBoundingClientRect();
+    const outside =
+      event.clientX < bounds.left ||
+      event.clientX > bounds.right ||
+      event.clientY < bounds.top ||
+      event.clientY > bounds.bottom;
+    if (outside) dialog.close();
   });
-}, { threshold: 0.14 });
+}
 
-document.querySelectorAll('.story-heading, .story-panel, .story-tech, .creator-note, .step-card, .feature-copy, .preference-card, .privacy > *, .faq').forEach((el) => {
-  el.classList.add('reveal');
-  observer.observe(el);
-});
+function initializeCartPreview() {
+  const button = document.querySelector("#quickAdd");
+  const toast = document.querySelector(".toast");
+  if (!button || !toast) return;
+  let dismissal;
+
+  button.addEventListener("click", () => {
+    const icon = button.querySelector("span");
+    icon.textContent = "✓";
+    button.replaceChildren("Added ", icon);
+    button.classList.add("added");
+    toast.classList.add("show");
+    clearTimeout(dismissal);
+    dismissal = setTimeout(() => toast.classList.remove("show"), 2600);
+  });
+}
+
+initializeInstallDialog();
+initializeCartPreview();

@@ -1,18 +1,32 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <script src="/theme.js"></script>
     <!-- Google Tag Manager -->
-    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
-    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-    })(window,document,'script','dataLayer','GTM-W3KTPK7D');</script>
+    <script>
+      (function (w, d, s, l, i) {
+        w[l] = w[l] || [];
+        w[l].push({ "gtm.start": new Date().getTime(), event: "gtm.js" });
+        var f = d.getElementsByTagName(s)[0],
+          j = d.createElement(s),
+          dl = l != "dataLayer" ? "&l=" + l : "";
+        j.async = true;
+        j.src = "https://www.googletagmanager.com/gtm.js?id=" + i + dl;
+        f.parentNode.insertBefore(j, f);
+      })(window, document, "script", "dataLayer", "GTM-W3KTPK7D");
+    </script>
     <!-- End Google Tag Manager -->
-    
+
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="CraveLens is a Chrome extension that uses on-device AI to identify food in supported videos and selected webpage regions, then prepare personalized Swiggy carts for your review." />
-    <meta name="keywords" content="CraveLens, Chrome extension, Swiggy Builders Club, food detection, food recognition AI, on-device AI, Gemma 3n, Swiggy cart, personalized food recommendations, visual food search, food ordering assistant" />
+    <meta
+      name="description"
+      content="CraveLens is a Chrome extension that uses on-device AI to identify food in supported videos and selected webpage regions, then prepare personalized Swiggy carts for your review."
+    />
+    <meta
+      name="keywords"
+      content="CraveLens, Chrome extension, Swiggy Builders Club, food detection, food recognition AI, on-device AI, Gemma 3n, Swiggy cart, personalized food recommendations, visual food search, food ordering assistant"
+    />
     <meta name="author" content="Nishith P" />
     <meta name="theme-color" content="#ff5b38" />
     <meta name="robots" content="index, follow" />
@@ -24,27 +38,62 @@
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="CraveLens" />
     <meta property="og:title" content="CraveLens — See it. Crave it. Get it." />
-    <meta property="og:description" content="Identify dishes in supported videos or selected webpage regions with on-device AI and prepare a personalized Swiggy cart that you control." />
+    <meta
+      property="og:description"
+      content="Identify dishes in supported videos or selected webpage regions with on-device AI and prepare a personalized Swiggy cart that you control."
+    />
     <meta property="og:url" content="https://cravelens.nishithp.page/" />
-    <meta property="og:image" content="https://cravelens.nishithp.page/cravelens-social.png" />
-    <meta property="og:image:secure_url" content="https://cravelens.nishithp.page/cravelens-social.png" />
+    <meta
+      property="og:image"
+      content="https://cravelens.nishithp.page/cravelens-social.png"
+    />
+    <meta
+      property="og:image:secure_url"
+      content="https://cravelens.nishithp.page/cravelens-social.png"
+    />
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="CraveLens detecting a paneer tikka pizza" />
+    <meta
+      property="og:image:alt"
+      content="CraveLens detecting a paneer tikka pizza"
+    />
 
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="CraveLens — See it. Crave it. Get it." />
-    <meta name="twitter:description" content="Identify dishes in supported videos or selected webpage regions with on-device AI and prepare a personalized Swiggy cart that you control." />
-    <meta name="twitter:image" content="https://cravelens.nishithp.page/cravelens-social.png" />
-    <meta name="twitter:image:alt" content="CraveLens detecting a paneer tikka pizza" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <meta
+      name="twitter:title"
+      content="CraveLens — See it. Crave it. Get it."
+    />
+    <meta
+      name="twitter:description"
+      content="Identify dishes in supported videos or selected webpage regions with on-device AI and prepare a personalized Swiggy cart that you control."
+    />
+    <meta
+      name="twitter:image"
+      content="https://cravelens.nishithp.page/cravelens-social.png"
+    />
+    <meta
+      name="twitter:image:alt"
+      content="CraveLens detecting a paneer tikka pizza"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="/src/style.css" />
     <link rel="stylesheet" href="/src/announcement.css" />
     <link rel="stylesheet" href="/src/install-dialog.css" />
-    <style>h1 em{display:block}.match-card{right:8px}</style>
+    <link rel="stylesheet" href="/src/theme.css" />
+    <style>
+      h1 em {
+        display: block;
+      }
+      .match-card {
+        right: 8px;
+      }
+    </style>
     <title>CraveLens — See it. Crave it. Get it.</title>
     <script type="application/ld+json">
       {
@@ -61,92 +110,166 @@
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "INR" }
       }
     </script>
+    <link rel="stylesheet" href="/theme-colors.css" />
+    <link rel="stylesheet" href="/theme-control.css" />
+    <link rel="stylesheet" href="/site-footer.css" />
+    <link rel="stylesheet" href="/site-header.css" />
+    <link rel="stylesheet" href="/site-motion.css" />
+    <link rel="stylesheet" href="/site-ui.css" />
+    <script src="/site-motion.js" defer></script>
+    <script src="/site-header.js" defer></script>
   </head>
-  <body id="top">
+  <body class="landing-page">
     <!-- Google Tag Manager (noscript) -->
-    <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-W3KTPK7D"
-    height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+    <noscript
+      ><iframe
+        src="https://www.googletagmanager.com/ns.html?id=GTM-W3KTPK7D"
+        height="0"
+        width="0"
+        style="display: none; visibility: hidden"
+      ></iframe
+    ></noscript>
     <!-- End Google Tag Manager (noscript) -->
-    
+
     <div class="announcement">
-      <span class="announcement-copy">Made for late-night food rabbit holes</span>
+      <span class="announcement-copy"
+        >Made for late-night food rabbit holes</span
+      >
       <span class="announcement-spark" aria-hidden="true">✦</span>
-      <span class="announcement-copy">Your cravings finally have a shortcut</span>
+      <span class="announcement-copy"
+        >Your cravings finally have a shortcut</span
+      >
     </div>
-    <header class="nav-shell">
-      <a class="brand" href="#top" aria-label="CraveLens home">
-        <span class="brand-mark"><i></i><i></i></span>
-        <span>CraveLens</span>
-      </a>
-      <nav id="nav" aria-label="Main navigation">
-        <a href="#story">Story</a>
-        <a href="#how-it-works">How it works</a>
-        <a href="#features">Features</a>
-        <a href="/terms/">Terms</a>
-        <a href="#faq">FAQ</a>
-      </nav>
-      <a class="button button-small nav-cta install-trigger" href="#download">Add to Chrome <span>↗</span></a>
-      <button class="menu-button" aria-label="Toggle menu" aria-expanded="false"><span></span><span></span></button>
-    </header>
+    <!-- CRAVELENS_SHARED_HEADER -->
 
     <main>
       <section class="hero">
         <div class="hero-copy">
-          <div class="eyebrow eyebrow-swiggy"><span class="pulse"></span><img src="/provider-icons/swiggy.png" alt="Swiggy" /> Builders Club integration</div>
-          <h1>See it.<br>Crave it. <em>Get it.</em></h1>
-          <p class="hero-lede">CraveLens spots food in supported videos or a selected part of any page, finds your perfect match nearby through Swiggy, and gets it ready to order - without breaking your scroll.</p>
+          <div class="eyebrow eyebrow-swiggy">
+            <span class="pulse"></span
+            ><img src="/provider-icons/swiggy.png" alt="Swiggy" /> Builders Club
+            integration
+          </div>
+          <h1>See it.<br />Crave it. <em>Get it.</em></h1>
+          <p class="hero-lede">
+            CraveLens spots food in supported videos or a selected part of any
+            page, finds your perfect match nearby through Swiggy, and gets it
+            ready to order - without breaking your scroll.
+          </p>
           <div class="hero-actions">
             <a class="button install-trigger" href="#download">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.8 8h16.4M9.5 20.4l4.3-7.5M7 4.2l4.3 7.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="9"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                />
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="3"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                />
+                <path
+                  d="M3.8 8h16.4M9.5 20.4l4.3-7.5M7 4.2l4.3 7.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                />
+              </svg>
               Add to Chrome — it’s free
             </a>
-            <a class="text-link" href="#how-it-works">See how it works <span>↓</span></a>
+            <a class="text-link" href="#how-it-works"
+              >See how it works <span>↓</span></a
+            >
           </div>
           <div class="trust-row">
             <div class="avatar-stack"><b>🍕</b><b>🍜</b><b>🥘</b></div>
-            <div><span class="stars">★★★★★</span><small>Loved by hungry scrollers</small></div>
+            <div>
+              <span class="stars">★★★★★</span
+              ><small>Loved by hungry scrollers</small>
+            </div>
           </div>
         </div>
 
-        <div class="hero-visual" aria-label="CraveLens identifying a paneer pizza">
-          <img src="/cravelens-hero.png" alt="Fresh paneer pizza with basil, tomatoes and chutney" />
+        <div
+          class="hero-visual"
+          aria-label="CraveLens identifying a paneer pizza"
+        >
+          <img
+            src="/cravelens-hero.png"
+            alt="Fresh paneer pizza with basil, tomatoes and chutney"
+          />
           <div class="scan-line"></div>
           <div class="dish-tag">
             <span class="tag-icon">✦</span>
-            <span><small>Craving detected</small><strong>Paneer Tikka Pizza</strong></span>
+            <span
+              ><small>Craving detected</small
+              ><strong>Paneer Tikka Pizza</strong></span
+            >
             <b>98%</b>
           </div>
           <div class="match-card">
-            <div class="match-top"><span>Best match nearby</span><b>4.7 ★</b></div>
+            <div class="match-top">
+              <span>Best match nearby</span><b>4.7 ★</b>
+            </div>
             <h3>Smoky Paneer Pizza</h3>
             <p>Fired Up Pizza · 24 mins</p>
-            <div><strong>₹349</strong><button type="button" id="quickAdd">Add <span>＋</span></button></div>
+            <div>
+              <strong>₹349</strong
+              ><button type="button" id="quickAdd">Add <span>＋</span></button>
+            </div>
           </div>
-          <span class="spark spark-one">✦</span><span class="spark spark-two">✦</span>
+          <span class="spark spark-one">✦</span
+          ><span class="spark spark-two">✦</span>
         </div>
       </section>
 
       <section class="ticker" aria-label="Supported cravings">
-        <span>BIRYANI</span><i>✦</i><span>SUSHI</span><i>✦</i><span>PASTA</span><i>✦</i><span>MOMOS</span><i>✦</i><span>RAMEN</span><i>✦</i><span>THAT THING IN THE VIDEO</span>
+        <span>BIRYANI</span><i>✦</i><span>SUSHI</span><i>✦</i><span>PASTA</span
+        ><i>✦</i><span>MOMOS</span><i>✦</i><span>RAMEN</span><i>✦</i
+        ><span>THAT THING IN THE VIDEO</span>
       </section>
 
       <section class="story section" id="story">
         <div class="story-heading">
           <span class="kicker">OUR STORY</span>
-          <h2>From screen<br>to table.</h2>
-          <p>CraveLens began with one very specific Friday-night problem in Bengaluru: the food on screen looked too good, and ordering it took too many steps.</p>
+          <h2>From screen<br />to table.</h2>
+          <p>
+            CraveLens began with one very specific Friday-night problem in
+            Bengaluru: the food on screen looked too good, and ordering it took
+            too many steps.
+          </p>
         </div>
         <div class="story-grid">
           <article class="story-panel story-cinema">
             <span class="story-label">The Spark</span>
             <h3>The craving hit before the app could catch up.</h3>
-            <p>You're deep into a YouTube travel vlog, an Instagram Reel, a Facebook video, or a food page, and a steaming bowl of ramen appears. Pausing, searching, comparing restaurants, and rebuilding the dish from memory is enough friction to kill the impulse.</p>
-            <blockquote>Why couldn't the screen just know what you were looking at and bring it to your door?</blockquote>
+            <p>
+              You're deep into a YouTube travel vlog, an Instagram Reel, a
+              Facebook video, or a food page, and a steaming bowl of ramen
+              appears. Pausing, searching, comparing restaurants, and rebuilding
+              the dish from memory is enough friction to kill the impulse.
+            </p>
+            <blockquote>
+              Why couldn't the screen just know what you were looking at and
+              bring it to your door?
+            </blockquote>
           </article>
           <article class="story-panel story-inspiration">
             <span class="story-label">The Inspiration</span>
             <h3>Movie-made menus, without the velvet rope.</h3>
-            <p>The idea borrows a little from the “hotdog or not hotdog” joke and a little from immersive cinema, where audiences eat what characters eat. CraveLens decentralizes that magic for the living room.</p>
+            <p>
+              The idea borrows a little from the “hotdog or not hotdog” joke and
+              a little from immersive cinema, where audiences eat what
+              characters eat. CraveLens decentralizes that magic for the living
+              room.
+            </p>
             <div class="story-ticket">
               <small>Living room premiere</small>
               <strong>See it. Crave it. Get it.</strong>
@@ -155,10 +278,17 @@
           <article class="story-panel story-product">
             <span class="story-label">Enter CraveLens</span>
             <h3>An impulse-buy engine between your screen and Swiggy.</h3>
-            <p>When a dish appears, CraveLens captures the moment, identifies the food, checks your dietary preferences, allergies, and order history, then prepares a personalized Swiggy cart without breaking your scroll.</p>
+            <p>
+              When a dish appears, CraveLens captures the moment, identifies the
+              food, checks your dietary preferences, allergies, and order
+              history, then prepares a personalized Swiggy cart without breaking
+              your scroll.
+            </p>
             <div class="story-notification">
               <small>Craving ramen?</small>
-              <strong>Your usual from Kokoro Ramen is ready with ₹50 off.</strong>
+              <strong
+                >Your usual from Kokoro Ramen is ready with ₹50 off.</strong
+              >
               <button type="button">Review cart</button>
             </div>
           </article>
@@ -167,30 +297,101 @@
           <div>
             <span class="kicker">ON-DEVICE AI</span>
             <h3>Instant cravings, uncompromised privacy.</h3>
-            <p>CraveLens is designed around a 100% local AI architecture. Your screen contents stay on your laptop while lightweight models and local vision-language systems decide what deserves your attention.</p>
+            <p>
+              CraveLens is designed around a 100% local AI architecture. Your
+              screen contents stay on your laptop while lightweight models and
+              local vision-language systems decide what deserves your attention.
+            </p>
           </div>
           <div class="tech-stack" aria-label="CraveLens local AI architecture">
-            <article><span>01</span><strong>Smart Detection</strong><p>A lightweight vision model acts as a high-speed food trigger in real time.</p></article>
-            <article><span>02</span><strong>Intelligent Verification</strong><p>Local VLMs like Gemini Nano, Gemma 3n, or Ollama extract dish, cuisine, and ingredients.</p></article>
-            <article><span>03</span><strong>Agentic Orchestration</strong><p>A ReAct food concierge maps the craving to menus, coupons, safety constraints, and a Swiggy cart.</p></article>
+            <article>
+              <span>01</span><strong>Smart Detection</strong>
+              <p>
+                A lightweight vision model acts as a high-speed food trigger in
+                real time.
+              </p>
+            </article>
+            <article>
+              <span>02</span><strong>Intelligent Verification</strong>
+              <p>
+                Local VLMs like Gemini Nano, Gemma 3n, or Ollama identify
+                multiple visible dishes, each with its own cuisine, ingredient
+                evidence and confidence.
+              </p>
+            </article>
+            <article>
+              <span>03</span><strong>Agentic Orchestration</strong>
+              <p>
+                A ReAct food concierge maps the craving to menus, coupons,
+                safety constraints, and a Swiggy cart.
+              </p>
+            </article>
           </div>
         </div>
         <div class="creator-note">
           <div class="creator-copy">
             <span class="story-label">The Journey & Creator</span>
-            <h3>Built from a hackathon spark into a Builders Club-backed product.</h3>
-            <p>What began as a hackathon experiment evolved into a production-minded product backed by the <strong>Swiggy Builders Club</strong>, proving that food delivery can be intent-driven, contextual, and deeply personal.</p>
+            <h3>
+              Built from a hackathon spark into a Builders Club-backed product.
+            </h3>
+            <p>
+              What began as a hackathon experiment evolved into a
+              production-minded product backed by the
+              <strong>Swiggy Builders Club</strong>, proving that food delivery
+              can be intent-driven, contextual, and deeply personal.
+            </p>
+            <div class="journey-next">
+              <h4>From inspiration to integration</h4>
+              <p>
+                Builders Club gives CraveLens access to Swiggy’s developer
+                ecosystem and MCP gateway—connecting the food that catches your
+                eye with live restaurant menus, availability and cart
+                preparation.
+              </p>
+              <h4>The vision stays simple</h4>
+              <p>
+                Bring that screen-to-table experience into everyday living
+                rooms. Keep watching, let your preferences shape the match, and
+                review the cart before deciding to order.
+              </p>
+            </div>
           </div>
           <aside class="creator-card" aria-label="About the creator">
             <div class="creator-avatar">NP</div>
             <div class="creator-bio">
               <small>Creator</small>
-              <p>CraveLens is built by <a href="http://nishithp.page/" target="_blank" rel="noopener noreferrer">Nishith P</a>, a Software Engineer exploring local AI, multi-agent systems, cybersecurity, and seamless web experiences.</p>
+              <p>
+                CraveLens is built by
+                <a
+                  href="http://nishithp.page/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  >Nishith P</a
+                >, a Software Engineer exploring local AI, multi-agent systems,
+                cybersecurity, and seamless web experiences.
+              </p>
+            </div>
+            <div class="creator-spark">
+              <h4>The spark behind CraveLens</h4>
+              <p>
+                Watching Jon Favreau make late-night Aglio e Olio in
+                <em>Chef</em> captures the feeling perfectly: you see a dish,
+                and suddenly you want it. Gourmet Cinema experiences inspired a
+                question—why couldn’t that screen-to-table magic reach
+                everyone’s living room?
+              </p>
+              <p>
+                CraveLens is my answer: connect that craving to a personalized
+                Swiggy cart, with you choosing what happens next.
+              </p>
+              <span class="creator-club"
+                >Selected for Swiggy Builders Club</span
+              >
             </div>
             <div class="creator-tags" aria-label="Creator focus areas">
               <span>Local AI</span>
               <span>Multi-agent systems</span>
-              <span>Cybersecurity</span>
+              <span>Responsible AI</span>
             </div>
           </aside>
         </div>
@@ -198,75 +399,290 @@
 
       <section class="steps section" id="how-it-works">
         <div class="section-heading">
-          <div><span class="kicker">THE MAGIC, MINUS THE FUSS</span><h2>From screen to supper<br>in three tiny steps.</h2></div>
-          <p>Keep watching. CraveLens works quietly in the background and only pops up when it finds something delicious.</p>
+          <div>
+            <span class="kicker">THE MAGIC, MINUS THE FUSS</span>
+            <h2>From screen to supper<br />in three tiny steps.</h2>
+          </div>
+          <p>
+            Keep watching. CraveLens works quietly in the background and only
+            pops up when it finds something delicious.
+          </p>
         </div>
         <div class="step-grid">
-          <article class="step-card coral"><span class="step-number">01</span><div class="step-art eye-art"><div class="eye"><i></i></div><span>Scanning locally…</span></div><h3>Watch what you love</h3><p>Browse supported video sites as usual, or lasso a food moment on any page.</p></article>
-          <article class="step-card lime"><span class="step-number">02</span><div class="step-art detect-art"><div class="mini-frame">🍜<span></span></div><div class="confidence"><i></i><b>Ramen</b><small>96% match</small></div></div><h3>We spot the craving</h3><p>On-device AI recognizes the dish without sending video frames or selected page images anywhere.</p></article>
-          <article class="step-card ink"><span class="step-number">03</span><div class="step-art order-art"><div>Order ready <b>₹279</b></div><button type="button">Looks delicious →</button></div><h3>You choose the match</h3><p>Get a personalized nearby pick from Swiggy listings, with current prices, offers, and you in control.</p></article>
+          <article class="step-card coral">
+            <span class="step-number">01</span>
+            <div class="step-art eye-art">
+              <div class="eye"><i></i></div>
+              <span>Scanning locally…</span>
+            </div>
+            <h3>Watch what you love</h3>
+            <p>
+              Browse supported video sites as usual, or lasso a food moment on
+              any page.
+            </p>
+          </article>
+          <article class="step-card lime">
+            <span class="step-number">02</span>
+            <div class="step-art detect-art">
+              <div class="mini-frame">🍜<span></span></div>
+              <div class="confidence">
+                <i></i><b>Ramen</b><small>96% match</small>
+              </div>
+            </div>
+            <h3>We spot the craving</h3>
+            <p>
+              On-device AI recognizes the dish without sending video frames or
+              selected page images anywhere.
+            </p>
+          </article>
+          <article class="step-card ink">
+            <span class="step-number">03</span>
+            <div class="step-art order-art">
+              <div>Order ready <b>₹279</b></div>
+              <button type="button">Looks delicious →</button>
+            </div>
+            <h3>You choose the match</h3>
+            <p>
+              Get a personalized nearby pick from Swiggy listings, with current
+              prices, offers, and you in control.
+            </p>
+            <a
+              class="swiggy-powered step-powered"
+              href="https://www.swiggy.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span>Powered by</span
+              ><img
+                src="/swiggy-logo.png"
+                alt="Swiggy"
+                width="528"
+                height="172"
+                loading="lazy"
+              />
+            </a>
+          </article>
         </div>
       </section>
 
       <section class="feature-band" id="features">
-        <div class="feature-copy"><span class="kicker">BUILT AROUND YOU</span><h2>Not just any match.<br><em>Your</em> match.</h2><p>CraveLens uses the preferences you choose and Swiggy's available restaurant, menu, price, offer, and delivery information to prepare a cart for your approval.</p><ul><li><span>✓</span> Learns your tastes, never your secrets</li><li><span>✓</span> Checks dietary preferences & allergies</li><li><span>✓</span> Finds the best deal automatically</li><li><span>✓</span> Never orders without your say-so</li></ul></div>
+        <div class="feature-copy">
+          <span class="kicker">BUILT AROUND YOU</span>
+          <h2>Not just any match.<br /><em>Your</em> match.</h2>
+          <p>
+            CraveLens uses the preferences you choose—or, when they are empty,
+            tentative preferences generated from verified order history for your
+            address—and Swiggy's available restaurant, menu, price, offer, and
+            delivery information to prepare a cart for your approval.
+          </p>
+          <ul>
+            <li><span>✓</span> Learns your tastes, never your secrets</li>
+            <li><span>✓</span> Checks dietary preferences & allergies</li>
+            <li><span>✓</span> Finds the best deal automatically</li>
+            <li><span>✓</span> Never orders without your say-so</li>
+          </ul>
+        </div>
         <div class="preference-card">
-          <div class="profile-head"><span>NK</span><div><small>Your Crave Profile</small><strong>Made just for you</strong></div><i>•••</i></div>
-          <div class="pref-row"><span>🌶️</span><div><small>Spice level</small><strong>Medium & adventurous</strong></div><b>3 / 5</b></div>
-          <div class="pref-row"><span>🥬</span><div><small>Preference</small><strong>Vegetarian</strong></div><b>Always</b></div>
-          <div class="pref-row"><span>🥜</span><div><small>Allergy guard</small><strong>Peanut alert</strong></div><b class="safe">On</b></div>
-          <div class="coupon"><span>🏷</span><div><small>Best saving found</small><strong>₹120 off this craving</strong></div><b>APPLIED</b></div>
+          <div class="profile-head">
+            <span>NK</span>
+            <div>
+              <small>Your Crave Profile</small
+              ><strong>Made just for you</strong>
+            </div>
+            <i>•••</i>
+          </div>
+          <div class="pref-row">
+            <span>🌶️</span>
+            <div>
+              <small>Spice level</small><strong>Medium & adventurous</strong>
+            </div>
+            <b>3 / 5</b>
+          </div>
+          <div class="pref-row">
+            <span>🥬</span>
+            <div><small>Preference</small><strong>Vegetarian</strong></div>
+            <b>Always</b>
+          </div>
+          <div class="pref-row">
+            <span>🥜</span>
+            <div><small>Allergy guard</small><strong>Peanut alert</strong></div>
+            <b class="safe">On</b>
+          </div>
+          <div class="coupon">
+            <span>🏷</span>
+            <div>
+              <small>Best saving found</small
+              ><strong>₹120 off this craving</strong>
+            </div>
+            <b>APPLIED</b>
+          </div>
         </div>
       </section>
 
       <section class="privacy section">
-        <span class="shield">◒</span><div><span class="kicker">PRIVATE BY DESIGN</span><h2>Your screen stays<br>on your screen.</h2></div><p>Food detection happens right in your browser. We analyze tiny snapshots locally—not your watch history, not your tabs, not your life story.</p><span class="privacy-stamp">100%<small>on-device<br>detection</small></span>
+        <span class="shield">◒</span>
+        <div>
+          <span class="kicker">PRIVATE BY DESIGN</span>
+          <h2>Your screen stays<br />on your screen.</h2>
+        </div>
+        <p>
+          Food detection happens right in your browser. We analyze tiny
+          snapshots locally—not your watch history, not your tabs, not your life
+          story.
+        </p>
+        <span class="privacy-stamp"
+          >100%<small>on-device<br />detection</small></span
+        >
       </section>
 
       <section class="faq section" id="faq">
-        <span class="kicker">A FEW GOOD QUESTIONS</span><h2>Still curious?</h2>
+        <span class="kicker">A FEW GOOD QUESTIONS</span>
+        <h2>Still curious?</h2>
         <div class="faq-list">
-          <details name="faq" open><summary>Does CraveLens place orders automatically?<span>＋</span></summary><p>Never. CraveLens can prepare the perfect cart, but the final order always waits for your explicit confirmation.</p></details>
-          <details name="faq"><summary>Which videos does it work with?<span>＋</span></summary><p>CraveLens supports YouTube videos and Shorts, Instagram Reels, and Facebook Watch/video pages in Chrome. On other pages, use the keyboard shortcut to lasso the food you want checked.</p></details>
-          <details name="faq"><summary>Is my browsing data uploaded?<span>＋</span></summary><p>No. Food detection happens locally in your browser. For lasso scans, only the selected visible region is captured for local verification; browsing history and full-page activity are not uploaded.</p></details>
-          <details name="faq"><summary>Do I need to connect Swiggy?<span>＋</span></summary><p>You can explore detection without ordering, but connecting Swiggy is needed to use saved addresses, nearby listings, menus, offers, carts, and checkout.</p></details>
-          <details name="faq"><summary>Are prices and offers final?<span>＋</span></summary><p>CraveLens shows Swiggy listing, price, fee, delivery, and offer information as provided at the time it prepares your cart. Always review the final Swiggy checkout details before confirming.</p></details>
-          <details name="faq"><summary>Can it handle allergies or dietary preferences?<span>＋</span></summary><p>CraveLens can use preferences you enter, like vegetarian choices or allergy warnings, to guide recommendations. You should still verify item details with Swiggy and the restaurant before ordering.</p></details>
-          <details name="faq"><summary>Which local AI options are supported?<span>＋</span></summary><p>CraveLens can use the configured local VLM path available in your browser setup, including Gemini Nano, browser-downloaded Gemma 3n, or an Ollama vision model where supported.</p></details>
-          <details name="faq"><summary>Does CraveLens store my payment details?<span>＋</span></summary><p>No. CraveLens does not ask for or store your card number, CVV, Swiggy password, UPI ID, or UPI PIN. Payment flows are handled through Swiggy.</p></details>
-          <details name="faq"><summary>Who helps if an order goes wrong?<span>＋</span></summary><p>Order support, delivery issues, cancellations, and refunds are handled through Swiggy's customer-support process, except where the issue is caused by CraveLens itself.</p></details>
-          <details name="faq"><summary>Where can I read the legal details?<span>＋</span></summary><p>The short version lives here, and the full details are available in the <a href="/privacy/">Privacy Policy</a> and <a href="/terms/">Terms of Use</a>.</p></details>
+          <details name="faq" open>
+            <summary>
+              Does CraveLens place orders automatically?<span>＋</span>
+            </summary>
+            <p>
+              Never. CraveLens can prepare the perfect cart, but the final order
+              always waits for your explicit confirmation.
+            </p>
+          </details>
+          <details name="faq">
+            <summary>Which videos does it work with?<span>＋</span></summary>
+            <p>
+              CraveLens supports YouTube videos and Shorts, Instagram Reels, and
+              Facebook Watch/video pages in Chrome. On other pages, use the
+              keyboard shortcut to lasso the food you want checked.
+            </p>
+          </details>
+          <details name="faq">
+            <summary>Is my browsing data uploaded?<span>＋</span></summary>
+            <p>
+              No. Food detection happens locally in your browser. For lasso
+              scans, only the selected visible region is captured for local
+              verification; browsing history and full-page activity are not
+              uploaded.
+            </p>
+          </details>
+          <details name="faq">
+            <summary>Do I need to connect Swiggy?<span>＋</span></summary>
+            <p>
+              You can explore detection without ordering, but connecting Swiggy
+              is needed to use saved addresses, nearby listings, menus, offers,
+              carts, and checkout.
+            </p>
+          </details>
+          <details name="faq">
+            <summary>Are prices and offers final?<span>＋</span></summary>
+            <p>
+              CraveLens shows Swiggy listing, price, fee, delivery, and offer
+              information as provided at the time it prepares your cart. Always
+              review the final Swiggy checkout details before confirming.
+            </p>
+          </details>
+          <details name="faq">
+            <summary>
+              Can it handle allergies or dietary preferences?<span>＋</span>
+            </summary>
+            <p>
+              CraveLens can use preferences you enter, like vegetarian choices
+              or allergy warnings, to guide recommendations. You should still
+              verify item details with Swiggy and the restaurant before
+              ordering.
+            </p>
+          </details>
+          <details name="faq">
+            <summary>
+              Which local AI options are supported?<span>＋</span>
+            </summary>
+            <p>
+              CraveLens can use the configured local VLM path available in your
+              browser setup, including Gemini Nano, browser-downloaded Gemma 3n,
+              or an Ollama vision model where supported.
+            </p>
+          </details>
+          <details name="faq">
+            <summary>
+              Does CraveLens store my payment details?<span>＋</span>
+            </summary>
+            <p>
+              No. CraveLens does not ask for or store your card number, CVV,
+              Swiggy password, UPI ID, or UPI PIN. Payment flows are handled
+              through Swiggy.
+            </p>
+          </details>
+          <details name="faq">
+            <summary>Who helps if an order goes wrong?<span>＋</span></summary>
+            <p>
+              Order support, delivery issues, cancellations, and refunds are
+              handled through Swiggy's customer-support process, except where
+              the issue is caused by CraveLens itself.
+            </p>
+          </details>
+          <details name="faq">
+            <summary>
+              Where can I read the legal details?<span>＋</span>
+            </summary>
+            <p>
+              The short version lives here, and the full details are available
+              in the <a href="/privacy/">Privacy Policy</a> and
+              <a href="/terms/">Terms of Use</a>.
+            </p>
+          </details>
         </div>
       </section>
 
       <section class="cta" id="download">
-        <span class="cta-doodle">↝</span><span class="kicker">YOUR NEXT CRAVING IS WAITING</span><h2>Turn “what is that?”<br>into “it’s on the way.”</h2><p>Free to install. Deliciously easy to use.</p><a class="button button-light install-trigger" href="#download">Add CraveLens to Chrome <span>↗</span></a>
-        <div class="float-food food-one">🍜</div><div class="float-food food-two">🍕</div><div class="float-food food-three">🥟</div>
+        <span class="cta-doodle">↝</span
+        ><span class="kicker">YOUR NEXT CRAVING IS WAITING</span>
+        <h2>Turn “what is that?”<br />into “it’s on the way.”</h2>
+        <p>Free to install. Deliciously easy to use.</p>
+        <a class="button button-light install-trigger" href="#download"
+          >Add CraveLens to Chrome <span>↗</span></a
+        >
+        <div class="float-food food-one">🍜</div>
+        <div class="float-food food-two">🍕</div>
+        <div class="float-food food-three">🥟</div>
       </section>
     </main>
 
-    <footer class="site-footer">
-      <a class="brand" href="#top"><span class="brand-mark"><i></i><i></i></span><span>CraveLens</span></a>
-      <p>See it. Crave it. Get it.</p>
-      <div class="footer-links"><a href="/privacy/">Privacy</a><a href="/terms/">Terms</a><a href="mailto:me@nishithp.page">Say hello</a></div>
-      <div class="social-links" aria-label="CraveLens social links">
-        <a href="https://www.facebook.com/profile.php?id=61591659457183" target="_blank" rel="noopener noreferrer" aria-label="CraveLens on Facebook">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 8.6V6.8c0-.9.6-1.1 1-1.1h2.5V2h-3.5c-3.9 0-4.8 2.9-4.8 4.8v1.8H7v3.8h2.9V22h4.4v-9.6h3.3l.5-3.8h-3.4Z"/></svg>
-        </a>
-        <a href="https://www.instagram.com/cravelens.dev/" target="_blank" rel="noopener noreferrer" aria-label="CraveLens on Instagram">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.8 2h8.4A5.8 5.8 0 0 1 22 7.8v8.4a5.8 5.8 0 0 1-5.8 5.8H7.8A5.8 5.8 0 0 1 2 16.2V7.8A5.8 5.8 0 0 1 7.8 2Zm0 2A3.8 3.8 0 0 0 4 7.8v8.4A3.8 3.8 0 0 0 7.8 20h8.4a3.8 3.8 0 0 0 3.8-3.8V7.8A3.8 3.8 0 0 0 16.2 4H7.8Zm4.2 3.4A4.6 4.6 0 1 1 7.4 12 4.6 4.6 0 0 1 12 7.4Zm0 2A2.6 2.6 0 1 0 14.6 12 2.6 2.6 0 0 0 12 9.4Zm4.9-2.7a1.1 1.1 0 1 1-1.1 1.1 1.1 1.1 0 0 1 1.1-1.1Z"/></svg>
-        </a>
-      </div>
-      <small>© 2026 CraveLens</small>
-    </footer>
-    <dialog class="install-dialog" id="installDialog" aria-labelledby="installTitle">
-      <button class="dialog-close" type="button" aria-label="Close installation options">×</button>
+    <!-- CRAVELENS_SHARED_FOOTER -->
+    <dialog
+      class="install-dialog"
+      id="installDialog"
+      aria-labelledby="installTitle"
+    >
+      <button
+        class="dialog-close"
+        type="button"
+        aria-label="Close installation options"
+      >
+        ×
+      </button>
       <span class="kicker">ONE QUICK STEP</span>
       <h2 id="installTitle">Install CraveLens</h2>
-      <p>Install the Chrome extension, then open it to connect your Swiggy account. CraveLens is ready to use—no terminal or local-service setup required. Local AI models download privately in Chrome after you choose them in Settings.</p>
-      <a class="chrome-web-store-badge" href="https://chromewebstore.google.com/detail/gehijhngicamfekokcbcdkjnjkmfofpn?utm_source=item-share-cb" target="_blank" rel="noopener noreferrer"><img src="https://developer.chrome.com/static/docs/webstore/branding/image/tbyBjqi7Zu733AAKA5n4.png" width="206" height="58" alt="Available in the Chrome Web Store"></a>
+      <p>
+        Install the Chrome extension, then open it to connect your Swiggy
+        account. CraveLens is ready to use—no terminal or local-service setup
+        required. Local AI models download privately in Chrome after you choose
+        them in Settings.
+      </p>
+      <a
+        class="chrome-web-store-badge"
+        href="https://chromewebstore.google.com/detail/gehijhngicamfekokcbcdkjnjkmfofpn?utm_source=item-share-cb"
+        target="_blank"
+        rel="noopener noreferrer"
+        ><img
+          src="https://developer.chrome.com/static/docs/webstore/branding/image/tbyBjqi7Zu733AAKA5n4.png"
+          width="206"
+          height="58"
+          alt="Available in the Chrome Web Store"
+      /></a>
     </dialog>
-    <div class="toast" role="status" aria-live="polite"><span>✓</span> Added to your craving cart</div>
+    <div class="toast" role="status" aria-live="polite">
+      <span>✓</span> Added to your craving cart
+    </div>
     <a class="scroll-top" href="#top" aria-label="Scroll back to top">↑</a>
     <script type="module" src="/src/scroll-top.js"></script>
     <script type="module" src="/src/main.js"></script>

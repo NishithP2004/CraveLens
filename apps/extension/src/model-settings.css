@@ -12,6 +12,15 @@
   outline: none;
 }
 
+.model-fields select {
+  appearance: none;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='m5 7.5 5 5 5-5' fill='none' stroke='%23ff5b38' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+}
+
 .model-fields select:focus,
 .model-fields input:focus {
   border-color: #ff8b6d;
@@ -19,6 +28,8 @@
 }
 
 .model-fields .field-label:not(:first-child) { margin-top: 13px; }
+
+.cart-experience-card .context-content > button { margin-top: 8px; }
 
 .thinking-row {
   display: flex;
@@ -409,7 +420,7 @@
 :root[data-theme="dark"] .model-fields select,
 :root[data-theme="dark"] .model-fields input,
 :root[data-theme="dark"] .model-picker-trigger {
-  background: #20211d;
+  background-color: #20211d;
   color: var(--ink);
 }
 
@@ -431,3 +442,63 @@
   background: #4f504b;
   box-shadow: inset 0 1px 2px #00000065;
 }
+
+.telegram-account { margin-top: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); }
+.telegram-account-heading { display: flex; align-items: center; gap: 9px; }
+.telegram-account-icon { display: grid; place-items: center; flex: none; width: 30px; height: 30px; border-radius: 10px; background: #ff5b3814; color: var(--coral); }
+.telegram-account-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.telegram-account-copy { display: grid; gap: 4px; min-width: 0; }
+.telegram-account-copy strong { color: var(--ink); font-size: 13px; font-weight: 800; line-height: 1.35; overflow-wrap: anywhere; }
+.telegram-account-copy span { color: var(--muted); font-size: 9px; line-height: 1.4; overflow-wrap: anywhere; }
+.telegram-connected-badge { margin-left: auto; flex: none; padding: 4px 6px; border-radius: 6px; background: #22804c14; color: #267444; font-size: 8px; font-weight: 800; }
+.telegram-account > button { margin-top: 11px; }
+.telegram-account .telegram-disconnect { width: 100%; margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: var(--ink); font-size: 10px; font-weight: 700; box-shadow: none; }
+.telegram-account .telegram-disconnect:hover { color: var(--coral); border-color: var(--coral); background: #ff5b380a; transform: none; box-shadow: none; }
+.telegram-account button:focus-visible { outline: 2px solid var(--coral); outline-offset: 3px; }
+:root[data-theme="dark"] .telegram-connected-badge { background: #70ca9220; color: #98dda9; }
+
+@property --preference-angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+.preference-editor { position: relative; margin-top: 7px; border-radius: 13px; isolation: isolate; padding: 2px; }
+.preference-editor .personal-context-input { margin: 0; padding-right: 44px; position: relative; z-index: 1; }
+.preference-editor.is-building::before { content: ''; position: absolute; inset: -2px; border-radius: 15px; background: conic-gradient(from var(--preference-angle), #ff5b38, #b28aff, #70b9ff, #ffce80, #ff5b38); animation: preference-glow 3s linear infinite; filter: blur(3px); z-index: 0; }
+@keyframes preference-glow { to { --preference-angle: 360deg; } }
+.preference-editor .preference-sparkle { position: absolute; top: 8px; right: 8px; z-index: 2; width: 30px; height: 30px; padding: 0; border-radius: 9px; background: #ff5b3815; color: var(--coral); font-size: 21px; box-shadow: none; }
+.preference-sparkle:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; }
+.preference-progress,.preference-suggestion { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.preference-progress p,.preference-suggestion strong { margin: 0; font-size: 10px; font-weight: 700; }
+.preference-progress ol { max-height: 100px; overflow-y: auto; margin: 8px 0 0; padding-left: 16px; color: var(--muted); font-size: 9px; line-height: 1.6; }
+.preference-suggestion p { font-size: 11px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.preference-actions { display: flex; gap: 8px; margin-top: 12px; }
+.preference-actions button { padding: 10px 6px; font-size: 10px; }
+@media (prefers-reduced-motion: reduce) { .preference-editor.is-building::before { animation: none; } }
+
+.preference-sparkle svg { width: 23px; height: 23px; fill: currentColor; vertical-align: middle; }
+
+.auto-preference-card {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--paper);
+  color: var(--ink);
+  overflow: hidden;
+}
+.auto-preference-heading { display: flex; align-items: flex-start; gap: 10px; justify-content: space-between; }
+.auto-preference-heading > div { min-width: 0; }
+.auto-preference-eyebrow { display: block; margin-bottom: 5px; color: var(--muted); font-size: 8px; font-weight: 700; letter-spacing: 1.1px; }
+.auto-preference-heading strong { display: block; font-size: 12px; line-height: 1.4; letter-spacing: -.15px; }
+.auto-preference-badge { flex: none; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 8px; font-weight: 600; line-height: 1.2; }
+.auto-preference-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 10px 0 12px; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.auto-preference-card .auto-preference-copy { margin: 0; color: var(--ink); font-size: 11px; font-weight: 400; line-height: 1.65; overflow-wrap: anywhere; white-space: pre-line; }
+.auto-preference-details { margin-top: 14px; border-top: 1px solid var(--line); }
+.auto-preference-details summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 11px 0 0; color: var(--ink); cursor: pointer; list-style: none; font-size: 10px; font-weight: 600; }
+.auto-preference-details summary::-webkit-details-marker { display: none; }
+.auto-preference-details summary::after { content: "+"; color: var(--muted); font-size: 14px; font-weight: 400; }
+.auto-preference-details[open] summary::after { content: "−"; }
+.auto-preference-details summary:focus-visible { outline: 2px solid var(--coral); outline-offset: 4px; border-radius: 3px; }
+.auto-preference-card .auto-preference-notes { margin: 10px 0 0; color: var(--muted); font-size: 10px; font-weight: 400; line-height: 1.65; overflow-wrap: anywhere; white-space: pre-line; }
+.auto-preference-card .auto-preference-footnote { margin: 12px 0 0; color: var(--muted); font-size: 9px; font-weight: 400; line-height: 1.5; }
+
+.auto-preference-card .preference-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+.auto-preference-card .preference-actions button { min-width: 0; min-height: 36px; padding: 9px 8px; border-radius: 10px; font-size: 10px; line-height: 1.4; }
+.auto-preference-card .preference-actions .secondary { color: var(--ink); }

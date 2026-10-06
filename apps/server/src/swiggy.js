@@ -1,3 +1,6 @@
+import { tracedOperation } from "./trace-context.js";
+import { formatCartExplanation } from "./cart-explanation.js";
+import { cartReflectsItems as verifiedCartItems } from "./cart-verification.js";
 import { config } from "./config.js";
 import { connectSwiggyFood } from "./swiggy-mcp.js";
 import { runFoodCartAgent } from "./swiggy-agent.js";
@@ -6,7 +9,7 @@ import { cartReflectsItems, resolveMenuItemId } from "./cart-verification.js";
 
 export { cartReflectsItems } from "./cart-verification.js";
 
-export async function buildPersonalizedCart(food, threadId, swiggySessionId, preferredAddressId, streamId, agentContext = {}) {
+async function buildPersonalizedCartImpl(food, threadId, swiggySessionId, preferredAddressId, streamId, agentContext = {}) {
   if (!swiggySessionId && !config.swiggyMcpAccessToken) throw new Error("Connect a real Swiggy account before building a cart.");
   const mcp = await connectSwiggyFood(swiggySessionId);
   try {
@@ -23,7 +26,7 @@ export async function buildPersonalizedCart(food, threadId, swiggySessionId, pre
   }
 }
 
-export async function customizePersonalizedCart(currentSuggestion, instruction, threadId, swiggySessionId, streamId, agentContext = {}) {
+async function customizePersonalizedCartImpl(currentSuggestion, instruction, threadId, swiggySessionId, streamId, agentContext = {}) {
   if (!swiggySessionId && !config.swiggyMcpAccessToken) throw new Error("Connect a real Swiggy account before customizing a cart.");
   const mcp = await connectSwiggyFood(swiggySessionId);
   try {
@@ -32,7 +35,7 @@ export async function customizePersonalizedCart(currentSuggestion, instruction, 
     if (!address) throw new Error("The delivery address for this cart is no longer available.");
     const selectedAddress = normalizeAddress(address);
     const addressSummary = [selectedAddress.type?.toLowerCase() === "saved address" ? "" : selectedAddress.type, selectedAddress.receiverName, selectedAddress.addressString].filter(Boolean).join(" · ");
-    const food = { dish: currentSuggestion.dish || currentSuggestion.item, context: "ready_to_eat" };
+    const food = currentSuggestion.detectedFood || { dish: currentSuggestion.dish || currentSuggestion.item, context: "ready_to_eat" };
     return await buildVerifiedSuggestion(mcp, { food, threadId, addressId: currentSuggestion.addressId, addressSummary, streamId, instruction, currentSuggestion, agentContext: { ...agentContext, deviceId: swiggySessionId } });
   } finally {
     await mcp.close().catch(() => {});
@@ -40,15 +43,16 @@ export async function customizePersonalizedCart(currentSuggestion, instruction, 
 }
 
 async function buildVerifiedSuggestion(mcp, { food, threadId, addressId, addressSummary, streamId, instruction, currentSuggestion, agentContext = {} }) {
-  const personalContext = agentContext.personalContext ?? currentSuggestion?.personalContext ?? "";
+  const personalContext = agentContext.personalContext ?? (currentSuggestion?.personalContextSource === "inferred_history" ? "" : currentSuggestion?.personalContext) ?? "";
   const timeZone = agentContext.timeZone || currentSuggestion?.timeZone || "Asia/Kolkata";
   const temporalContext = currentTemporalContext(timeZone);
   const agentResult = await runFoodCartAgent(mcp, {
     food, addressId, addressSummary, streamId, threadId, instruction, currentSuggestion,
     personalContext, temporalContext, deviceId: agentContext.deviceId,
   });
+  const effectivePersonalContext = agentResult.personalContext ?? personalContext;
   if (!currentSuggestion && !agentResult.cartUpdated) {
-    throw new Error(`The cart agent could not find and add an orderable ${food.dish} match within its search budget. No Swiggy cart was changed.`);
+    throw new Error(`The cart agent could not find and add an orderable ${food.dish} match before the cart agent finished. No Swiggy cart was changed.`);
   }
   let cart = await callStep(mcp, "get_food_cart", { addressId });
   const couponRestaurantId = resolveCartRestaurantId(cart) || agentResult.restaurantId;
@@ -68,11 +72,6 @@ async function buildVerifiedSuggestion(mcp, { food, threadId, addressId, address
     couponData = await loadCoupons(mcp, couponRestaurantId, addressId);
     availablePromos = normalizeFoodCoupons(couponData, coupon, promoSelectionMode);
   }
-  const verifiedAgentRationale = reconcileCouponRationale(
-    agentResult.rationale,
-    availablePromos,
-    promoLookupStatus(couponData, availablePromos),
-  );
   const restaurantMenu = await loadCartMenu(mcp, cart, agentResult.restaurantId, addressId);
   const receipt = normalizeCartReceipt(cart, extractVerifiedTotal(agentResult.rationale), restaurantMenu);
   const paymentOptions = await loadPaymentOptions(mcp, addressId, cart.availablePaymentMethods);
@@ -98,6 +97,12 @@ async function buildVerifiedSuggestion(mcp, { food, threadId, addressId, address
     ? undefined
     : await loadRestaurantMetadataFallback(mcp, restaurantName, addressId);
   const restaurantRating = resolveRestaurantRating(cart, restaurantMenu, restaurantMetadata);
+  if (!restaurantName) throw new Error("Swiggy did not return the restaurant name for the verified cart.");
+  const explanation = await agentResult.explainCart({
+    restaurant: restaurantName, restaurantRating: restaurantRating.value,
+    deliveryEta: resolveDeliveryEta(cart) || resolveDeliveryEta(restaurantMenu), receipt,
+  });
+  const verifiedAgentRationale = reconcileCouponRationale(explanation.rationale, availablePromos, promoLookupStatus(couponData, availablePromos));
   const agentResponses = instruction
     ? [...(currentSuggestion?.agentResponses || []), {
       instruction,
@@ -107,11 +112,13 @@ async function buildVerifiedSuggestion(mcp, { food, threadId, addressId, address
       createdAt: new Date().toISOString(),
     }].slice(-4)
     : [];
-  if (!restaurantName) throw new Error("Swiggy did not return the restaurant name for the verified cart.");
   return {
     threadId,
     conversationId: threadId,
-    personalContext,
+    personalContext: effectivePersonalContext,
+    personalContextSource: agentResult.personalContextSource,
+    preferenceProfile: agentResult.preferenceProfile,
+    detectedFood: food,
     timeZone: temporalContext.timeZone,
     dish: food.dish,
     restaurantId: agentResult.restaurantId,
@@ -136,11 +143,13 @@ async function buildVerifiedSuggestion(mcp, { food, threadId, addressId, address
     deliveryAddress: addressSummary,
     availablePaymentMethods: availablePaymentMethods(paymentOptions),
     paymentOptions,
-    rationale: instruction ? currentSuggestion?.rationale || verifiedAgentRationale : verifiedAgentRationale,
+    rationale: verifiedAgentRationale,
+    explanationSource: explanation.source,
+    explanationEvidence: explanation.evidence,
     agentPrompt: agentResult.agentPrompt,
     agentFollowUp: agentResult.agentFollowUp || null,
     agentResponses,
-    dietaryNotes: ["Order history, variants, add-ons, and avoidances reviewed by the agent"],
+    dietaryNotes: [agentResult.historyReviewed ? "Order-history data retrieved during cart preparation" : "Order history was not retrieved during this run", ...(agentResult.preferenceProfile ? ["Saved inferred history profile used; review tentative preferences before checkout"] : [])],
     expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
   };
 }
@@ -216,7 +225,7 @@ async function loadCoupons(mcp, restaurantId, addressId) {
   }
 }
 
-export async function getRestaurantMenuItems(suggestion, swiggySessionId, query = "") {
+async function getRestaurantMenuItemsImpl(suggestion, swiggySessionId, query = "") {
   if (!swiggySessionId && !config.swiggyMcpAccessToken) throw new Error("Connect a real Swiggy account before browsing the menu.");
   if (!suggestion.restaurantId || !suggestion.addressId) throw new Error("This cart is missing its restaurant or delivery address.");
   const mcp = await connectSwiggyFood(swiggySessionId);
@@ -237,7 +246,7 @@ export async function getRestaurantMenuItems(suggestion, swiggySessionId, query 
   } finally { await mcp.close().catch(() => {}); }
 }
 
-export async function mutatePersonalizedCart(currentSuggestion, mutation, swiggySessionId) {
+async function mutatePersonalizedCartImpl(currentSuggestion, mutation, swiggySessionId) {
   if (!swiggySessionId && !config.swiggyMcpAccessToken) throw new Error("Connect a real Swiggy account before editing the cart.");
   const mcp = await connectSwiggyFood(swiggySessionId);
   try {
@@ -329,7 +338,7 @@ export async function mutatePersonalizedCart(currentSuggestion, mutation, swiggy
   } finally { await mcp.close().catch(() => {}); }
 }
 
-export async function selectPersonalizedCoupon(currentSuggestion, couponCode, swiggySessionId) {
+async function selectPersonalizedCouponImpl(currentSuggestion, couponCode, swiggySessionId) {
   if (!swiggySessionId && !config.swiggyMcpAccessToken) throw new Error("Connect a real Swiggy account before applying a promo.");
   const mcp = await connectSwiggyFood(swiggySessionId);
   try {
@@ -350,7 +359,7 @@ export async function selectPersonalizedCoupon(currentSuggestion, couponCode, sw
   } finally { await mcp.close().catch(() => {}); }
 }
 
-export async function getSavedAddresses(swiggySessionId) {
+async function getSavedAddressesImpl(swiggySessionId) {
   if (!swiggySessionId && !config.swiggyMcpAccessToken) throw new Error("Connect a real Swiggy account to load addresses.");
   const mcp = await connectSwiggyFood(swiggySessionId);
   try {
@@ -358,7 +367,7 @@ export async function getSavedAddresses(swiggySessionId) {
   } finally { await mcp.close().catch(() => {}); }
 }
 
-export async function placeOrder(suggestion, swiggySessionId, paymentMethod) {
+async function placeOrderImpl(suggestion, swiggySessionId, paymentMethod) {
   if (!swiggySessionId && !config.swiggyMcpAccessToken) throw new Error("Connect a real Swiggy account before placing an order.");
   const mcp = await connectSwiggyFood(swiggySessionId);
   try {
@@ -366,31 +375,70 @@ export async function placeOrder(suggestion, swiggySessionId, paymentMethod) {
     const cart = await callStep(mcp, "get_food_cart", { addressId: suggestion.addressId, restaurantName: suggestion.restaurant });
     const total = Number(cart.total ?? cart.totalAmount ?? 0);
     if (total > 1000) throw new Error("Cart exceeds Swiggy Builders Club’s ₹1,000 limit.");
-    const method = normalizePaymentChoice(paymentMethod);
-    if (!method) throw new Error("Choose COD or UPI before confirming the order.");
-    const option = suggestion.paymentOptions?.[method.toLowerCase()];
-    if (!option?.available) throw new Error(`${method} is not available for this Swiggy cart.`);
-    // Deliberately no generic retry: place_food_order is not idempotent.
-    if (method === "UPI") {
-      const raw = await callStep(mcp, "place_food_order", { addressId: suggestion.addressId, paymentMethod: option.code || "UPI", generateUPIQR: true });
-      return { paymentMethod: method, payment: normalizePendingPayment(raw, suggestion) };
-    }
-    const order = await callStep(mcp, "place_food_order", { addressId: suggestion.addressId, paymentMethod: option.code || option.id || "COD" });
-    return { paymentMethod: method, order };
+    if (!verifiedCartItems(cart, suggestion.cartMutationItems || [])) throw new Error("The Swiggy cart changed. Review a fresh cart before ordering.");
+    const currentReceipt = normalizeCartReceipt(cart);
+    if (!Number.isFinite(currentReceipt.finalAmount) || Math.abs(currentReceipt.finalAmount - suggestion.finalAmount) > 1) throw new Error("The payable total changed. Review a fresh cart before ordering.");
+    suggestion = { ...suggestion, paymentOptions: await loadPaymentOptions(mcp, suggestion.addressId) };
+    return await placeConfirmedCart(mcp, suggestion, paymentMethod);
   } finally {
     await mcp.close().catch(() => {});
   }
 }
 
-export async function checkUPIPayment(payment, swiggySessionId) {
+export async function placeConfirmedCart(mcp, suggestion, paymentMethod) {
+  const method = normalizePaymentChoice(paymentMethod);
+  if (!method) throw new Error("Choose Swiggy Money, COD or UPI before confirming the order.");
+  const options = method === "SWIGGYPAY"
+    ? await loadPaymentOptions(mcp, suggestion.addressId)
+    : suggestion.paymentOptions;
+  const option = options?.[method.toLowerCase()];
+  if (!option?.available) throw new Error(`${method} is not available for this Swiggy cart.`);
+  if (method === "SWIGGYPAY") {
+    let order;
+    try {
+      order = await callStep(mcp, "place_food_order", { addressId: suggestion.addressId, paymentMethod: "SwiggyPay" });
+    } catch {
+      // A transport/tool error cannot establish whether a wallet was debited.
+      return { paymentMethod: method, reviewRequired: true, message: "The Swiggy Money payment outcome is unknown. Check recent orders and your Swiggy Money balance in the Swiggy app before trying again." };
+    }
+    const outcome = swiggyMoneyOutcome(order);
+    if (outcome === "success") return { paymentMethod: method, order };
+    if (outcome === "failed") {
+      const refreshed = await loadPaymentOptions(mcp, suggestion.addressId);
+      // No wallet retry on this cart. A new confirmed cart is required after topping up.
+      refreshed.swiggypay.available = false;
+      return { paymentMethod: method, declined: true, paymentOptions: refreshed, message: `Swiggy Money payment did not complete. ${order?.message || "Check your balance in the Swiggy app and top up if needed."} Choose another available method, or prepare a new cart after resolving the payment issue.` };
+    }
+    const orderId = order?.orderId || order?.order_id;
+    return { paymentMethod: method, reviewRequired: true, order, message: `Swiggy has not confirmed both payment and order placement.${orderId ? ` Order reference: ${orderId}.` : ""} Check this order and your Swiggy Money balance in the Swiggy app before trying again.` };
+  }
+  // Deliberately no generic retry: place_food_order is not idempotent.
+  if (method === "UPI") {
+    const raw = await callStep(mcp, "place_food_order", { addressId: suggestion.addressId, paymentMethod: option.code || "UPI", generateUPIQR: true });
+    return { paymentMethod: method, payment: normalizePendingPayment(raw, suggestion) };
+  }
+  const order = await callStep(mcp, "place_food_order", { addressId: suggestion.addressId, paymentMethod: option.code || option.id || "COD" });
+  return { paymentMethod: method, order };
+}
+
+export function swiggyMoneyOutcome(order) {
+  const status = String(order?.status || "").toUpperCase();
+  const normalized = String(order?.normalizedStatus || "").toLowerCase();
+  const failed = normalized === "failed" || normalized === "failure" || ["FAILED", "FAILURE", "PAYMENT_FAILED", "DECLINED"].includes(status) || order?.success === false;
+  if (failed) return order?.orderId || order?.order_id ? "unknown" : "failed";
+  if (/PENDING|UNSETTLED|UNKNOWN/.test(status) || ["pending", "unknown"].includes(normalized)) return "unknown";
+  return normalized === "success" || ["CONFIRMED", "PLACED", "SUCCESS"].includes(status) ? "success" : "unknown";
+}
+
+async function checkUPIPaymentImpl(payment, swiggySessionId, { detailed = false } = {}) {
   const mcp = await connectSwiggyFood(swiggySessionId);
   try {
     const raw = await callStep(mcp, "check_payment_status", paymentToolArgs(payment, true));
-    return normalizePaymentStatus(raw);
+    return detailed ? { status: normalizePaymentStatus(raw), confirmed: raw?.confirmed === true, raw } : normalizePaymentStatus(raw);
   } finally { await mcp.close().catch(() => {}); }
 }
 
-export async function confirmUPIPayment(payment, swiggySessionId) {
+async function confirmUPIPaymentImpl(payment, swiggySessionId) {
   const mcp = await connectSwiggyFood(swiggySessionId);
   try {
     // Deliberately no retry: confirm_order finalizes a paid order.
@@ -527,6 +575,7 @@ async function loadPaymentOptions(mcp, addressId, cartMethods) {
 }
 
 export function normalizePaymentOptions(value, fallbackMethods = []) {
+  value = value?.success === false ? undefined : value?.data ?? value;
   const methods = [];
   for (const platform of Object.values(value?.platforms || {})) methods.push(...(Array.isArray(platform?.methods) ? platform.methods : []));
   if (Array.isArray(value?.allMethods)) methods.push(...value.allMethods);
@@ -544,17 +593,18 @@ export function normalizePaymentOptions(value, fallbackMethods = []) {
   return {
     upi: { available: Boolean(upi), id: upi?.id || "", label: upi?.displayName || "UPI", code: upi?.code || (upi ? "UPI" : "") },
     cod: { available: Boolean(cod), id: cod?.id || "", label: cod?.displayName || "Cash on delivery", code: cod?.code || cod?.id || "" },
+    swiggypay: { available: value?.swiggyMoney?.available === true, id: value?.swiggyMoney?.id || "", label: value?.swiggyMoney?.displayName || "Swiggy Money", code: value?.swiggyMoney?.available === true ? "SwiggyPay" : "" },
   };
 }
 
 function availablePaymentMethods(options) {
-  return [options.upi.available && "UPI", options.cod.available && "COD"].filter(Boolean);
+  return [options.upi.available && "UPI", options.cod.available && "COD", options.swiggypay?.available && "SWIGGYPAY"].filter(Boolean);
 }
 
 function normalizePaymentChoice(value) {
   const method = String(value || "").trim().toUpperCase();
   if (method === "CASH") return "COD";
-  return ["COD", "UPI"].includes(method) ? method : "";
+  return ["COD", "UPI", "SWIGGYPAY"].includes(method) ? method : "";
 }
 
 export function normalizePendingPayment(value, suggestion, now = Date.now()) {
@@ -1170,11 +1220,9 @@ function promoLookupStatus(couponData, promos) {
 }
 
 export function reconcileCouponRationale(rationale, promos = [], lookupStatus = "unavailable") {
-  const clean = String(rationale || "")
-    .split(/(?<=[.!?])\s+/)
-    .filter((sentence) => !/\b(?:coupon|promo(?:\s+code)?|fetch_food_coupons)\b/i.test(sentence))
-    .join(" ")
-    .trim();
+  const clean = formatCartExplanation(rationale).split(/\n+/)
+    .filter((point) => !/\b(?:coupon|promo(?:\s+code)?|fetch_food_coupons)\b/i.test(point))
+    .join("\n").trim();
   let couponFact;
   if (promos.length) {
     const codes = promos.map((promo) => promo.code).filter(Boolean).join(", ");
@@ -1184,7 +1232,7 @@ export function reconcileCouponRationale(rationale, promos = [], lookupStatus = 
   } else {
     couponFact = "Coupon availability could not be verified because the Swiggy coupon lookup was unavailable.";
   }
-  return [clean, couponFact].filter(Boolean).join(" ");
+  return formatCartExplanation([clean, couponFact].filter(Boolean).join("\n"));
 }
 
 function findMatchingCatalogItem(catalog, cartItem) {
@@ -1536,3 +1584,21 @@ function joinAddressParts(address) {
   const keys = ["flatNo", "flat_no", "houseNo", "house_no", "addressLine1", "address_line_1", "addressLine2", "address_line_2", "landmark", "area", "locality", "city", "pincode", "postalCode"];
   return [...new Set(keys.map((key) => address[key]).filter((value) => typeof value === "string" && value.trim()).map((value) => value.trim()))].join(", ");
 }
+
+export const buildPersonalizedCart = tracedOperation("cart.build", buildPersonalizedCartImpl, (_food, threadId, _session, _address, streamId) => ({sessionId: threadId, streamId, operation: "cart.prepare"}));
+
+export const customizePersonalizedCart = tracedOperation("cart.agent.customize", customizePersonalizedCartImpl, (_cart, _instruction, threadId, _session, streamId) => ({sessionId: threadId, streamId, operation: "cart.customize"}));
+
+export const getRestaurantMenuItems = tracedOperation("cart.menu", getRestaurantMenuItemsImpl, () => ({operation: "cart.menu"}));
+
+export const mutatePersonalizedCart = tracedOperation("cart.mutate", mutatePersonalizedCartImpl, () => ({operation: "cart.mutate"}));
+
+export const selectPersonalizedCoupon = tracedOperation("cart.coupon", selectPersonalizedCouponImpl, () => ({operation: "cart.coupon"}));
+
+export const getSavedAddresses = tracedOperation("addresses.load", getSavedAddressesImpl, () => ({operation: "addresses.load"}));
+
+export const placeOrder = tracedOperation("checkout.place", placeOrderImpl, () => ({operation: "checkout.place"}));
+
+export const checkUPIPayment = tracedOperation("payment.check", checkUPIPaymentImpl, () => ({operation: "payment.check"}));
+
+export const confirmUPIPayment = tracedOperation("payment.confirm", confirmUPIPaymentImpl, () => ({operation: "payment.confirm"}));

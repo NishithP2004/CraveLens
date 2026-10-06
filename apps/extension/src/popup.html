@@ -65,8 +65,31 @@
                 </div>
                 <small id="addressHint" class="hint"></small>
                 <label class="field-label personal-context-label" for="personalContext">Food preferences and routines</label>
-                <textarea id="personalContext" class="personal-context-input" rows="4" maxlength="1000"
-                    placeholder="For example: I’m vegetarian on Thursdays, allergic to peanuts, and prefer high-protein meals under ₹400."></textarea>
+                <div id="preferenceEditor" class="preference-editor">
+                    <textarea id="personalContext" class="personal-context-input" rows="4" maxlength="1000"
+                        placeholder="For example: I’m vegetarian on Thursdays, allergic to peanuts, and prefer high-protein meals under ₹400."></textarea>
+                    <button id="buildPreferences" class="preference-sparkle" type="button" aria-label="Build my preferences from the last seven verified orders for this delivery address" title="Build my preferences from up to seven recent orders for this address"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3c.7 5 2 6.3 7 7-5 .7-6.3 2-7 7-.7-5-2-6.3-7-7 5-.7 6.3-2 7-7Z"/><path d="M5 13c.4 2.8 1.2 3.6 4 4-2.8.4-3.6 1.2-4 4-.4-2.8-1.2-3.6-4-4 2.8-.4 3.6-1.2 4-4Z"/></svg></button>
+                </div>
+                <section id="autoPreferenceProfile" class="auto-preference-card" hidden aria-label="Saved inferred preferences">
+                  <div class="auto-preference-heading"><div><span class="auto-preference-eyebrow">PERSONALIZATION</span><strong>Saved inferred preferences</strong></div><span class="auto-preference-badge">Tentative</span></div>
+                  <div class="auto-preference-meta"><span id="autoPreferenceCoverage"></span><span id="autoPreferenceDate"></span></div>
+                  <p id="autoPreferenceText" class="auto-preference-copy"></p>
+                  <details class="auto-preference-details"><summary>History &amp; evidence</summary><p id="autoPreferenceNotes" class="auto-preference-notes"></p></details>
+                  <p class="auto-preference-footnote">Your saved preferences above always take priority.</p>
+                </section>
+                <section id="preferenceProgress" class="preference-progress" hidden aria-label="Preferences agent progress">
+                    <p id="preferenceStatus" role="status" aria-live="polite"></p>
+                    <ol id="preferenceSteps"></ol>
+                    <div id="preferenceFallback" hidden><button id="preferenceAllow" type="button">Allow hosted model</button><button id="preferenceDeny" class="secondary" type="button">Stop</button></div>
+                </section>
+                <section id="preferenceSuggestion" class="preference-suggestion auto-preference-card" hidden aria-label="Suggested preferences">
+                    <div class="auto-preference-heading"><div><span class="auto-preference-eyebrow">PERSONALIZATION</span><strong>Suggested preferences</strong></div><span class="auto-preference-badge">Draft</span></div>
+                    <div class="auto-preference-meta"><span id="preferenceCoverage"></span><span>Not saved yet</span></div>
+                    <p id="preferenceDraft" class="auto-preference-copy"></p>
+                    <details class="auto-preference-details"><summary>History &amp; evidence</summary><p id="preferenceNotes" class="auto-preference-notes"></p></details>
+                    <p class="auto-preference-footnote">Review this draft before replacing your saved preferences.</p>
+                    <div class="preference-actions"><button id="acceptPreferences" type="button">Use suggestion</button><button id="rejectPreferences" class="secondary" type="button">Keep original</button></div>
+                </section>
                 <small class="hint">Sent to the cart agent with your current local date, time, and day.</small>
             </div>
         </details>
@@ -210,13 +233,51 @@
                 <input id="agentBaseUrl" class="hosted-openai-field" type="url" maxlength="1000" placeholder="https://api.openai.com/v1" hidden>
                 <label class="field-label hosted-key-field" for="agentApiKey" hidden>API key (write-only)</label>
                 <input id="agentApiKey" class="hosted-key-field" type="password" maxlength="1000" autocomplete="new-password" placeholder="Leave blank to keep the configured key" hidden>
-                <small id="agentAvailability" class="hint">Local failures pause the run and require approval before any hosted fallback.</small>
+                <small id="agentAvailability" class="hint">Local model failure behavior follows your saved setting.</small>
+                <label class="field-label" for="hostedFallback">When the local cart model fails</label>
+                <select id="hostedFallback">
+                    <option value="auto">Automatically use a hosted model</option>
+                    <option value="ask" selected>Ask before using a hosted model</option>
+                    <option value="none">Stop without switching models</option>
+                </select>
+                <small class="hint">Applies to local cart preparation with LiteRT or Ollama. Hosted fallback requires a configured provider and sends the run’s model context to that provider. Stopping reports the local error; it does not undo cart changes. Order placement still requires your confirmation.</small>
+            </div>
+        </details>
+
+        <details class="settings-card context-card cart-experience-card" name="popup-context">
+            <summary class="context-summary">
+                <span class="section-heading"><span>05</span><h2>Cart experience</h2></span>
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 7.5 5 5 5-5" /></svg>
+            </summary>
+            <div class="context-content model-fields">
+                <label class="field-label" for="cartExperience">While you watch</label>
+                <select id="cartExperience">
+                    <option value="screen">Show progress on screen</option>
+                    <option value="nudge">Notify me when my cart is ready</option>
+                    <option value="telegram">Send my cart to Telegram</option>
+                </select>
+                <small class="hint">Quiet modes prepare one cart at a time without interrupting your video. Orders always require confirmation. The browser must remain running for local AI.</small>
+                <section id="telegramAccount" class="telegram-account" data-state="loading" aria-label="Telegram account">
+                    <div class="telegram-account-heading">
+                        <span class="telegram-account-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m21 3-4 18-6-5-4 3 1-6L21 3ZM8 13l9-6-6 9" /></svg></span>
+                        <div class="telegram-account-copy" role="status">
+                            <strong id="telegramAccountTitle">Telegram account</strong>
+                            <span id="telegramStatus">Checking connection…</span>
+                        </div>
+                        <span id="telegramConnectedBadge" class="telegram-connected-badge" hidden>Linked</span>
+                    </div>
+                    <button id="telegramConnect" type="button" hidden>Connect Telegram</button>
+                    <button id="telegramConfirm" type="button" hidden>Confirm this Telegram account</button>
+                    <button id="telegramDisconnect" class="telegram-disconnect" type="button" hidden>Disconnect account</button>
+                </section>
+                <label class="thinking-row" for="telegramSilent"><span><b>Silent Telegram messages</b><small>Deliver without a notification sound.</small></span><input id="telegramSilent" type="checkbox"></label>
+                <small class="hint">Telegram receives your cart, delivery address, and payment status. Video frames stay local. Connect opens the bot; press Start, then confirm the account here.</small>
             </div>
         </details>
 
         <details class="settings-card context-card setup-card" name="popup-context">
             <summary class="context-summary">
-                <span class="section-heading"><span>05</span><h2>Local AI setup</h2></span>
+                <span class="section-heading"><span>06</span><h2>Local AI setup</h2></span>
                 <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 7.5 5 5 5-5" /></svg>
             </summary>
             <div class="context-content">
@@ -253,6 +314,7 @@
                     <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle class="fill-icon" cx="17.4" cy="6.7" r="1.1"/></svg>
                 </a>
             </nav>
+            <div id="extensionVersion" class="extension-version" hidden></div>
         </footer>
     </main>
     <script type="module" src="./popup.js"></script>

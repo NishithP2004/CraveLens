@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <script src="/admin/theme.js"></script>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>CraveLens — Admin</title>
+    <link rel="stylesheet" href="/admin/style.css" />
+    <script type="module" src="/admin/dashboard.js"></script>
+    <link rel="stylesheet" href="/admin/theme-colors.css" />
+    <link rel="stylesheet" href="/admin/theme-control.css" />
+    <link rel="stylesheet" href="/admin/site-footer.css" />
+    <link rel="stylesheet" href="/admin/site-header.css" />
+    <link rel="stylesheet" href="/admin/site-motion.css" />
+    <link rel="stylesheet" href="/admin/site-ui.css" />
+    <script src="/admin/site-motion.js" defer></script>
+    <script src="/admin/site-header.js" defer></script>
+  </head>
+
+  <body class="admin-page">
+    <aside class="dashboard-sidebar">
+      <a class="brand" href="/admin/"
+        ><span class="brand-icon" aria-hidden="true">◉</span>
+        <span>CRAVELENS<small>Operations console</small></span></a
+      >
+      <nav aria-label="Dashboard sections">
+        <a href="#overview">Overview</a><a href="#models">Model activity</a
+        ><a href="#dishes">Dish insights</a><a href="#health">Reliability</a>
+      </nav>
+      <div class="secure">
+        ● Restricted access<small>Aggregate data only</small>
+      </div>
+    </aside>
+    <main>
+      <!-- CRAVELENS_SHARED_HEADER -->
+      <header class="dashboard-heading">
+        <div>
+          <p class="eyebrow">PRODUCT ANALYTICS</p>
+          <h1>A clearer view of CraveLens.</h1>
+          <p class="muted">From a visual craving to a confirmed order.</p>
+        </div>
+        <div class="controls">
+          <label for="days">Reporting window</label
+          ><select id="days">
+            <option value="7">Last 7 days</option>
+            <option value="30" selected>Last 30 days</option>
+            <option value="90">Last 90 days</option></select
+          ><button id="refresh">Refresh</button
+          ><button id="export" disabled>Export CSV</button>
+        </div>
+      </header>
+      <div id="status" role="status" aria-live="polite">
+        Loading live analytics…
+      </div>
+      <section id="overview" class="stats" aria-label="Key metrics"></section>
+      <div class="grid">
+        <section class="panel wide">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">ACTIVITY</p>
+              <h2>Recorded events over time</h2>
+            </div>
+            <span class="muted">Daily · Asia/Kolkata</span>
+          </div>
+          <div id="timeline"></div>
+        </section>
+        <section class="panel">
+          <p class="eyebrow">EXECUTION MIX</p>
+          <h2>Hosted & local planning</h2>
+          <div id="modes"></div>
+          <p class="footnote">
+            Counts actual LLM attempts, including retries. Local vision runs
+            remain on-device and are not included in these counts.
+          </p>
+        </section>
+        <section class="panel wide" id="models">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">AI INVENTORY</p>
+              <h2>Most used models</h2>
+            </div>
+            <span class="muted">Planning LLMs · Langfuse</span>
+          </div>
+          <div id="model-chart"></div>
+          <p class="footnote chart-hint">
+            Hover for counts · Click a legend to show or hide a series.
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Model / provider</th>
+                  <th>Type</th>
+                  <th>Calls</th>
+                  <th>Failures</th>
+                  <th>Avg latency</th>
+                </tr>
+              </thead>
+              <tbody id="model-rows"></tbody>
+            </table>
+          </div>
+        </section>
+        <section class="panel">
+          <p class="eyebrow">CART PREPARATION</p>
+          <h2>Ready for review</h2>
+          <div id="carts"></div>
+          <p class="footnote">
+            Successful preparation does not mean an order was placed. Failed
+            preparations may have changed the Swiggy cart.
+          </p>
+        </section>
+        <section class="panel wide" id="dishes">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">CRAVING SIGNALS</p>
+              <h2>Dishes submitted for carts</h2>
+            </div>
+            <label
+              ><span class="sr-only">Filter dish names</span
+              ><input
+                id="dish-filter"
+                type="search"
+                placeholder="Find a dish…"
+                maxlength="200"
+            /></label>
+          </div>
+          <div id="dish-list"></div>
+          <p class="footnote">
+            Top 50 reported labels. One count per distinct label per reserved
+            cart-preparation request; repeat requests can count again.
+            Browser-only scans are not included. Labels are model-generated and
+            are not normalized into a cuisine taxonomy.
+          </p>
+        </section>
+        <section class="panel" id="health">
+          <p class="eyebrow">RELIABILITY</p>
+          <h2>Failures by source</h2>
+          <div id="failures"></div>
+          <p class="footnote">
+            Model errors include recovered attempts; workflow failures are
+            failed top-level Langfuse observations. Server counts are HTTP 5xx
+            responses; upstream model failures can appear in both, so these
+            counts should not be added.
+          </p>
+        </section>
+      </div>
+      <footer>
+        <h2>Read these numbers accurately</h2>
+        <div id="definitions"></div>
+        <p id="coverage" class="muted"></p>
+        <p>
+          Images, prompts, preferences, addresses and payment details are not
+          available in this dashboard. No customer or order actions are enabled.
+        </p>
+      </footer>
+      <!-- CRAVELENS_SHARED_FOOTER -->
+    </main>
+  </body>
+</html>

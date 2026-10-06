@@ -1,0 +1,295 @@
+/* One set of semantic component colors; decorative coral/lime artwork stays intentional. */
+html[data-theme] body {
+  background-color: var(--cream);
+  color: var(--ink);
+}
+html[data-theme] .policy-page {
+  background: var(--cream);
+}
+html[data-theme]
+  :is(
+    .policy-toc,
+    .install-dialog,
+    .guide-image-modal,
+    .creator-copy,
+    .creator-card,
+    .preference-card,
+    .match-card,
+    .story-notification,
+    .tech-stack article
+  ) {
+  background: var(--paper);
+  color: var(--ink);
+  border-color: var(--line);
+}
+html[data-theme] .policy-summary div {
+  background: var(--paper);
+  border: 1px solid var(--line);
+}
+html[data-theme] :is(.policy-content p, .policy-content li) {
+  color: var(--text-body);
+}
+html[data-theme] :is(.policy-content a, .creator-note a, .policy-back:hover) {
+  color: var(--theme-accent);
+}
+html[data-theme]
+  :is(
+    .button:not(.button-light),
+    .cl-header-install,
+    .match-card button,
+    .order-art button,
+    .story-notification button,
+    #refresh
+  ) {
+  background: var(--primary);
+  color: var(--on-primary);
+  border-color: var(--primary);
+}
+html[data-theme]
+  :is(
+    .button:not(.button-light),
+    .cl-header-install,
+    .match-card button,
+    .order-art button,
+    .story-notification button,
+    #refresh
+  ):hover:not(:disabled) {
+  background: var(--primary-hover);
+  color: var(--on-primary);
+  border-color: var(--primary-hover);
+}
+html[data-theme]
+  :is(.button-light, .guide-image-toolbar button, .dialog-close) {
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+html[data-theme]
+  :is(.button-light, .guide-image-toolbar button, .dialog-close):hover {
+  background: var(--surface-soft);
+  color: var(--ink);
+}
+html[data-theme] .guide-skip {
+  background: var(--surface-inverse);
+  color: var(--on-inverse);
+}
+html[data-theme] :is(.toast, .scroll-top, .story-label, .tech-stack span) {
+  background: var(--surface-inverse);
+  color: var(--on-inverse);
+}
+html[data-theme] .tech-stack span,
+html[data-theme] .toast span {
+  color: var(--lime);
+}
+html[data-theme] .match-card button.added {
+  background: var(--success);
+  color: var(--cream);
+}
+html[data-theme]
+  :is(
+    .story-product .story-label,
+    .profile-head > span,
+    .creator-avatar,
+    .tag-icon
+  ) {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+html[data-theme] .story-inspiration .story-label {
+  background: #fffaf2;
+  color: #181814;
+}
+html[data-theme] .story-cinema .story-label {
+  background: var(--lime);
+  color: #181814;
+}
+html[data-theme] .ticker,
+html[data-theme] .ticker i {
+  color: #181814;
+}
+html[data-theme] .confidence {
+  background: var(--paper);
+  color: var(--ink);
+}
+html[data-theme] .confidence small {
+  color: var(--muted);
+}
+html[data-theme] .mini-frame {
+  border-color: #181814;
+}
+html[data-theme] .story-ticket {
+  color: #181814;
+}
+html[data-theme] .story-ticket small {
+  color: #555349;
+}
+html[data-theme] .match-top b {
+  color: var(--success);
+}
+html[data-theme] .guide-image-view {
+  background: var(--surface-soft);
+}
+html[data-theme] :is(button, a, input, select, summary):focus-visible {
+  outline: 2px solid var(--theme-accent);
+  outline-offset: 4px;
+}
+.admin-page
+  :is(button:not(.theme-control button):not(.cl-header-menu), input, select) {
+  border-radius: 12px;
+  background: var(--paper);
+  color: var(--ink);
+  border-color: var(--line);
+}
+.admin-page
+  button:hover:not(:disabled):not(.theme-control button):not(.cl-header-menu) {
+  background: var(--surface-soft);
+  border-color: var(--theme-accent);
+}
+.admin-page button:disabled {
+  cursor: not-allowed;
+}
+.admin-page :is(.metric, .panel) {
+  color: var(--ink);
+  border-color: var(--line);
+}
+.admin-page .bar-track {
+  background: var(--surface-soft);
+}
+.admin-page aside nav a:hover,
+.admin-page aside nav a:focus-visible {
+  background: var(--surface-soft);
+  color: var(--theme-accent);
+}
+/* Preserve the older checkpoint’s light-mode brand treatment. */
+html[data-theme="light"] .button-light {
+  background: #fff;
+  color: #181814;
+}
+html[data-theme="light"] .ticker {
+  color: #fff;
+}
+html[data-theme="light"] .ticker i {
+  color: var(--lime);
+}
+/* Text links remain recognizable without relying on hover or color alone. */
+html[data-theme] .landing-page :is(p a, .text-link) {
+  color: var(--theme-accent);
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+  text-decoration-skip-ink: auto;
+  box-shadow: none;
+}
+/* Cross-fade underlines: text-decoration-style itself cannot interpolate. */
+html[data-theme] .landing-page :is(p a, .text-link) {
+  position: relative;
+  display: inline-block;
+  transition:
+    color 180ms ease,
+    text-decoration-color 180ms ease;
+}
+.landing-page :is(p a, .text-link)::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 5px;
+  pointer-events: none;
+  background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='5' viewBox='0 0 12 5'%3E%3Cpath d='M0 3Q3 -1 6 3T12 3' fill='none' stroke='black' stroke-width='1'/%3E%3C/svg%3E")
+    repeat-x;
+  mask-size: 12px 5px;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition:
+    opacity 220ms ease,
+    transform 220ms ease;
+}
+html[data-theme] .landing-page :is(p a, .text-link):is(:hover, :focus-visible) {
+  text-decoration-color: transparent;
+}
+.landing-page :is(p a, .text-link):is(:hover, :focus-visible)::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+/* Pre-footer installation banner matches the original public checkpoint. */
+html[data-theme] .landing-page .cta {
+  background: var(--coral);
+  color: #fff;
+}
+html[data-theme] .landing-page .cta .kicker {
+  color: var(--lime);
+}
+html[data-theme] .landing-page .cta p {
+  color: #ffe0d8;
+}
+html[data-theme] .landing-page .cta .button-light,
+html[data-theme] .landing-page .cta .button-light:hover {
+  background: #fff;
+  color: #181814;
+}
+html[data-theme] .landing-page .cta .float-food {
+  background: #fff4e6;
+  color: #fff;
+}
+/* Creator focus labels are compact, non-interactive tags. */
+.landing-page .creator-tags {
+  align-self: end;
+  align-items: center;
+  align-content: flex-start;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-color: var(--line);
+}
+html[data-theme] .landing-page .creator-tags span {
+  flex: 0 0 auto;
+  align-self: center;
+  height: 28px;
+  min-height: 0;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+@media (max-width: 600px) {
+  .landing-page .creator-tags {
+    gap: 7px;
+  }
+  html[data-theme] .landing-page .creator-tags span {
+    height: 27px;
+    padding: 0 9px;
+    font-size: 10px;
+  }
+}
+/* Shared reading-navigation states for guide, privacy and terms. */
+.policy-toc a {
+  display: block;
+  padding: 8px 12px;
+  margin: 0 -9px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--muted);
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease;
+}
+html[data-theme]
+  .policy-toc
+  a:is(:hover, :focus-visible, [aria-current="location"]) {
+  background: var(--toc-fill);
+  border-color: var(--toc-border);
+  color: var(--ink);
+  box-shadow: none;
+}
