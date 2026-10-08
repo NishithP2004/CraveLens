@@ -10,7 +10,7 @@ let verifier;
 let signature;
 export function adminHeaders(req, res, next) {
   res.set({
-    "Cache-Control": "no-store",
+    "Cache-Control": "no-store, no-transform",
     "X-Robots-Tag": "noindex, nofollow",
     "Content-Security-Policy":
       "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",

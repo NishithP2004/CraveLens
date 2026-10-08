@@ -65,7 +65,12 @@ export default {
     upstreamRequest.headers.delete("X-CraveLens-Admin-Assertion");
     upstreamRequest.headers.delete("Cf-Access-Jwt-Assertion");
     upstreamRequest.headers.delete("Cf-Access-Authenticated-User-Email");
-    if (adminAssertion) upstreamRequest.headers.set("X-CraveLens-Admin-Assertion", adminAssertion);
+    if (adminAssertion) {
+      upstreamRequest.headers.set("X-CraveLens-Admin-Assertion", adminAssertion);
+      // The human Access session belongs to the public application, not the Tunnel.
+      // Admin endpoints are stateless; the verified assertion carries identity.
+      upstreamRequest.headers.delete("cookie");
+    }
     upstreamRequest.headers.delete("cf-access-client-id");
     upstreamRequest.headers.delete("cf-access-client-secret");
     upstreamRequest.headers.set("CF-Access-Client-Id", env.ORIGIN_ACCESS_CLIENT_ID);
@@ -75,8 +80,17 @@ export default {
 
     const response = await fetch(upstreamRequest, { redirect: "manual" });
     if (!admin) return response;
+    const location = response.headers.get("location");
+    if (response.status >= 300 && response.status < 400 && location) {
+      const destination = new URL(location, upstreamUrl);
+      if (destination.hostname.endsWith(".cloudflareaccess.com") || destination.pathname.startsWith("/cdn-cgi/access/")) {
+        return configurationError("The Tunnel origin rejected the Worker service token. Check the origin Access Service Auth policy and token credentials.");
+      }
+    }
     const protectedResponse = new Response(response.body, response);
-    protectedResponse.headers.set("Cache-Control", "no-store");
+    // Never replace the browser's public human-session cookie with an origin token.
+    protectedResponse.headers.delete("Set-Cookie");
+    protectedResponse.headers.set("Cache-Control", "no-store, no-transform");
     protectedResponse.headers.set("X-Robots-Tag", "noindex, nofollow");
     return protectedResponse;
   },

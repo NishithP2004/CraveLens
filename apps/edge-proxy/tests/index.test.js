@@ -77,17 +77,34 @@ test("verified admin identity is preserved separately from the origin service to
   const settings={...env,ADMIN_ACCESS_TEAM_DOMAIN:'https://admin-test.cloudflareaccess.com',ADMIN_ACCESS_AUDIENCE:'admin-aud',ADMIN_EMAILS:'admin@example.com'};
   const token=await new SignJWT({email:'admin@example.com'}).setProtectedHeader({alg:'RS256',kid:'admin-test'}).setIssuer(settings.ADMIN_ACCESS_TEAM_DOMAIN).setAudience(settings.ADMIN_ACCESS_AUDIENCE).setSubject('admin-human').setIssuedAt().setExpirationTime('5m').sign(privateKey);
   const originalFetch=globalThis.fetch;let forwarded;
+  let originReply = () => new Response('private dashboard', {headers:{'set-cookie':'CF_Authorization=origin-token; Path=/; Secure; HttpOnly'}});
   globalThis.fetch=async(request)=>{
     const url=new URL(request.url || request.toString());
     if(url.pathname==='/cdn-cgi/access/certs')return new Response(JSON.stringify({keys:[jwk]}),{headers:{'content-type':'application/json'}});
-    forwarded=request;return new Response('private dashboard');
+    forwarded=request;return originReply();
   };
   try{
-    const response=await proxy.fetch(new Request('https://cravelens.nishithp.page/admin/',{headers:{'Cf-Access-Jwt-Assertion':token,'X-CraveLens-Admin-Assertion':'attacker','Cf-Access-Client-Id':'attacker'}}),settings);
-    assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'no-store');
+    const response=await proxy.fetch(new Request('https://cravelens.nishithp.page/admin/',{headers:{'Cf-Access-Jwt-Assertion':token,'X-CraveLens-Admin-Assertion':'attacker','Cf-Access-Client-Id':'attacker','Cookie':'CF_Authorization=public-human-token'}}),settings);
+    assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'no-store, no-transform');
+    assert.equal(response.headers.get('set-cookie'),null);
+    assert.equal(forwarded.headers.get('cookie'),null);
     assert.equal(forwarded.headers.get('X-CraveLens-Admin-Assertion'),token);
     assert.equal(forwarded.headers.get('Cf-Access-Jwt-Assertion'),null);
     assert.equal(forwarded.headers.get('Cf-Access-Client-Id'),env.ORIGIN_ACCESS_CLIENT_ID);
     assert.equal(new URL(forwarded.url).pathname,'/admin/');
+    for (const path of ['/admin/style.css','/admin/theme.js','/admin/swiggy-logo.png','/api/admin/summary']) {
+      originReply = () => new Response('asset', {headers:{'set-cookie':'CF_Authorization=origin-token; Path=/; Secure'}});
+      const asset = await proxy.fetch(new Request(`https://cravelens.nishithp.page${path}`,{headers:{'Cf-Access-Jwt-Assertion':token}}),settings);
+      assert.equal(asset.status,200);
+      assert.equal(asset.headers.get('set-cookie'),null);
+      assert.equal(new URL(forwarded.url).pathname,path);
+    }
+    for (const location of ['https://admin-test.cloudflareaccess.com/cdn-cgi/access/login/example','/cdn-cgi/access/login/example']) {
+      originReply = () => new Response(null,{status:302,headers:{location}});
+      const failed = await proxy.fetch(new Request('https://cravelens.nishithp.page/admin/style.css',{headers:{'Cf-Access-Jwt-Assertion':token}}),settings);
+      assert.equal(failed.status,503);
+      assert.equal(failed.headers.get('location'),null);
+      assert.match((await failed.json()).error,/Worker service token/);
+    }
   }finally{globalThis.fetch=originalFetch;}
 });
