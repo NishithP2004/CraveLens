@@ -89,7 +89,7 @@ app.post("/api/preferences/build", async (req, res, next) => { try { res.status(
 app.get("/api/preferences/build/:runId", async (req, res, next) => { try { const job = await getPreferenceJob(req.deviceId, req.params.runId); if (!job) return res.status(404).json({ error: "Preferences run expired or was not found" }); res.set("Cache-Control", "no-store").json(job); } catch (error) { next(error); } });
 app.get("/api/telegram", async (req, res, next) => { try { res.json(await telegramStatus(req.deviceId)); } catch (error) { next(error); } });
 app.post("/api/telegram/connect", async (req, res, next) => { try { res.json(await startTelegramLink(req.deviceId)); } catch (error) { next(error); } });
-app.post("/api/telegram/confirm", async (req, res, next) => { try { res.json(await confirmTelegramLink(req.deviceId)); } catch (error) { next(error); } });
+app.post("/api/telegram/confirm", async (req, res, next) => { try { res.json(await confirmTelegramLink(req.deviceId, { transfer: req.body?.transfer === true, confirmationToken: req.body?.confirmationToken })); } catch (error) { next(error); } });
 app.delete("/api/telegram", async (req, res, next) => { try { await disconnectTelegram(req.deviceId); res.sendStatus(204); } catch (error) { next(error); } });
 app.get("/api/cart-experience", async (req, res, next) => { try { res.json(await getCartExperience(req.deviceId)); } catch (error) { next(error); } });
 app.put("/api/cart-experience", async (req, res, next) => { try { res.json(await saveCartExperience(req.deviceId, req.body)); } catch (error) { next(error); } });

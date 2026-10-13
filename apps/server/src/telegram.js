@@ -7,7 +7,7 @@ import { config } from "./config.js";
 import { getRedis } from "./redis.js";
 import { getThread, patchThread } from "./store.js";
 import { cartRevision, decideCart, refreshPayment, cancelPayment } from "./checkout.js";
-import { getCartExperience, saveCartExperience } from "./cart-experience.js";
+import { experienceKey, getCartExperience } from "./cart-experience.js";
 import { decideFallback } from "./fallback-approval.js";
 
 const key = (suffix) => `cravelens:telegram:${suffix}`;
@@ -31,7 +31,8 @@ export async function telegramStatus(deviceId) {
   const redis = await getRedis();
   const link = JSON.parse(await redis.get(key(`link:${deviceId}`)) || "null");
   const pending = JSON.parse(await redis.get(key(`pending:${deviceId}`)) || "null");
-  return { configured: Boolean(config.telegramBotToken), connected: Boolean(link), name: link?.name, pendingName: pending?.name, pending: Boolean(pending), settings: await getCartExperience(deviceId) };
+  const owner = pending && await redis.get(key(`owner:${pending.userId}`));
+  return { confirmationToken: pending?.token, transferRequired: Boolean(owner && owner !== deviceId), configured: Boolean(config.telegramBotToken), connected: Boolean(link), name: link?.name, pendingName: pending?.name, pending: Boolean(pending), settings: await getCartExperience(deviceId) };
 }
 export async function startTelegramLink(deviceId) {
   const redis = await getRedis();
@@ -42,33 +43,64 @@ export async function startTelegramLink(deviceId) {
   await redis.set(key(`latest:${deviceId}`), token, { EX: 300 });
   return { url: `https://t.me/${identity.username}?start=${token}`, expiresAt: Date.now() + 300_000 };
 }
-export async function confirmTelegramLink(deviceId) {
+// Compare the verified request and its observed owner inside the same Redis operation
+// that moves ownership. An expired or concurrently changed request cannot transfer.
+export const confirmLinkScript = `
+if redis.call('GET', KEYS[1]) ~= ARGV[1] or redis.call('GET', KEYS[2]) ~= ARGV[2] then return 'expired' end
+local owner = redis.call('GET', KEYS[3]) or ''
+if owner ~= ARGV[3] then return 'changed' end
+if owner ~= '' and owner ~= ARGV[4] and ARGV[5] ~= 'true' then return 'transfer' end
+local previous = redis.call('GET', KEYS[4])
+local previousUser = previous and cjson.decode(previous).userId
+local settings = redis.call('GET', KEYS[6])
+local oldSettings = settings and cjson.decode(settings) or {silent=false}
+if owner ~= '' and owner ~= ARGV[4] then
+  oldSettings.mode = 'screen'
+  redis.call('SET', KEYS[6], cjson.encode(oldSettings))
+  redis.call('DEL', KEYS[5], KEYS[7], KEYS[8])
+end
+if previousUser and previousUser ~= ARGV[6] and redis.call('GET', KEYS[9]) == ARGV[4] then redis.call('DEL', KEYS[9]) end
+redis.call('SET', KEYS[3], ARGV[4])
+redis.call('SET', KEYS[4], ARGV[7])
+redis.call('DEL', KEYS[1], KEYS[2])
+return 'ok'
+`;
+export async function confirmTelegramLink(deviceId, { transfer = false, confirmationToken } = {}) {
   const redis = await getRedis();
-  const raw = await redis.getDel(key(`pending:${deviceId}`));
+  const raw = await redis.get(key(`pending:${deviceId}`));
   if (!raw) throw new Error("Open Telegram and press Start before confirming the connection");
-  const link = JSON.parse(raw);
-  if (await redis.get(key(`latest:${deviceId}`)) !== link.token) throw new Error("Link request expired; connect again");
-  const owner = await redis.get(key(`owner:${link.userId}`));
-  if (owner && owner !== deviceId) throw new Error("This Telegram account is already linked to another device. Disconnect it first.");
-  if (!owner && !await redis.set(key(`owner:${link.userId}`), deviceId, { NX: true })) throw new Error("Telegram account was linked elsewhere; try again");
+  const pending = JSON.parse(raw);
+  if (transfer === true && confirmationToken !== pending.token) throw Object.assign(new Error("Review the pending Telegram account again before moving its connection."), { statusCode: 409 });
+  const owner = pending.owner || "";
   const previous = JSON.parse(await redis.get(key(`link:${deviceId}`)) || "null");
-  if (previous && previous.userId !== link.userId) await redis.del(key(`owner:${previous.userId}`));
-  await redis.set(key(`link:${deviceId}`), JSON.stringify(link));
-  await redis.del(key(`latest:${deviceId}`));
+  const { owner: ignored, ...link } = pending;
+  const result = await redis.eval(confirmLinkScript, {
+    keys: [key(`pending:${deviceId}`), key(`latest:${deviceId}`), key(`owner:${link.userId}`), key(`link:${deviceId}`), key(`link:${owner}`), experienceKey(owner), key(`pending:${owner}`), key(`latest:${owner}`), key(`owner:${previous?.userId || link.userId}`)],
+    arguments: [raw, link.token, owner, deviceId, String(transfer === true), link.userId, JSON.stringify(link)],
+  });
+  if (result === "transfer") throw Object.assign(new Error("This account is linked to another installation. Confirm moving it to this installation."), { statusCode: 409 });
+  if (result !== "ok") throw Object.assign(new Error("Telegram connection changed or expired; open a new connection link and press Start again."), { statusCode: 409 });
   return telegramStatus(deviceId);
 }
 export async function disconnectTelegram(deviceId) {
   const redis = await getRedis();
   const link = JSON.parse(await redis.get(key(`link:${deviceId}`)) || "null");
-  if (link) await redis.del(key(`owner:${link.userId}`));
-  await redis.del([key(`link:${deviceId}`), key(`pending:${deviceId}`), key(`latest:${deviceId}`)]);
-  await saveCartExperience(deviceId, { mode: "screen" });
+  if (!link) return;
+  // A stale disconnect must not remove a newer owner's mapping or connection.
+  await redis.eval(`if redis.call('GET',KEYS[1]) ~= ARGV[1] then return 0 end
+if redis.call('GET',KEYS[2]) == ARGV[2] then redis.call('DEL',KEYS[2]) end
+redis.call('DEL',KEYS[1],KEYS[3],KEYS[4])
+redis.call('SET',KEYS[5],ARGV[3]) return 1`, {
+    keys: [key(`link:${deviceId}`), key(`owner:${link.userId}`), key(`pending:${deviceId}`), key(`latest:${deviceId}`), experienceKey(deviceId)],
+    arguments: [JSON.stringify(link), deviceId, JSON.stringify({ mode: "screen", silent: false })],
+  });
 }
 async function button(deviceId, chatId, text, action) {
   const redis = await getRedis();
   const token = crypto.randomBytes(18).toString("base64url");
+  const link = JSON.parse(await redis.get(key(`link:${deviceId}`)) || "null");
   const revision = action.threadId ? cartRevision((await getThread(action.threadId))?.suggestion) : undefined;
-  await redis.set(key(`action:${token}`), JSON.stringify({ deviceId, chatId, revision, ...action }), { EX: 900 });
+  await redis.set(key(`action:${token}`), JSON.stringify({ deviceId, chatId, revision, linkToken: link?.token, ...action }), { EX: 900 });
   return { text, callback_data: token };
 }
 const html = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -157,7 +189,7 @@ export async function handleTelegramUpdate(update) {
     const token = message.text.split(/\s+/)[1];
     const deviceId = await redis.getDel(key(`start:${token}`));
     if (!deviceId || await redis.get(key(`latest:${deviceId}`)) !== token) return;
-    await redis.set(key(`pending:${deviceId}`), JSON.stringify({ token, userId: String(message.from.id), chatId: String(message.chat.id), name: [message.from.first_name, message.from.last_name].filter(Boolean).join(" ") }), { EX: 300 });
+    await redis.set(key(`pending:${deviceId}`), JSON.stringify({ token, owner: await redis.get(key(`owner:${message.from.id}`)) || "", userId: String(message.from.id), chatId: String(message.chat.id), name: [message.from.first_name, message.from.last_name].filter(Boolean).join(" ") }), { EX: 300 });
     await telegramCall("sendMessage", { chat_id: message.chat.id, text: "Return to the CraveLens extension and confirm this Telegram account to finish connecting." });
     return;
   }
@@ -174,7 +206,7 @@ export async function handleTelegramUpdate(update) {
       if (!thread || thread.deviceId !== deviceId || thread.status !== "awaiting_confirmation" || Date.parse(thread.suggestion.expiresAt) <= Date.now()) throw new Error("No editable cart was found. Finish or stop any pending payment, or prepare a fresh cart.");
       if (message.text.trim().length > 500) throw new Error("Keep cart change requests under 500 characters.");
       const input = CartCustomizationSchema.parse({ instruction: message.text });
-      await redis.set(key(`update:${commandId}`), JSON.stringify({ deviceId, threadId, chatId: link.chatId, input }), { EX: 900 });
+      await redis.set(key(`update:${commandId}`), JSON.stringify({ deviceId, threadId, chatId: link.chatId, linkToken: link.token, input }), { EX: 900 });
       await redis.sAdd(key("updates"), commandId);
       await telegramCall("sendMessage", { chat_id: link.chatId, text: "Updating your cart using your request and the current cart context. Review the refreshed receipt before confirming." });
       setTimeout(() => { void processTelegramCartUpdate(commandId).catch(() => console.warn("[telegram] Cart update processing failed")); }, 0).unref?.();
@@ -188,7 +220,7 @@ export async function handleTelegramUpdate(update) {
   if (!raw) return;
   const action = JSON.parse(raw);
   const link = JSON.parse(await redis.get(key(`link:${action.deviceId}`)) || "null");
-  if (!link || link.userId !== String(query.from.id) || link.chatId !== String(query.message.chat.id) || action.chatId !== link.chatId) return;
+  if (!link || action.linkToken !== link.token || link.userId !== String(query.from.id) || link.chatId !== String(query.message.chat.id) || action.chatId !== link.chatId) return;
   return traceOperation("telegram.cart.action", {sessionId: action.threadId || action.runId, operation: "telegram.action"}, async () => {
   const edit = async (text, reply_markup = { inline_keyboard: [] }, rich = false) => {
     const formatted = rich ? text : escapedLines(String(text).slice(0, 1500));
@@ -308,7 +340,7 @@ export async function processTelegramCartUpdate(commandId) {
     command = JSON.parse(await redis.get(key(`update:${commandId}`)) || "null");
     if (!command) return;
     const link = JSON.parse(await redis.get(key(`link:${command.deviceId}`)) || "null");
-    if (!link || link.chatId !== command.chatId) return;
+    if (!link || link.token !== command.linkToken || link.chatId !== command.chatId) return;
     if (command.started) { await telegramCall("sendMessage", { chat_id: link.chatId, text: "A cart update was interrupted. Check your cart in Swiggy before retrying." }); return; }
     command.started = true;
     await redis.set(key(`update:${commandId}`), JSON.stringify(command), { EX: 900 });

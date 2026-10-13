@@ -984,11 +984,16 @@ import { connectSwiggy, getSwiggyConnection, resumeSwiggyConnection } from "./oa
 import { LITERT_TEXT_MODELS, getLiteRtTextModel, getLiteRtVlmModelByProvider } from "./litert-models.js";
 
 async function setupCartExperience() {
+  let transferRequired = false;
+  let confirmationToken;
   const refresh = async () => {
     const status = await popupApi("/api/telegram");
+    transferRequired = status.transferRequired === true;
+    confirmationToken = status.confirmationToken;
+    document.getElementById("telegramConfirm").textContent = transferRequired ? "Move Telegram connection here" : "Confirm this Telegram account";
     document.getElementById("telegramAccount").dataset.state = status.connected ? "connected" : status.pending ? "pending" : "disconnected";
     document.getElementById("telegramAccountTitle").textContent = status.connected ? status.name || "Verified account" : status.pending ? status.pendingName || "Confirm your account" : "Telegram account";
-    document.getElementById("telegramStatus").textContent = status.connected ? "Connected to Telegram" : status.pending ? "Check this account, then confirm below." : status.configured ? "Link a private chat to receive your carts." : "Telegram is not configured on this server.";
+    document.getElementById("telegramStatus").textContent = status.connected ? "Connected to Telegram" : status.pending ? transferRequired ? "Already linked elsewhere. Moving it here disables the previous installation’s Telegram access. Existing carts and Swiggy credentials stay there." : "Check this account, then confirm below." : status.configured ? "Link a private chat to receive your carts." : "Telegram is not configured on this server.";
     document.getElementById("telegramConnectedBadge").hidden = !status.connected;
     document.getElementById("telegramConnect").hidden = status.connected;
     document.getElementById("telegramConnect").textContent = status.pending ? "Open a new connection link" : "Connect Telegram";
@@ -1013,7 +1018,7 @@ async function setupCartExperience() {
     } catch (error) { showMessage(error.message); }
   });
   document.getElementById("telegramConfirm").addEventListener("click", async () => {
-    try { await popupApi("/api/telegram/confirm", { method: "POST" }); clearInterval(poll); await refresh(); showMessage("Telegram verified. Select Telegram delivery and save."); } catch (error) { showMessage(error.message); }
+    try { await popupApi("/api/telegram/confirm", { method: "POST", body: { transfer: transferRequired, confirmationToken } }); clearInterval(poll); await refresh(); showMessage("Telegram verified. Select Telegram delivery and save."); } catch (error) { showMessage(error.message); }
   });
   document.getElementById("telegramDisconnect").addEventListener("click", async () => {
     try { await popupApi("/api/telegram", { method: "DELETE" }); document.getElementById("cartExperience").value = "screen"; await savePreferences({ cartExperience: "screen" }); await refresh(); } catch (error) { showMessage(error.message); }

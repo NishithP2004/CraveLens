@@ -425,6 +425,24 @@ While orchestration is running, the extension also opens a Socket.IO WebSocket a
 
 Tests live separately from production source in `apps/server/tests`, `apps/extension/tests` and `apps/edge-proxy/tests`. Run an individual workspace suite with `npm test -w @cravelens/server`, `@cravelens/extension` or `@cravelens/edge-proxy`.
 
+## Chrome Web Store publishing
+
+`.github/workflows/extension-release.yaml` builds and zips the extension, then runs `scripts/publish-chrome-extension.mjs` against the [official Chrome Web Store API v2](https://developer.chrome.com/docs/webstore/using-api), before uploading the workflow artifact and creating or updating the GitHub Release. The repository-owned script calls Google directly; it is not a Google-maintained wrapper or a third-party publishing action. It refreshes an OAuth access token, uploads the ZIP, polls asynchronous upload status every ten seconds for up to ten minutes, and requests `DEFAULT_PUBLISH` only after upload success. Requests have a ten-minute timeout, and the workflow publishing step has a twenty-minute limit. Upload and publication requests are not automatically retried. Both tag pushes and manual dispatch request publication after review, so run this workflow only for an intended release. Store review can delay availability.
+
+The workflow runs on pushed `v*.*.*` tags or manual dispatch. The tag must match `apps/extension/public/manifest.json`; manual dispatch creates the matching tag if needed. Enable the Chrome Web Store API in your Google Cloud project and obtain an OAuth refresh token with the `https://www.googleapis.com/auth/chromewebstore` scope from an account permitted to manage the extension. Complete the existing item's listing and privacy settings in the Developer Dashboard. See Google's guide above for credential setup.
+
+Configure these repository Actions secrets before running it:
+
+| Secret | Value |
+| --- | --- |
+| `CHROME_EXTENSION_ID` | Existing Chrome Web Store extension ID |
+| `CHROME_PUBLISHER_ID` | Publisher ID from the Chrome Web Store Developer Dashboard |
+| `CHROME_CLIENT_ID` | OAuth client ID authorized for Chrome Web Store API access |
+| `CHROME_CLIENT_SECRET` | Matching OAuth client secret |
+| `CHROME_REFRESH_TOKEN` | Refresh token authorized to publish this extension |
+
+The ZIP is named `cravelens-extension-<manifest-version>.zip` and contains the built files at its root. Missing or invalid credentials fail the publishing step. The access token is masked in Actions logs; credential responses are not printed. The script reports the returned submission state, which does not establish live availability. If an upload or publication times out, inspect the Developer Dashboard before rerunning. Local syntax and workflow checks do not verify OAuth access, store review or live publication.
+
 ## Current constraints
 
 - Food recognition quality depends on the visible frame and local model confidence.
@@ -447,6 +465,10 @@ The public [feature guide](https://cravelens.nishithp.page/guide/) is maintained
 The public feature guide includes real Chrome screenshots for Swiggy connection, detection controls, manual scan/cart progress, the AI preference editor and live hosted-fallback approval, vision-model selection, cart-model readiness, hosted-fallback policy, connected Telegram controls, cart-delivery choices, local-AI setup, a verified cart receipt, a bullet-point explanation excerpt, live payment choices, and cropped Telegram receipt/cart-edit messages with private details censored. Assets live in `apps/web/public/guide/screenshots/`; each is placed beside its feature instructions with descriptive alt text, a caption and a high-contrast enlargement hint. Clicking a screenshot opens an accessible image modal with zoom, Close, backdrop dismissal and Escape support; closing restores focus to the screenshot. The full-size image link remains available when JavaScript is disabled. Refresh captures when the corresponding UI changes and exclude personal context and credentials. Mask delivery addresses and other private details before adding any real receipt capture to the public guide. Captures show actual product states; the permission screen is explicitly identified as an unfinished preference run. The manual-scan image records real food identification and preparation progress, not a completed checkout. Never create a paid order solely to obtain documentation screenshots.
 
 The landing page, guide, privacy policy, terms and admin dashboard share one theme controller and include a compact **Theme** control with **System**, **Light** and **Dark**. System is the default and follows OS changes. An explicit selection is saved locally in the browser and shared across all pages and tabs on the same origin. No account preference or telemetry request is created.
+
+The landing-page hero links to CraveLens on Product Hunt using the official featured badge (post `1278222`). Light and dark artwork follows the resolved site theme, including System mode. Badge images load from `api.producthunt.com` with no referrer; Product Hunt receives the image requests and normal network metadata. The link opens in a new tab with `noopener noreferrer`.
+
+The landing page, user guide, privacy policy and terms pages include **Scroll back to top**, a fixed arrow that appears after scrolling more than 420 px and links to the shared header. It uses the same theme styling and mobile sizing across these public pages, with reduced-motion preferences respected.
 
 ## Private admin dashboard
 
@@ -490,3 +512,7 @@ The public admin application and the Tunnel origin use different Access audience
 If the HTML loads but styles/scripts redirect to `*.cloudflareaccess.com`, inspect the failing request's redirect chain. Keep `/admin` (including subpaths) and `/api/admin` in the same human Access application/AUD; avoid narrower applications overriding asset paths. Disable the Cookie Path Attribute for that multi-path application so its session covers both paths. Keep the origin application restricted to a Service Auth policy for the configured Worker token. After correcting policies and deploying this patch, sign out and sign in again to replace any incorrect Access cookie. Do not add Access login domains or `unsafe-inline` to the admin CSP to hide authentication failures.
 
 Inline scripts are not present in the admin source. If they appear in the served HTML, check Cloudflare tag injection (Zaraz/Google tag gateway), Rocket Loader and browser extensions. Exclude `/admin` and `/admin/*` from tag injection and content optimization; do not disable Access or weaken the admin CSP. A signed-in admin should receive same-origin assets with HTTP 200, their proper MIME types and no login redirects. Tests do not verify deployed Cloudflare policies.
+
+### Telegram reconnection after reinstall
+
+Extension 0.11.0 supports moving a verified Telegram connection to a new installation. Use **Connect Telegram**, press **Start** in the private bot chat, then check the displayed account and select **Move Telegram connection here**. A five-minute, single-use proof and explicit transfer consent are required. Redis atomically replaces ownership, removes the previous installation's link and pending link requests, and resets its delivery mode to on-screen. Old Telegram buttons and queued follow-up edits are bound to the previous connection and cannot authorize new actions after transfer. Swiggy credentials, preferences and carts are not migrated. Moving a connection does not cancel checkout, payment or requests already in progress; check Swiggy before preparing another cart. The existing `/api/telegram/confirm` accepts `{ "transfer": true, "confirmationToken": "<pending proof>" }`; `/api/telegram` reports `transferRequired` for a verified pending account owned by another installation. Existing `/api/*` edge routing covers these changes.

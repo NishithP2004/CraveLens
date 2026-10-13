@@ -14,6 +14,10 @@ body {
   font-family: "DM Sans", sans-serif;
   overflow-x: hidden;
 }
+.landing-page main {
+  /* Contain the rotated craving strip without creating a scroll container. */
+  overflow-x: clip;
+}
 a {
   color: inherit;
   text-decoration: none;
@@ -144,6 +148,30 @@ h2 em {
 }
 .hero-actions .button svg {
   width: 20px;
+}
+.product-hunt-badge {
+  display: inline-block;
+  max-width: 100%;
+  margin-top: 24px;
+  border-radius: 10px;
+}
+.product-hunt-badge:focus-visible {
+  outline: 3px solid var(--coral);
+  outline-offset: 4px;
+}
+.product-hunt-badge img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.product-hunt-badge .product-hunt-dark {
+  display: none;
+}
+html[data-theme="dark"] .product-hunt-badge .product-hunt-light {
+  display: none;
+}
+html[data-theme="dark"] .product-hunt-badge .product-hunt-dark {
+  display: block;
 }
 .text-link {
   font-size: 13px;
@@ -1003,7 +1031,7 @@ details p {
     min-height: 390px;
   }
   .feature-band {
-    margin: 0 13px;
+    margin: 0 13px 40px;
     padding: 55px 22px;
     border-radius: 27px;
   }
@@ -1140,9 +1168,25 @@ details p {
   cursor: pointer;
 }
 .eyebrow-swiggy img {
-  width: 54px;
+  width: 80px;
   height: auto;
   object-fit: contain;
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .eyebrow-swiggy {
+    max-width: 100%;
+    gap: 7px;
+    padding: 8px 9px;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+  }
+  .eyebrow-swiggy img {
+    width: 72px;
+  }
+  .eyebrow-swiggy .pulse {
+    flex-shrink: 0;
+  }
 }
 .story {
   padding-top: 118px;

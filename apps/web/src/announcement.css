@@ -7,22 +7,30 @@
 
 @media (max-width: 600px) {
   .announcement {
-    gap: 5px;
-    padding: 0 7px;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: clamp(2px, 0.7vw, 4px);
+    padding: 9px clamp(6px, 2vw, 12px);
+    height: auto;
+    min-height: 34px;
     white-space: nowrap;
-    font-size: 7.5px;
+    font-size: clamp(5px, 2.2vw, 11px);
+    line-height: 1.4;
     letter-spacing: 0;
   }
 
   .announcement .announcement-copy {
-    flex: 0 1 auto;
+    min-width: 0;
+    flex: 0 0 auto;
+    white-space: nowrap;
+    text-align: center;
   }
 
   .announcement .announcement-spark {
     display: inline-block;
     flex: 0 0 auto;
     color: var(--lime);
-    font-size: 11px;
+    font-size: 1.25em;
     line-height: 1;
   }
 }

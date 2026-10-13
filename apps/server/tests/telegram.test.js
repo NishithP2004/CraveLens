@@ -1,6 +1,25 @@
 import { beforeEach, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({ records: new Map(), messages: [], threads: new Map(), checkout: vi.fn(), cancel: vi.fn(), customize: vi.fn() }));
 vi.mock("../src/redis.js", () => ({ getRedis: async () => ({
+  eval: async (script, { keys: k, arguments: a }) => {
+    const r = state.records;
+    if (script.includes("return 'transfer'")) {
+      if (r.get(k[0]) !== a[0] || r.get(k[1]) !== a[1]) return "expired";
+      const owner = r.get(k[2]) || "";
+      if (owner !== a[2]) return "changed";
+      if (owner && owner !== a[3] && a[4] !== "true") return "transfer";
+      const previous = JSON.parse(r.get(k[3]) || "null");
+      if (owner && owner !== a[3]) {
+        r.set(k[5], JSON.stringify({ ...JSON.parse(r.get(k[5]) || '{"silent":false}'), mode: "screen" }));
+        [k[4], k[6], k[7]].forEach(key => r.delete(key));
+      }
+      if (previous && previous.userId !== a[5] && r.get(k[8]) === a[3]) r.delete(k[8]);
+      r.set(k[2], a[3]); r.set(k[3], a[6]); r.delete(k[0]); r.delete(k[1]); return "ok";
+    }
+    if (r.get(k[0]) !== a[0]) return 0;
+    if (r.get(k[1]) === a[1]) r.delete(k[1]);
+    [k[0], k[2], k[3]].forEach(key => r.delete(key)); r.set(k[4], a[2]); return 1;
+  },
   sAdd: async (key, value) => { const set = state.records.get(key) || new Set(); set.add(value); state.records.set(key, set); },
   sRem: async (key, value) => { state.records.get(key)?.delete(value); },
   get: async (key) => state.records.get(key) ?? null,
@@ -22,11 +41,11 @@ beforeEach(() => {
     return { json: async () => ({ ok: true, result: url.endsWith("getMe") ? { username: "cravelens_test_bot" } : { message_id: 1 } }) };
   }));
 });
-async function link() {
-  const { url } = await startTelegramLink("device-a");
+async function link(deviceId = "device-a") {
+  const { url } = await startTelegramLink(deviceId);
   const token = new URL(url).searchParams.get("start");
   await handleTelegramUpdate({ message: { chat: { id: 10, type: "private" }, from: { id: 10, first_name: "Owner" }, text: `/start ${token}` } });
-  return { token, status: await telegramStatus("device-a") };
+  return { token, status: await telegramStatus(deviceId) };
 }
 it("requires Telegram Start and extension confirmation before enabling delivery", async () => {
   await expect(saveCartExperience("device-a", { mode: "telegram" })).rejects.toThrow("verify");
@@ -46,14 +65,14 @@ it("ignores reused start tokens and group chats", async () => {
 });
 it("rejects callbacks from another Telegram user before touching checkout", async () => {
   await link(); await confirmTelegramLink("device-a");
-  state.records.set("cravelens:telegram:action:button", JSON.stringify({ deviceId: "device-a", chatId: "10", type: "confirm", threadId: "cart", method: "COD" }));
+  state.records.set("cravelens:telegram:action:button", JSON.stringify({ deviceId: "device-a", chatId: "10", linkToken: JSON.parse(state.records.get("cravelens:telegram:link:device-a")).token, type: "confirm", threadId: "cart", method: "COD" }));
   await handleTelegramUpdate({ callback_query: { id: "query", data: "button", from: { id: 999 }, message: { message_id: 1, chat: { id: 10, type: "private" } } } });
   expect(state.checkout).not.toHaveBeenCalled();
 });
 it("payment selection only shows a confirmation, without placing an order", async () => {
   await link(); await confirmTelegramLink("device-a");
   state.threads.set("cart", { deviceId: "device-a", threadId: "cart", status: "awaiting_confirmation", suggestion: { restaurant: "Restaurant", finalAmount: 251, expiresAt: new Date(Date.now()+60_000).toISOString(), receipt: { items: [] } } });
-  state.records.set("cravelens:telegram:action:button", JSON.stringify({ deviceId: "device-a", chatId: "10", type: "select", threadId: "cart", method: "COD" }));
+  state.records.set("cravelens:telegram:action:button", JSON.stringify({ deviceId: "device-a", chatId: "10", linkToken: JSON.parse(state.records.get("cravelens:telegram:link:device-a")).token, type: "select", threadId: "cart", method: "COD" }));
   await handleTelegramUpdate({ callback_query: { id: "query", data: "button", from: { id: 10 }, message: { message_id: 1, chat: { id: 10, type: "private" } } } });
   expect(state.checkout).not.toHaveBeenCalled();
   expect(state.messages.at(-1).body.reply_markup.inline_keyboard[0][0].text).toContain("Confirm order");
@@ -117,7 +136,7 @@ it("shows cancellation on pending UPI and delegates to the shared cancellation s
   await link(); await confirmTelegramLink("device-a");
   state.threads.set("cart", { deviceId: "device-a", threadId: "cart", status: "awaiting_confirmation", suggestion: suggestion() });
   state.checkout.mockResolvedValue({ status: "payment_pending", payment: { amount: 251 } });
-  state.records.set("cravelens:telegram:action:confirm", JSON.stringify({ deviceId: "device-a", chatId: "10", type: "confirm", threadId: "cart", method: "UPI" }));
+  state.records.set("cravelens:telegram:action:confirm", JSON.stringify({ deviceId: "device-a", chatId: "10", linkToken: JSON.parse(state.records.get("cravelens:telegram:link:device-a")).token, type: "confirm", threadId: "cart", method: "UPI" }));
   await handleTelegramUpdate({ callback_query: { id: "query", data: "confirm", from: { id: 10 }, message: { message_id: 1, chat: { id: 10, type: "private" } } } });
   const body = state.messages.findLast((entry) => entry.method === "editMessageText").body;
   expect(body.reply_markup.inline_keyboard.flat().some((button) => button.text === "Cancel payment process")).toBe(true);
@@ -130,7 +149,7 @@ it("runs persisted Telegram follow-ups through shared customization with their c
   await link(); await confirmTelegramLink("device-a");
   const thread = { deviceId: "device-a", threadId: "cart", status: "awaiting_confirmation", suggestion: suggestion() };
   state.threads.set("cart", thread);
-  state.records.set("cravelens:telegram:update:command", JSON.stringify({ deviceId: "device-a", threadId: "cart", chatId: "10", input: { instruction: "Add another portion" } }));
+  state.records.set("cravelens:telegram:update:command", JSON.stringify({ deviceId: "device-a", threadId: "cart", chatId: "10", linkToken: JSON.parse(state.records.get("cravelens:telegram:link:device-a")).token, input: { instruction: "Add another portion" } }));
   state.customize.mockResolvedValue({ suggestion: thread.suggestion });
   await processTelegramCartUpdate("command");
   expect(state.customize).toHaveBeenCalledWith("device-a", "cart", { instruction: "Add another portion" });
@@ -152,4 +171,49 @@ it("queues verified private follow-ups once and ignores a different sender", asy
     await handleTelegramUpdate({ message: { ...message, message_id: 8, from: { id: 999 } } });
     expect(state.messages).toHaveLength(count);
   } finally { vi.clearAllTimers(); vi.useRealTimers(); }
+});
+
+it("requires explicit consent to move a verified Telegram account after reinstall", async () => {
+  await link(); await confirmTelegramLink("device-a");
+  await saveCartExperience("device-a", { mode: "telegram", silent: true });
+  state.records.set("cravelens:swiggy:device-a", "old-credential");
+  state.records.set("cravelens:swiggy:device-b", "new-credential");
+  state.records.set("cravelens:telegram:action:old", JSON.stringify({ deviceId: "device-a", chatId: "10", linkToken: JSON.parse(state.records.get("cravelens:telegram:link:device-a")).token, type: "confirm", threadId: "cart", method: "COD" }));
+  await link("device-b");
+  expect(await telegramStatus("device-b")).toMatchObject({ pending: true, transferRequired: true });
+  await expect(confirmTelegramLink("device-b")).rejects.toThrow("Confirm moving");
+  await expect(confirmTelegramLink("device-b", { transfer: true, confirmationToken: "stale-proof" })).rejects.toThrow("Review the pending");
+  expect((await telegramStatus("device-b")).pending).toBe(true);
+  expect(await confirmTelegramLink("device-b", { transfer: true, confirmationToken: (await telegramStatus("device-b")).confirmationToken })).toMatchObject({ connected: true });
+  expect(await telegramStatus("device-a")).toMatchObject({ connected: false, settings: { mode: "screen", silent: true } });
+  expect(state.records.get("cravelens:telegram:owner:10")).toBe("device-b");
+  await disconnectTelegram("device-a");
+  expect(state.records.get("cravelens:telegram:owner:10")).toBe("device-b");
+  // Reconnect the former installation; its previous buttons must remain revoked.
+  await link(); await confirmTelegramLink("device-a", { transfer: true, confirmationToken: (await telegramStatus("device-a")).confirmationToken });
+  await handleTelegramUpdate({ callback_query: { id: "old", data: "old", from: { id: 10 }, message: { message_id: 1, chat: { id: 10, type: "private" } } } });
+  expect(state.checkout).not.toHaveBeenCalled();
+  expect(state.records.get("cravelens:swiggy:device-a")).toBe("old-credential");
+  expect(state.records.get("cravelens:swiggy:device-b")).toBe("new-credential");
+});
+it("rejects expired proofs and ownership changes even with transfer consent", async () => {
+  await expect(confirmTelegramLink("device-b", { transfer: true, confirmationToken: (await telegramStatus("device-b")).confirmationToken })).rejects.toThrow("press Start");
+  await link(); await confirmTelegramLink("device-a");
+  await link("device-b"); await link("device-c");
+  await confirmTelegramLink("device-b", { transfer: true, confirmationToken: (await telegramStatus("device-b")).confirmationToken });
+  await expect(confirmTelegramLink("device-c", { transfer: true, confirmationToken: (await telegramStatus("device-c")).confirmationToken })).rejects.toThrow("changed or expired");
+  expect(state.records.get("cravelens:telegram:owner:10")).toBe("device-b");
+  await link("device-c"); state.records.delete("cravelens:telegram:latest:device-c");
+  await expect(confirmTelegramLink("device-c", { transfer: true, confirmationToken: (await telegramStatus("device-c")).confirmationToken })).rejects.toThrow("changed or expired");
+});
+
+it("drops queued edits authorized by a superseded connection", async () => {
+  await link(); await confirmTelegramLink("device-a");
+  const linkToken = JSON.parse(state.records.get("cravelens:telegram:link:device-a")).token;
+  state.records.set("cravelens:telegram:update:revoked", JSON.stringify({ deviceId: "device-a", threadId: "cart", chatId: "10", linkToken, input: { instruction: "Add a portion" } }));
+  await link("device-b");
+  await confirmTelegramLink("device-b", { transfer: true, confirmationToken: (await telegramStatus("device-b")).confirmationToken });
+  await processTelegramCartUpdate("revoked");
+  expect(state.customize).not.toHaveBeenCalled();
+  expect(state.messages.some(message => message.method === "sendPhoto")).toBe(false);
 });

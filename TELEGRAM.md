@@ -46,3 +46,9 @@ When explicit food preferences are absent, cart preparation first generates or r
 ## Optional workflow diagnostics
 
 When Langfuse is configured, delivery and the shared checkout/customization workflows join the cart conversation session. Telegram API calls record method names and timing; message bodies, chat identifiers, bot tokens, callback payloads and payment details are excluded from exports. Linking API calls have standalone traces; idle polling is excluded. Tracing does not change delivery retries, confirmation, ownership or duplicate-submission checks. A successful export does not establish successful Telegram delivery or payment.
+
+## Reinstalling or moving to another installation
+
+After reinstalling CraveLens, connect to the bot again and press **Start**. Check the account shown in the extension and click **Move Telegram connection here** if it is already linked elsewhere. This explicitly moves that Telegram account to the new installation; phone numbers are not used as identifiers. Proof expires after five minutes. If ownership changes before confirmation, request a fresh link and press Start again.
+
+The server uses an atomic Redis ownership transfer, removes the old link and pending requests, and restores on-screen delivery on the previous installation. Connection-specific authorization invalidates its old bot buttons and queued cart-edit commands. No Swiggy credentials, cart threads or saved preferences move between installations. Transfers do not cancel requests, checkout or payments already in progress; check their status in Swiggy. Select **Send my cart to Telegram** and save on the new installation after transferring. Uninstalling alone does not remove the server-side link; verified transfer provides recovery without operator deletion.

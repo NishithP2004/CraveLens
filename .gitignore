@@ -9,4 +9,4 @@ dist
 *.log
 coverage
 *.task
-brag-output/
+brag-output*/

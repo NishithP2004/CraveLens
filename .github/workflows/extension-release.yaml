@@ -1,4 +1,4 @@
-name: Package extension release
+name: Publish extension release
 
 on:
   push:
@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   package:
-    name: Build, zip, and release extension
+    name: Build, zip, publish, and release extension
     runs-on: ubuntu-latest
 
     steps:
@@ -69,6 +69,18 @@ jobs:
           set -euo pipefail
           cd apps/extension/dist
           zip -r "../../../${{ steps.release.outputs.asset }}" .
+
+      - name: Upload and publish to Chrome Web Store
+        timeout-minutes: 20
+        env:
+          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CHROME_PUBLISHER_ID: ${{ secrets.CHROME_PUBLISHER_ID }}
+          CHROME_CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CHROME_CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+          RELEASE_ASSET: ${{ steps.release.outputs.asset }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: node scripts/publish-chrome-extension.mjs
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4

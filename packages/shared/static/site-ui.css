@@ -103,10 +103,6 @@ html[data-theme] .story-cinema .story-label {
   background: var(--lime);
   color: #181814;
 }
-html[data-theme] .ticker,
-html[data-theme] .ticker i {
-  color: #181814;
-}
 html[data-theme] .confidence {
   background: var(--paper);
   color: var(--ink);
@@ -165,10 +161,10 @@ html[data-theme="light"] .button-light {
   background: #fff;
   color: #181814;
 }
-html[data-theme="light"] .ticker {
+html[data-theme] .ticker {
   color: #fff;
 }
-html[data-theme="light"] .ticker i {
+html[data-theme] .ticker i {
   color: var(--lime);
 }
 /* Text links remain recognizable without relying on hover or color alone. */

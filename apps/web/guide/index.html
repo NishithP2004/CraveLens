@@ -150,7 +150,9 @@
             The “On this page” navigation uses a soft highlighted background for
             your current reading section as you scroll; click any entry to jump
             to it. The shared footer links to Home, User guide, Privacy, Terms
-            and support on every page.
+            and support on every page. After scrolling down, use the bottom-right
+            arrow, “Scroll back to top”, to return to the header on the home,
+            guide, privacy or terms page.
           </p>
           <section id="start">
             <h2>1. Install and connect Swiggy</h2>
@@ -696,6 +698,16 @@
                 >Telegram setup guide</a
               >.
             </p>
+            <p>
+              Reinstalled CraveLens or moved to another browser? Connect and press
+              <strong>Start</strong> again. Check the displayed account, then click
+              <strong>Move Telegram connection here</strong> if it is linked elsewhere.
+              This disables the previous installation’s Telegram access and old cart
+              buttons. Swiggy credentials, preferences and carts stay with their original
+              installation. It does not cancel checkout or payments already in progress;
+              check Swiggy before preparing another cart. Enable Telegram delivery and
+              save again after moving the connection.
+            </p>
             <ol>
               <li>
                 In the popup’s <strong>Cart experience</strong> section, click
@@ -1105,6 +1117,7 @@
       </div>
     </main>
     <!-- CRAVELENS_SHARED_FOOTER -->
+    <a class="scroll-top" href="#top" aria-label="Scroll back to top">↑</a>
     <dialog class="guide-image-modal" aria-labelledby="guide-image-title">
       <div class="guide-image-toolbar">
         <h2 id="guide-image-title">Screenshot preview</h2>
@@ -1124,5 +1137,6 @@
       <p class="guide-image-description"></p>
     </dialog>
     <script type="module" src="/src/guide.js"></script>
+    <script type="module" src="/src/scroll-top.js"></script>
   </body>
 </html>
