@@ -12,7 +12,7 @@ Kotlin app in `apps/android`, package `page.nishithp.cravelens`. It mirrors the 
 
 ## Build
 
-Requires JDK 17+, Android SDK 36, and Node.js (the Gradle `exportShared` task regenerates the shared JSON assets).
+Requires JDK 17+, Android SDK platform 37 (compileSdk; Material 3 1.5 requires it), and Node.js (the Gradle `exportShared` task regenerates the shared JSON assets). `targetSdk` stays 36. The Android Gradle Plugin is 9.1.0 and the wrapper is Gradle 9.3.1. `android.builtInKotlin=false` keeps the Kotlin 2.3 plugin; that flag is deprecated and goes away in AGP 10.
 
 ```bash
 cd apps/android
@@ -46,7 +46,17 @@ The LiteRT-LM engine is not linked in this build. If the model file is absent, b
 
 ## Visual system
 
-The Compose theme follows the landing page: cream `#f7f1e7` and night `#10110e`, coral `#ff5b38`, lime `#d9ed72`, ink, and 26 dp paper cards. Coral and lime cards use ink text, matching the site's step cards. Primary buttons use coral-dark `#ec4525` so the white label stays readable. Headlines use Manrope and body text uses DM Sans. Both are bundled under the SIL Open Font License; the license texts are in `app/src/main/assets/licenses/`. Light and dark follow the system theme, matching the site. The cart opens as a bottom sheet over Home.
+The app uses Material 3 Expressive (`MaterialExpressiveTheme`, `MotionScheme.expressive()`) from Compose BOM `2026.11.01` (Material 3 1.5.0). Coral `#FF5B38` is the scheme seed. The generated light primary is `#B52605` so white labels stay readable; filled primary actions and the bubble still use bright coral and lime `#D9ED72`. Headlines use Manrope and body text uses DM Sans, both bundled under the SIL Open Font License (`app/src/main/assets/licenses/`). Light and dark follow the saved theme (`system`, `light`, or `dark`). **Use wallpaper colours** is off until the user turns it on, and only applies on Android 12 and later. Coral and lime stay on the bubble and those primary actions either way.
+
+Home, Cart, History, and Settings are a navigation suite (a bottom navigation bar on a phone). Each screen uses a large flexible top app bar that collapses. The window is edge-to-edge. Predictive back is enabled (`enableOnBackInvokedCallback`); from Cart, History, or Settings it returns to Home with a small scale, and from Home the system finishes the activity. The Home status card and the Cart header share bounds (`status-card`) and move with the expressive spatial spring. Key presses use confirm, context-click, and toggle haptics.
+
+The floating bubble morphs a Material shape for each status: Off is a circle, Watching a pill, Spotted food a cookie, Identifying a flower, Personalizing a clover with the wavy loading indicator, Preparing cart a sun with the same indicator, Cart ready a gem, Needs you a heart, Paused an oval, and Error a burst. Personalizing is lime and Preparing cart is coral. The overlay itself is still the view bubble; the morphing face is the in-app status.
+
+Settings keep the extension section labels: **01 Personal context**, **02 Detection context**, **03 VLM configuration**, **04 Agentic orchestration**, **05 Cart experience**, and **06 Local AI setup**, plus an Android **Appearance** section (theme and wallpaper colours). Defaults match the extension, except the Android scan interval default of 1000 ms. Sliders cover sensitivity 0.35–0.8, scan interval 1–30 seconds, and context length 4096–32768. Segmented buttons cover the hosted-fallback, cart-experience, and theme choices.
+
+Cart and History show rounded thumbnails only for `https` image URLs named `imageUrl`, `thumbnailUrl`, `image_url`, or `thumbnail_url` in the server response. Otherwise they show an original empty-plate illustration. The cart's floating toolbar checks the active cart. Order stays disabled until a verified under-cap cart exists.
+
+A progress notification (`Notification.ProgressStyle` on API 36, `setProgress` before that) is posted only while the real watch status is Preparing cart or Cart ready, and it has no Order action. The quick settings tile label is CraveLens and its subtitle is the current status. The home-screen widget reads the saved watch label and cart summary, which stay "Off" and the empty-cart sentence until a real session writes them. The launcher icon has an adaptive foreground and a monochrome layer for themed icons.
 
 Debug builds leave `FLAG_SECURE` off the floating bubble so a screen capture can show it. Release builds keep `FLAG_SECURE`. Debug builds also show a bubble design preview on Home. Those faces are the status designs, not a live detection. The bubble above that preview is the real state.
 

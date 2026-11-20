@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "page.nishithp.cravelens.core"
-    compileSdk = 36
+    compileSdk = 37
     defaultConfig {
         minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

@@ -14,7 +14,7 @@ if (googleServices.exists()) {
 
 android {
     namespace = "page.nishithp.cravelens"
-    compileSdk = 36
+    compileSdk = 37
     defaultConfig {
         applicationId = "page.nishithp.cravelens"
         minSdk = 26
@@ -76,7 +76,10 @@ dependencies {
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.graphics)
     implementation(libs.compose.material3)
+    implementation(libs.compose.material3.navsuite)
     implementation(libs.compose.material.icons)
+    implementation(libs.graphics.shapes)
+    implementation(libs.glance.appwidget)
     debugImplementation(libs.compose.ui.tooling)
     implementation(libs.kotlinx.serialization)
     implementation(libs.kotlinx.coroutines)

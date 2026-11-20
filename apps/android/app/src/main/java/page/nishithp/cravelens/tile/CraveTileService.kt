@@ -12,12 +12,11 @@ import page.nishithp.cravelens.ui.WatchState
 
 class CraveTileService : TileService() {
     override fun onStartListening() {
+        val label = WatchState.detail.ifBlank { WatchState.status.label }
         qsTile.state = if (WatchState.status == BubbleStatus.WATCHING) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
-        qsTile.subtitle = when (WatchState.status) {
-            BubbleStatus.WATCHING -> "Watching"
-            BubbleStatus.READY -> "Cart ready"
-            else -> "Off"
-        }
+        qsTile.label = "CraveLens"
+        if (Build.VERSION.SDK_INT >= 29) qsTile.subtitle = label
+        qsTile.contentDescription = "CraveLens, $label"
         qsTile.updateTile()
     }
 
