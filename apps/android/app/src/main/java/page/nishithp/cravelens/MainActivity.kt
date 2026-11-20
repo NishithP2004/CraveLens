@@ -8,8 +8,19 @@ import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
@@ -28,6 +39,7 @@ import page.nishithp.cravelens.ui.SettingsScreen
 import page.nishithp.cravelens.ui.WatchState
 import page.nishithp.cravelens.ui.theme.CraveTheme
 
+@OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
     private val api = CraveApi(BuildConfig.PROD_API_URL)
     private var route by mutableStateOf("onboarding")
@@ -42,24 +54,47 @@ class MainActivity : ComponentActivity() {
         if (intent?.action == "page.nishithp.cravelens.WATCH") route = "home"
         setContent {
             CraveTheme(mode = "system") {
-                when (route) {
-                    "onboarding" -> OnboardingScreen(CraveLensApp.startupMessage) {
-                        WatchState.fallback = it
-                        route = "home"
+                val under = if (route == "cart") "home" else route
+                Box {
+                AnimatedContent(targetState = under, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "route") { screen ->
+                    when (screen) {
+                        "onboarding" -> OnboardingScreen(CraveLensApp.startupMessage) {
+                            WatchState.fallback = it
+                            route = "home"
+                        }
+                        "settings" -> SettingsScreen(settingsMessage, onSave = { settingsMessage = "Saved on this device. Server settings sync after a device session." }, onBack = { route = "home" })
+                        "history" -> HistoryScreen(historyState, onRefresh = ::loadHistory, onBack = { route = "home" })
+                        else -> HomeScreen(
+                            status = WatchState.status,
+                            detail = WatchState.detail,
+                            showStatePreview = BuildConfig.DEBUG,
+                            onWatch = ::startWatch,
+                            onLasso = { startActivity(Intent(this@MainActivity, LassoActivity::class.java)) },
+                            onSettings = { route = "settings" },
+                            onHistory = { route = "history" },
+                            onCart = { route = "cart" },
+                            onBubble = ::showBubble,
+                        )
                     }
-                    "settings" -> SettingsScreen(settingsMessage, onSave = { settingsMessage = "Saved on this device. Server settings sync after a device session." }, onBack = { route = "home" })
-                    "cart" -> CartScreen(cartState, "Payable amount appears after a verified cart.", blocked = false, onRefresh = ::loadCart, onBack = { route = "home" })
-                    "history" -> HistoryScreen(historyState, onRefresh = ::loadHistory, onBack = { route = "home" })
-                    else -> HomeScreen(
-                        status = WatchState.status,
-                        detail = WatchState.detail,
-                        onWatch = ::startWatch,
-                        onLasso = { startActivity(Intent(this, LassoActivity::class.java)) },
-                        onSettings = { route = "settings" },
-                        onHistory = { route = "history" },
-                        onCart = { route = "cart" },
-                        onBubble = ::showBubble,
-                    )
+                }
+                if (route == "cart") {
+                    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+                    ModalBottomSheet(
+                        onDismissRequest = { route = "home" },
+                        sheetState = sheetState,
+                        containerColor = androidx.compose.material3.MaterialTheme.colorScheme.background,
+                        shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
+                        dragHandle = { BottomSheetDefaults.DragHandle() },
+                    ) {
+                        CartScreen(
+                            cartState,
+                            "Payable amount appears after a verified cart.",
+                            blocked = false,
+                            onRefresh = ::loadCart,
+                            onBack = { route = "home" },
+                        )
+                    }
+                }
                 }
             }
         }

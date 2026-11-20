@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,12 +32,13 @@ class LassoActivity : ComponentActivity() {
         setContent {
             CraveTheme("system") {
                 var path by mutableStateOf(Path())
-                Box(Modifier.fillMaxSize().background(Color(0xCC10110E))) {
+                Box(Modifier.fillMaxSize().background(Color(0xE610110E))) {
                     if (frame == null) {
-                        Column(Modifier.padding(24.dp)) {
-                            Text("Circle the food", color = Color.White)
-                            Text("Start watching first for instant Lasso. There is no frozen frame from a capture session.", color = Color.White)
-                            Text("Tap anywhere to cancel", color = Color.White, modifier = Modifier.padding(top = 12.dp).pointerInput(Unit) { detectDragGestures { _, _ -> } })
+                        Column(Modifier.statusBarsPadding().padding(28.dp)) {
+                            Text("LASSO", color = Color(0xFFD9ED72), style = androidx.compose.material3.MaterialTheme.typography.titleSmall)
+                            Text("Circle the food", color = Color(0xFFFFF8EE), style = androidx.compose.material3.MaterialTheme.typography.headlineMedium)
+                            Text("Start watching first for instant Lasso. There is no frozen frame from a capture session.", color = Color(0xFFB6B2A7), modifier = Modifier.padding(top = 8.dp))
+                            Text("Tap anywhere to cancel", color = Color(0xFFFF5B38), modifier = Modifier.padding(top = 16.dp).pointerInput(Unit) { detectDragGestures { _, _ -> } })
                         }
                     }
                     Canvas(Modifier.fillMaxSize().pointerInput(frame) {

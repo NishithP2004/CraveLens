@@ -3,7 +3,8 @@
     <style name="Theme.CraveLens" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">true</item>
     </style>
     <style name="Theme.CraveLens.Translucent" parent="Theme.CraveLens">
         <item name="android:windowIsTranslucent">true</item>

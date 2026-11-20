@@ -44,6 +44,12 @@ The production API is `https://cravelens.nishithp.page`. The emulator can reach 
 
 The LiteRT-LM engine is not linked in this build. If the model file is absent, background turns return `INFERENCE_UNAVAILABLE` and follow the saved failure policy. The Remote Config URLs for `.litertlm` files are placeholders and were not verified against Hugging Face.
 
+## Visual system
+
+The Compose theme follows the landing page: cream `#f7f1e7` and night `#10110e`, coral `#ff5b38`, lime `#d9ed72`, ink, and 26 dp paper cards. Coral and lime cards use ink text, matching the site's step cards. Primary buttons use coral-dark `#ec4525` so the white label stays readable. Headlines use Manrope and body text uses DM Sans. Both are bundled under the SIL Open Font License; the license texts are in `app/src/main/assets/licenses/`. Light and dark follow the system theme, matching the site. The cart opens as a bottom sheet over Home.
+
+Debug builds leave `FLAG_SECURE` off the floating bubble so a screen capture can show it. Release builds keep `FLAG_SECURE`. Debug builds also show a bubble design preview on Home. Those faces are the status designs, not a live detection. The bubble above that preview is the real state.
+
 ## Ordering
 
 Checkout posts `/api/orchestrate/:threadId/decision` at most once, on a client with `retryOnConnectionFailure` set to false. Carts at or above ₹1,000 stay closed. The Order button stays disabled until a verified under-cap cart exists. Notifications have no Order action.

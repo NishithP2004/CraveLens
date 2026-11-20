@@ -55,8 +55,9 @@ class IdentifyActivity : ComponentActivity() {
                     }
                 }
                 Column(Modifier.fillMaxWidth().padding(24.dp)) {
-                    Text("Identifying on-device…")
-                    Text(message)
+                    Text("ON-DEVICE", color = page.nishithp.cravelens.ui.theme.Coral, style = androidx.compose.material3.MaterialTheme.typography.titleSmall)
+                    Text("Identifying on-device…", style = androidx.compose.material3.MaterialTheme.typography.headlineMedium)
+                    Text(message, style = androidx.compose.material3.MaterialTheme.typography.bodyLarge)
                 }
             }
         }
