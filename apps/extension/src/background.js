@@ -1,8 +1,6 @@
 import { io } from "socket.io-client";
+import { DEFAULT_LOCAL_CONTEXT_TOKENS, DEFAULT_OLLAMA_BASE_URL } from "@cravelens/shared";
 import { LITERT_TEXT_MODELS, getLiteRtTextModel, getLiteRtVlmModelByProvider } from "./litert-models.js";
-
-const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434";
-const DEFAULT_LOCAL_CONTEXT_TOKENS = 16_384;
 const ENVIRONMENTS = Object.freeze({
   development: { apiUrl: "http://localhost:8787" },
   production: { apiUrl: "https://cravelens.nishithp.page" },

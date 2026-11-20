@@ -153,8 +153,21 @@
               shows a rectangular lasso selector. The extension captures the
               visible tab only after you select an area, crops that screenshot
               to the selected rectangle, and uses the cropped region for local
-              food verification. The full screenshot is not sent to our server,
+              food verification.               The full screenshot is not sent to our server,
               Swiggy, or an AI API.
+            </p>
+            <p>
+              The Android app can watch the screen you choose after a per-session
+              screen-capture consent, and it can circle food with Lasso. Those
+              frames stay on the phone and are identified by on-device Gemini Nano
+              through Firebase AI Logic. A frame is sent to cloud Gemini only when
+              <strong>When on-device identification can't run</strong> is set to
+              <strong>Automatically use a hosted model</strong>, or when you approve
+              one cloud call after <strong>Ask before using a hosted model</strong>.
+              <strong>Stop without switching models</strong> keeps the frame on the
+              phone. The server still receives the structured dish description, not
+              the picture. App Check debug tokens are used on debug builds; release
+              builds use Play Integrity when a Play Console app is configured.
             </p>
             <p>
               When food is confidently identified, CraveLens sends our

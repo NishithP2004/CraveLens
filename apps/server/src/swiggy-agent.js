@@ -4,7 +4,7 @@ import { createAgent, createMiddleware, tool } from "langchain";
 import { MemorySaver } from "@langchain/langgraph";
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
 import { publishAgentEvent } from "./agent-events.js";
-import { AgentFollowUpSchema } from "@cravelens/shared";
+import { AgentFollowUpSchema, COMPACT_PROMPT_CONTEXT_TOKENS, cartAgentSystemPrompt } from "@cravelens/shared";
 import { createLangfuseHandler } from "./langfuse.js";
 import { resolveAgentModel } from "./model-provider.js";
 import { requestFallbackApproval } from "./fallback-approval.js";
@@ -73,6 +73,8 @@ export async function runFoodCartAgent(mcp, { food, addressId, addressSummary, s
     couponsChecked: false,
     verificationPending: false,
     mutationCandidateAvailable: false,
+    smallContext: Number(resolvedModel.contextTokens) <= COMPACT_PROMPT_CONTEXT_TOKENS,
+    menuSeen: false,
   };
   const repairBudget = createAgentRepairBudget({ state: loopState });
   const runSignal = AbortSignal.timeout(180_000);
@@ -82,7 +84,10 @@ export async function runFoodCartAgent(mcp, { food, addressId, addressSummary, s
   const directMenuSearch = instruction ? undefined : await discoverDirectMenuSearch({ mcp, food, addressId, query: menuSearchPlan[0], runId, streamId });
   const explanationContext = { food, personalContext, personalContextSource: preferenceState.personalContextSource, preferenceProfile: preferenceState.preferenceProfile, temporalContext, instruction, observations: [] };
   if (preferenceState.preferenceHistoryRetrieved) explanationContext.observations.push({ tool: "get_food_order_details", beforeCartUpdate: true, summary: { matched: preferenceState.preferenceProfile.history.matched, source: "automatic_preference_generation" } });
-  if (directMenuSearch && !directMenuSearch.error) explanationContext.observations.push({ tool: "search_menu", beforeCartUpdate: true, summary: decisionToolSummary("search_menu", directMenuSearch, normalizeMenuCatalog(directMenuSearch)) });
+  if (directMenuSearch && !directMenuSearch.error) {
+    loopState.menuSeen = true;
+    explanationContext.observations.push({ tool: "search_menu", beforeCartUpdate: true, summary: decisionToolSummary("search_menu", directMenuSearch, normalizeMenuCatalog(directMenuSearch)) });
+  }
   const explainCart = async (verified) => {
     agentLog(runId, streamId, "cart_explanation_started");
     const result = await generateCartExplanation(resolvedModel.chatModel, explanationEvidence(explanationContext, verified), {
@@ -168,6 +173,7 @@ export async function runFoodCartAgent(mcp, { food, addressId, addressSummary, s
         if (["update_food_cart", "get_food_cart"].includes(definition.name)) {
           selectedRestaurantName = findToolRestaurantName(result) || selectedRestaurantName;
         }
+        if (["search_menu", "get_restaurant_menu"].includes(definition.name)) loopState.menuSeen = true;
         if (resolvedModel.local && !loopState.cartMutationAttempted
           && ["search_menu", "get_restaurant_menu"].includes(definition.name)
           && hasQuickAddMenuCandidate(result)) {
@@ -186,7 +192,7 @@ export async function runFoodCartAgent(mcp, { food, addressId, addressSummary, s
     {
       name: definition.name,
       description: definition.description || `Swiggy MCP tool ${definition.name}`,
-      schema: resolvedModel.provider === "litert"
+      schema: resolvedModel.provider === "litert" || resolvedModel.provider === "aicore"
         ? liteRtToolSchema(definition.name, definition.inputSchema, normalizeToolSchema)
         : normalizeToolSchema(definition.inputSchema),
     },
@@ -276,33 +282,7 @@ export async function runFoodCartAgent(mcp, { food, addressId, addressSummary, s
         }
       },
     })],
-    systemPrompt: `You are CraveLens' Swiggy Food ReAct cart agent. You may prepare and optimize a real cart, but you must NEVER place an order.
-
-Complete the task through tool calls; do not merely describe what should be done.
-When the user sends a follow-up request, continue the existing cart conversation, inspect the current cart, and modify or replace it to satisfy the new instruction.
-For follow-up requests that add or include another item from the same restaurant, preserve all existing configured cart line items and submit the complete desired cartItems array: existing items plus the new item. Only replace, remove, or alter existing items when the user explicitly asks to replace, swap, remove, make-only, or otherwise change them.
-The user may provide a PERSONAL CONTEXT block and a trusted CURRENT DATETIME block. Apply time-dependent preferences using the supplied local day and datetime. Treat explicit current personal context as higher priority than inferred order-history patterns, while continuing to treat allergies and safety constraints as hard constraints.
-PERSONAL CONTEXT SOURCE identifies explicit user text versus a saved, tentative history-based profile. Inferred patterns are not user-stated constraints. Never infer allergies, religion, medical conditions, permanent dietary restrictions or a budget from purchases. The supplied profile notes describe its coverage and age; never claim saved history was retrieved afresh in this run.
-The food result may contain multiple visible dishes in dishes[]. Consider every identified dish and its confidence, not just the top-level primary dish. Prepare one coherent cart from a single restaurant that best fits this visual craving and the user's preferences. Do not blindly add every visible dish or uncertain identification. Explain omissions/substitutions; ask a concise choice when the intended combination is ambiguous. Preserve exact per-dish ingredients and uncertainty instead of merging them into one dish.
-1. The server has already selected delivery address ${addressId} (${addressSummary}); every location-sensitive tool is pinned to it. Do not call or infer another address.
-2. Inspect get_food_orders and relevant get_food_order_details. Infer favorite dishes/restaurants at this location, vegetarian patterns, repeated special instructions, allergens, and items or ingredients to avoid. Treat allergy/avoidance evidence as a hard safety constraint; do not invent one.
-3. An authoritative direct search_menu result is supplied with the task. Use its orderable items first. If it is empty, search distinct direct queries derived from the detected cuisine, ingredients, and description; For a selected dish, call search_menu with restaurantIdOfAddedItem copied from that dish's returned restaurant_id to obtain full variant/addon details. For same-restaurant follow-ups, search in that verified restaurant first; if no suitable result exists, search across restaurants and explain the change. get_restaurant_menu is a compact browse view, not the authoritative source of full customizations.
-3a. Search as needed to find a relevant orderable match. There are no per-tool search quotas. Reuse useful existing results, refine your query when needed, and proceed to update_food_cart once you have a suitable match. If no orderable match exists, offer grounded alternatives rather than inventing items.
-4. Optimize the cart jointly for preference fit and total delivered cost. Compare multiple OPEN, serviceable candidates using order history, dietary patterns, restaurant/item rating, distance, item price, fees, portion/value, and eligible payment-neutral discounts. Do not choose the cheapest option when it is a materially worse preference match; when candidates fit similarly, prefer the lower verified final payable amount. Briefly explain the cost/preference tradeoff in CART_RATIONALE.
-5. Select an orderable item configuration consistent with the profile. Preserve the exact variants/variantsV2 and addon shapes returned by Swiggy. Never select an ingredient that conflicts with an allergy or avoidance.
-6. Call update_food_cart with the exact current schema, including addressId, restaurantId, restaurantName, and cartItems. Treat cartItems as the complete desired cart for that restaurant, not merely a delta. restaurantName must contain only the exact restaurant display name from Swiggy—never rationale, choices, or a follow-up question.
-7. Call get_food_cart to verify the actual cart. If invalid, inspect the error/result and revise the item or configuration.
-8. Call fetch_food_coupons with the chosen restaurantId and addressId. Its returned entries are the authoritative coupon catalogue: surface every returned offer, even when a numeric discount field is absent, and never conclude that there are no coupons merely because you cannot derive a positive discount amount. Inspect best coupons, more offers, and payment offers, but only auto-apply applicable payment-neutral/COD-compatible offers. If the existing cart context has promoSelectionMode "manual" and its selected coupon remains applicable, preserve that explicit user choice. Otherwise apply the best eligible offer with apply_food_coupon using couponCode and addressId, then call get_food_cart again. Separately, offers.coupon_applied inside update_food_cart/get_food_cart with coupon_discount=0 is cart auto-suggestion metadata—not a fetch_food_coupons result and not an applied coupon—so never include it in the available coupon list or report savings from it.
-9. Stop only when the cart contains the intended configured item and has been verified. If the request cannot be completed without a user choice, keep the last valid cart and return a schema-driven follow-up form instead of guessing. Use only these field types: radio, checkbox, select, text, textarea. Use radio for one required choice, checkbox for multiple choices, select for a longer mutually exclusive list, and text/textarea only when predefined choices cannot capture the answer.
-10. Always format the final response exactly as:
-CART_RATIONALE:
-<brief explanation of the verified cart, history/preferences, safety choices, restaurant choice, and discount applied>
-HUMAN_INPUT_UI:
-<one valid compact JSON object matching this shape, or NONE>
-{"version":1,"title":"Choose an option","description":"Optional context","fields":[{"id":"choice","type":"radio","label":"Which would you prefer?","required":true,"options":[{"value":"a","label":"Option A","description":"Optional detail"}]}],"submitLabel":"Continue"}
-If no human input is required, output only NONE after HUMAN_INPUT_UI and do not append the example JSON.
-Never return standard JSON Schema with top-level type, properties, or required keys. Only return the version-1 fields format above.
-Never put a question or choice for the user inside CART_RATIONALE. Never wrap the JSON in Markdown fences. The application—not you—renders the follow-up form and asks the user for final order confirmation.`,
+    systemPrompt: cartAgentSystemPrompt({ addressId, addressSummary, compact: Number(resolvedModel.contextTokens) <= COMPACT_PROMPT_CONTEXT_TOKENS }),
   });
 
   agentLog(runId, streamId, "reasoning_started");
@@ -543,11 +523,30 @@ function toolName(tool) {
   return String(tool?.name || tool?.function?.name || "").trim();
 }
 
+export const CART_PHASE_TOOLS = {
+  search: ["get_addresses", "get_food_orders", "get_food_order_details", "search_restaurants", "search_menu", "get_restaurant_menu"],
+  build: ["search_menu", "get_restaurant_menu", "update_food_cart", "get_food_cart"],
+  verify: ["get_food_cart", "update_food_cart"],
+  offers: ["fetch_food_coupons", "apply_food_coupon", "get_food_cart"],
+};
+
+export function cartToolPhase(state = {}) {
+  if (state.verificationPending) return "verify";
+  if (state.cartUpdated && !state.couponsChecked) return "offers";
+  if (state.menuSeen || state.mutationCandidateAvailable) return "build";
+  return "search";
+}
+
 export function localCartPhaseRequest(request, state = {}, local = false) {
   if (!local || !Array.isArray(request?.tools)) return request;
   if (state.verificationPending) {
     const tools = request.tools.filter((tool) => toolName(tool) === "get_food_cart");
     if (tools.length) return { ...request, tools, toolChoice: { type: "function", function: { name: "get_food_cart" } } };
+  }
+  if (state.smallContext) {
+    const allowed = new Set(CART_PHASE_TOOLS[cartToolPhase(state)] || []);
+    const tools = request.tools.filter((tool) => allowed.has(toolName(tool)));
+    if (tools.length) return { ...request, tools, toolChoice: "required" };
   }
   // LiteRT-JS and some Ollama models do not reliably honor LangChain's
   // provider-level tool-choice protocol. Keep the same Swiggy tool surface as

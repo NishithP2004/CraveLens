@@ -1,4 +1,6 @@
-export const LITERT_MAX_OUTPUT_TOKENS = 1536;
+import { LITERT_MAX_OUTPUT_TOKENS, toolPolicyInstruction } from "@cravelens/shared";
+
+export { LITERT_MAX_OUTPUT_TOKENS };
 
 export function liteRtToolPolicy(request) {
   const choice = request.options?.toolChoice;
@@ -8,7 +10,7 @@ export function liteRtToolPolicy(request) {
   return {
     tools: choice === "none" ? [] : name ? tools.filter((tool) => (tool.function?.name || tool.name) === name) : tools,
     required: choice === "required" || Boolean(name),
-    instruction: choice === "none" ? "CURRENT TURN: Return the final answer without calling tools." : name ? `CURRENT TURN: Invoke exactly the ${name} tool using its declared schema. Do not respond with prose.` : choice === "required" ? "CURRENT TURN: Invoke an appropriate provided tool using its declared schema. Do not respond with prose. Copy identifiers from returned menu evidence using their declared field names and types." : "",
+    instruction: toolPolicyInstruction(choice, name),
   };
 }
 

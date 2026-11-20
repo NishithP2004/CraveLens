@@ -1,16 +1,11 @@
-const DEFAULT_SENSITIVITY = .38;
+import { DEFAULT_LOCAL_CONTEXT_TOKENS, DEFAULT_SCAN_INTERVAL_MS, DEFAULT_SENSITIVITY, MAX_LOCAL_CONTEXT_TOKENS, MAX_SCAN_INTERVAL_MS, MIN_LOCAL_CONTEXT_TOKENS, MIN_SCAN_INTERVAL_MS } from "@cravelens/shared";
+
 const extensionVersion = chrome.runtime.getManifest().version;
 const versionLabel = document.getElementById("extensionVersion");
 versionLabel.textContent = `Version ${extensionVersion}`;
 versionLabel.hidden = false;
-const DEFAULT_SCAN_INTERVAL_MS = 4000;
-const MIN_SCAN_INTERVAL_MS = 1000;
-const MAX_SCAN_INTERVAL_MS = 30000;
 const DEFAULT_SHORTCUT_BEHAVIOR = "auto-supported";
 const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434";
-const MIN_LOCAL_CONTEXT_TOKENS = 4_096;
-const DEFAULT_LOCAL_CONTEXT_TOKENS = 16_384;
-const MAX_LOCAL_CONTEXT_TOKENS = 32_768;
 const ENVIRONMENTS = Object.freeze({
   development: { label: "Development", apiUrl: "http://localhost:8787" },
   production: { label: "Production", apiUrl: "https://cravelens.nishithp.page" },

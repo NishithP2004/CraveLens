@@ -10,3 +10,11 @@ dist
 coverage
 *.task
 brag-output*/
+apps/android/**/build/
+apps/android/**/assets/models/
+apps/android/.gradle/
+apps/android/local.properties
+apps/android/**/google-services.json
+apps/android/.idea/
+*.apk
+*.aab

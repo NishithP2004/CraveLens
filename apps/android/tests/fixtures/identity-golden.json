@@ -1,0 +1,139 @@
+[
+  {
+    "input": {
+      "dish": "Masala Dosa",
+      "cuisine": "South Indian",
+      "ingredients": [
+        "potato",
+        "dosa"
+      ],
+      "confidence": 0.91,
+      "dishes": [
+        {
+          "dish": "Masala Dosa",
+          "cuisine": "South Indian",
+          "ingredients": [
+            "dosa",
+            "potato"
+          ],
+          "confidence": 0.8
+        },
+        {
+          "dish": "Filter Coffee",
+          "cuisine": "South Indian",
+          "ingredients": [
+            "coffee"
+          ],
+          "confidence": 0.4
+        }
+      ]
+    },
+    "identity": {
+      "primary": {
+        "dish": "masala dosa",
+        "cuisine": "south indian",
+        "ingredients": [
+          "dosa",
+          "potato"
+        ]
+      },
+      "dishes": [
+        {
+          "dish": "filter coffee",
+          "cuisine": "south indian",
+          "ingredients": [
+            "coffee"
+          ]
+        },
+        {
+          "dish": "masala dosa",
+          "cuisine": "south indian",
+          "ingredients": [
+            "dosa",
+            "potato"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "input": {
+      "dish": "Masala   Dosa!",
+      "cuisine": "south-indian",
+      "ingredients": [
+        "Potato",
+        "dosa"
+      ],
+      "confidence": 0.2,
+      "dishes": [
+        {
+          "dish": "filter coffee",
+          "cuisine": "South Indian",
+          "ingredients": [
+            "coffee"
+          ],
+          "confidence": 0.1
+        },
+        {
+          "dish": "Masala Dosa",
+          "cuisine": "South Indian",
+          "ingredients": [
+            "potato",
+            "dosa"
+          ],
+          "confidence": 0.7
+        }
+      ]
+    },
+    "identity": {
+      "primary": {
+        "dish": "masala dosa",
+        "cuisine": "south indian",
+        "ingredients": [
+          "dosa",
+          "potato"
+        ]
+      },
+      "dishes": [
+        {
+          "dish": "filter coffee",
+          "cuisine": "south indian",
+          "ingredients": [
+            "coffee"
+          ]
+        },
+        {
+          "dish": "masala dosa",
+          "cuisine": "south indian",
+          "ingredients": [
+            "dosa",
+            "potato"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "input": {
+      "dish": "Biryani",
+      "cuisine": "Hyderabadi",
+      "ingredients": [
+        "rice",
+        "saffron"
+      ],
+      "confidence": 0.95,
+      "dishes": []
+    },
+    "identity": {
+      "primary": {
+        "dish": "biryani",
+        "cuisine": "hyderabadi",
+        "ingredients": [
+          "rice",
+          "saffron"
+        ]
+      },
+      "dishes": []
+    }
+  }
+]

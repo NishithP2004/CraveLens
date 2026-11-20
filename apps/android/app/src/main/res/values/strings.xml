@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shortcut_lasso">Lasso</string>
+    <string name="shortcut_watch">Start watching</string>
+    <string name="watching_notification">CraveLens is watching for food</string>
+    <string name="stop">Stop</string>
+</resources>

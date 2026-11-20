@@ -19,7 +19,7 @@ TELEGRAM_WEBHOOK_SECRET=<at least 32 random letters, digits, underscores or hyph
 
 Auto mode uses the HTTPS endpoint `/telegram/webhook` and verifies Telegram's secret header. The companion GitHub Pages/edge-proxy setup includes an exact `/telegram/webhook` Worker route; redeploy the Worker to activate it. The proxy preserves the body and Telegram secret header, and the API verifies that header. All device-facing Telegram APIs use `/api/*`. Set `TELEGRAM_TRANSPORT=polling` or `webhook` to choose explicitly. A bot can have only one active update transport: use separate development and production bots. Restart the API after configuring it. MongoDB persists cart threads; Redis persists links, callback records, active cart reservations, delivery jobs, and polling offsets. Keep the production MongoDB and Redis data durable across restarts.
 
-Reload the extension, click **Connect Telegram**, press **Start** in the bot chat, then reopen the extension and confirm the displayed Telegram account. Select Telegram delivery and save. Usernames alone cannot link an account. Disconnecting removes authorization for old bot buttons and restores the on-screen experience.
+Reload the extension, click **Connect Telegram**, press **Start** in the bot chat, then reopen the extension and confirm the displayed Telegram account. The Android app opens that same Start link with a `tg:` intent and uses the same confirm step. The edge proxy routes are unchanged. Select Telegram delivery and save. Usernames alone cannot link an account. Disconnecting removes authorization for old bot buttons and restores the on-screen experience.
 
 ## Checkout
 

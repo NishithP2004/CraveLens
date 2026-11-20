@@ -18,7 +18,7 @@ export const config = {
   mongoDatabase: process.env.MONGODB_DATABASE || "cravelens",
   localModelDirectory: process.env.LOCAL_MODEL_DIRECTORY || fileURLToPath(new URL("../models", import.meta.url)),
   agentModelProvider,
-  agentModelName: process.env.AGENT_MODEL_NAME || process.env.MODEL_NAME || "gemini-2.5-flash",
+  agentModelName: process.env.AGENT_MODEL_NAME || process.env.MODEL_NAME || "gemini-3.5-flash",
   agentModelApiKey: process.env.AGENT_MODEL_API_KEY || (agentModelProvider === "openai" ? process.env.OPENAI_API_KEY || process.env.MODEL_API_KEY : process.env.GEMINI_API_KEY) || "",
   agentModelBaseUrl: process.env.AGENT_MODEL_BASE_URL || process.env.MODEL_BASE_URL || "https://api.openai.com/v1",
   ollamaBaseUrl: process.env.OLLAMA_BASE_URL || "http://localhost:11434",

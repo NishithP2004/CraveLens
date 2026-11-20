@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { DEFAULT_LOCAL_CONTEXT_TOKENS, MAX_LOCAL_CONTEXT_TOKENS, MIN_LOCAL_CONTEXT_TOKENS } from "./constants.js";
+export * from "./constants.js";
+export * from "./prompts.js";
 
 export const DetectionSchema = z.object({
   itemLabel: z.string().min(1),
@@ -35,10 +38,7 @@ export function foodCravingIdentity(food = {}) {
 }
 
 export const VlmProviderSchema = z.enum(["auto", "gemini-nano", "litert-gemma4", "litert-gemma4-e4b", "litert-gemma3n", "ollama"]);
-export const OrchestrationProviderSchema = z.enum(["auto", "litert", "ollama", "openai-compatible", "google"]);
-export const MIN_LOCAL_CONTEXT_TOKENS = 4_096;
-export const DEFAULT_LOCAL_CONTEXT_TOKENS = 16_384;
-export const MAX_LOCAL_CONTEXT_TOKENS = 32_768;
+export const OrchestrationProviderSchema = z.enum(["auto", "aicore", "litert", "ollama", "openai-compatible", "google"]);
 export const LocalContextTokensSchema = z.coerce.number().int().min(MIN_LOCAL_CONTEXT_TOKENS).max(MAX_LOCAL_CONTEXT_TOKENS).default(DEFAULT_LOCAL_CONTEXT_TOKENS);
 export const ThinkingEnabledSchema = z.boolean().default(false);
 
@@ -76,7 +76,7 @@ export const ModelSettingsUpdateSchema = z.object({
   }).optional(),
 });
 
-export const InferenceProviderSchema = z.enum(["litert", "ollama"]);
+export const InferenceProviderSchema = z.enum(["litert", "ollama", "aicore"]);
 export const InferenceRequestSchema = z.object({
   version: z.literal(1),
   requestId: z.string().uuid(),
@@ -116,7 +116,7 @@ export const InferenceResultSchema = z.object({
     outputTokens: z.number().int().nonnegative().optional(),
     totalTokens: z.number().int().nonnegative().optional(),
   }).optional(),
-  metrics: z.record(z.number()).optional(),
+  metrics: z.record(z.union([z.number(), z.string()])).optional(),
 });
 
 export const OrchestrateRequestSchema = z.object({
@@ -130,6 +130,7 @@ export const OrchestrateRequestSchema = z.object({
   streamId: z.string().uuid().optional(),
   personalContext: z.string().trim().max(1000).default(""),
   timeZone: z.string().trim().max(100).optional(),
+  sourceKind: z.enum(["android-watch", "android-lasso"]).optional(),
 });
 
 export const CartCustomizationSchema = z.object({

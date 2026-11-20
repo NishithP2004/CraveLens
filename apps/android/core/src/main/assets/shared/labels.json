@@ -1,0 +1,187 @@
+{
+  "tools": {
+    "get_addresses": "Checking your selected delivery address",
+    "get_food_orders": "Reviewing your recent orders",
+    "get_food_order_details": "Learning your food preferences",
+    "search_restaurants": "Finding open restaurants nearby",
+    "search_menu": "Searching orderable menu matches",
+    "get_restaurant_menu": "Comparing menu options",
+    "flush_food_cart": "Refreshing the Swiggy cart",
+    "update_food_cart": "Adding the best match to your cart",
+    "get_food_cart": "Verifying prices and charges",
+    "fetch_food_coupons": "Looking for applicable offers",
+    "apply_food_coupon": "Applying the best available offer",
+    "metadata_retry": "Refreshing restaurant details"
+  },
+  "events": [
+    {
+      "event": "orchestration_started",
+      "details": {
+        "dish": "biryani"
+      },
+      "message": "Preparing a biryani cart"
+    },
+    {
+      "event": "started",
+      "details": {},
+      "message": "Personalization agent started"
+    },
+    {
+      "event": "tools_ready",
+      "details": {
+        "count": 11
+      },
+      "message": "11 Swiggy tools connected"
+    },
+    {
+      "event": "reasoning_started",
+      "details": {},
+      "message": "Planning the best cart for you"
+    },
+    {
+      "event": "tool_call",
+      "details": {
+        "tool": "get_food_orders"
+      },
+      "message": "Reviewing your recent orders"
+    },
+    {
+      "event": "tool_call",
+      "details": {
+        "tool": "get_food_order_details"
+      },
+      "message": "Learning your food preferences"
+    },
+    {
+      "event": "tool_call",
+      "details": {
+        "tool": "search_restaurants"
+      },
+      "message": "Finding open restaurants nearby"
+    },
+    {
+      "event": "tool_call",
+      "details": {
+        "tool": "search_menu"
+      },
+      "message": "Searching orderable menu matches"
+    },
+    {
+      "event": "tool_call",
+      "details": {
+        "tool": "get_restaurant_menu"
+      },
+      "message": "Comparing menu options"
+    },
+    {
+      "event": "tool_call",
+      "details": {
+        "tool": "flush_food_cart"
+      },
+      "message": "Refreshing the Swiggy cart"
+    },
+    {
+      "event": "tool_call",
+      "details": {
+        "tool": "update_food_cart"
+      },
+      "message": "Adding the best match to your cart"
+    },
+    {
+      "event": "tool_call",
+      "details": {
+        "tool": "get_food_cart"
+      },
+      "message": "Verifying prices and charges"
+    },
+    {
+      "event": "tool_call",
+      "details": {
+        "tool": "fetch_food_coupons"
+      },
+      "message": "Looking for applicable offers"
+    },
+    {
+      "event": "tool_call",
+      "details": {
+        "tool": "apply_food_coupon"
+      },
+      "message": "Applying the best available offer"
+    },
+    {
+      "event": "tool_complete",
+      "details": {
+        "tool": "get_food_cart"
+      },
+      "message": "Verifying prices and charges · done"
+    },
+    {
+      "event": "tool_skipped",
+      "details": {},
+      "message": "Checking menu evidence before continuing"
+    },
+    {
+      "event": "metadata_retry",
+      "details": {},
+      "message": "Refreshing restaurant details"
+    },
+    {
+      "event": "customization_started",
+      "details": {},
+      "message": "Understanding your requested changes"
+    },
+    {
+      "event": "model:fallback-required",
+      "details": {},
+      "message": "Waiting for approval before using a hosted model"
+    },
+    {
+      "event": "model:fallback-approved",
+      "details": {
+        "automatic": false,
+        "hostedProvider": "Google Gemini"
+      },
+      "message": "Hosted fallback approved · continuing with Google Gemini"
+    },
+    {
+      "event": "model:fallback-approved",
+      "details": {
+        "automatic": true,
+        "hostedProvider": "Google Gemini"
+      },
+      "message": "Automatically switched to a hosted model · continuing with Google Gemini"
+    },
+    {
+      "event": "orchestration_joined",
+      "details": {
+        "dish": "dosa"
+      },
+      "message": "Using the dosa cart build already in progress"
+    },
+    {
+      "event": "orchestration_paused",
+      "details": {},
+      "message": "Another cart is active; review or reject it before preparing another"
+    },
+    {
+      "event": "completed",
+      "details": {},
+      "message": "Cart research and personalization complete"
+    },
+    {
+      "event": "cart_ready",
+      "details": {
+        "restaurant": "Meghana Foods"
+      },
+      "message": "Cart ready from Meghana Foods"
+    },
+    {
+      "event": "failed",
+      "details": {
+        "error": "The cart agent hit an error"
+      },
+      "message": "The cart agent hit an error"
+    }
+  ],
+  "hostedFallbackConfirm": "The local {provider} model stopped responding. Allow this cart run to send its model context to the configured {hostedProvider} provider? No order will be placed without your normal confirmation."
+}

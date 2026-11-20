@@ -1,5 +1,5 @@
 import { frameFeatures, selectKeyframe } from "./detector.js";
-import { foodCravingIdentity } from "@cravelens/shared";
+import { agentEventMessage, foodCravingIdentity } from "@cravelens/shared";
 import { renderVlmDebugResult } from "./debug-vlm.js";
 import { withCartProgress, cartPreparationNotice } from "./cart-flow.js";
 import DOMPurify from "dompurify";
@@ -376,41 +376,6 @@ async function requestHostedFallbackDecision(details) {
     state.agentEvents.push({ message: `Fallback decision failed: ${error.message}`, state: "failed" });
     renderAgentEvents();
   }
-}
-
-function agentEventMessage({ event, details = {} }) {
-  if (event === "preferences_progress") return details.message;
-  const tools = {
-    get_addresses: "Checking your selected delivery address",
-    get_food_orders: "Reviewing your recent orders",
-    get_food_order_details: "Learning your food preferences",
-    search_restaurants: "Finding open restaurants nearby",
-    search_menu: "Searching orderable menu matches",
-    get_restaurant_menu: "Comparing menu options",
-    flush_food_cart: "Refreshing the Swiggy cart",
-    update_food_cart: "Adding the best match to your cart",
-    get_food_cart: "Verifying prices and charges",
-    fetch_food_coupons: "Looking for applicable offers",
-    apply_food_coupon: "Applying the best available offer",
-    metadata_retry: "Refreshing restaurant details",
-  };
-  if (event === "orchestration_started") return `Preparing a ${details.dish || "food"} cart`;
-  if (event === "orchestration_paused") return "Another cart is active; review or reject it before preparing another";
-  if (event === "orchestration_joined") return `Using the ${details.dish || "food"} cart build already in progress`;
-  if (event === "customization_started") return "Understanding your requested changes";
-  if (event === "started") return "Personalization agent started";
-  if (event === "tools_ready") return `${details.count || 0} Swiggy tools connected`;
-  if (event === "reasoning_started") return "Planning the best cart for you";
-  if (event === "model:fallback-required") return "Waiting for approval before using a hosted model";
-  if (event === "model:fallback-approved") return `${details.automatic ? "Automatically switched to a hosted model" : "Hosted fallback approved"} · continuing with ${details.hostedProvider || "the configured provider"}`;
-  if (event === "metadata_retry") return tools.metadata_retry;
-  if (event === "tool_call") return tools[details.tool] || `Using ${String(details.tool || "Swiggy")}`;
-  if (event === "tool_skipped") return "Checking menu evidence before continuing";
-  if (event === "tool_complete") return tools[details.tool] ? `${tools[details.tool]} · done` : null;
-  if (event === "completed") return "Cart research and personalization complete";
-  if (event === "cart_ready") return `Cart ready from ${details.restaurant || "Swiggy"}`;
-  if (event === "failed" || event === "tool_failed") return details.error || "The cart agent hit an error";
-  return null;
 }
 
 function renderAgentEvents() {

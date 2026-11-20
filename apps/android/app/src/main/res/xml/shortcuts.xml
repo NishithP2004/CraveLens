@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="lasso"
+        android:enabled="true"
+        android:shortcutShortLabel="@string/shortcut_lasso"
+        android:shortcutLongLabel="@string/shortcut_lasso">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetClass="page.nishithp.cravelens.lasso.LassoActivity"
+            android:targetPackage="page.nishithp.cravelens" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="watch"
+        android:enabled="true"
+        android:shortcutShortLabel="@string/shortcut_watch"
+        android:shortcutLongLabel="@string/shortcut_watch">
+        <intent
+            android:action="page.nishithp.cravelens.WATCH"
+            android:targetClass="page.nishithp.cravelens.MainActivity"
+            android:targetPackage="page.nishithp.cravelens" />
+    </shortcut>
+</shortcuts>
