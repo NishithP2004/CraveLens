@@ -75,6 +75,7 @@ import coil.compose.AsyncImage
 import page.nishithp.cravelens.R
 import page.nishithp.cravelens.data.CravePrefs
 import page.nishithp.cravelens.data.PreferenceUiState
+import page.nishithp.cravelens.data.SwiggyAuthUiState
 import page.nishithp.cravelens.ui.theme.Coral
 import page.nishithp.cravelens.ui.theme.Ink
 import page.nishithp.cravelens.ui.theme.Lime
@@ -99,7 +100,13 @@ fun ScreenScaffold(title: String, subtitle: String? = null, content: @Composable
 }
 
 @Composable
-fun OnboardingScreen(firebaseStatus: String, onFinished: (String) -> Unit) {
+fun OnboardingScreen(
+    firebaseStatus: String,
+    swiggy: SwiggyAuthUiState,
+    onConnectSwiggy: () -> Unit,
+    onRefreshSwiggy: () -> Unit,
+    onFinished: (String) -> Unit,
+) {
     val pages = listOf(
         "See it. Crave it." to "CraveLens spots food on your screen and prepares a Swiggy cart you can review. Nothing is ordered until you confirm.",
         "Frames stay on your phone." to "Frames never leave your phone unless you allow cloud help. The CraveLens server receives the dish description, not the picture.",
@@ -128,6 +135,8 @@ fun OnboardingScreen(firebaseStatus: String, onFinished: (String) -> Unit) {
                 FallbackSegments(fallback) { fallback = it }
                 ListItem(headlineContent = { Text("Firebase") }, supportingContent = { Text(firebaseStatus) })
                 Text("Notifications, display over other apps, and screen capture are requested when you start watching. MediaProjection consent is per session.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                androidx.compose.runtime.LaunchedEffect(Unit) { onRefreshSwiggy() }
+                SwiggyAccount(swiggy, onConnectSwiggy, onDisconnect = {}, allowDisconnect = false)
                 BrandButton("Save settings →") {
                     haptic.performHapticFeedback(HapticFeedbackType.Confirm)
                     onFinished(fallback)
@@ -169,6 +178,8 @@ fun HomeScreen(
     prefs: CravePrefs,
     preferences: PreferenceUiState,
     onRebuildPreferences: () -> Unit,
+    swiggy: SwiggyAuthUiState,
+    onConnectSwiggy: () -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
     val motion = motionSpecs()
@@ -197,6 +208,7 @@ fun HomeScreen(
                     }
                 }
             }
+            item { SwiggyAccount(swiggy, onConnectSwiggy, onDisconnect = {}, allowDisconnect = false) }
             item {
                 BrandButton(if (status == BubbleStatus.WATCHING) "Watching" else "Start watching") {
                     haptic.performHapticFeedback(HapticFeedbackType.Confirm)
@@ -351,6 +363,22 @@ fun HistoryScreen(state: String, onRefresh: () -> Unit) {
     }
 }
 
+@Composable
+fun SwiggyAccount(
+    state: SwiggyAuthUiState,
+    onConnect: () -> Unit,
+    onDisconnect: () -> Unit,
+    modifier: Modifier = Modifier,
+    allowDisconnect: Boolean = true,
+) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(state.title, style = MaterialTheme.typography.titleMedium)
+        Text(state.detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (state.showConnect) BrandButton("Connect Swiggy", onConnect)
+        if (state.showDisconnect && allowDisconnect) TextButton(onClick = onDisconnect) { Text("Disconnect") }
+    }
+}
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun PreferenceStatus(
@@ -419,10 +447,14 @@ fun SettingsScreen(
     onAccept: () -> Unit,
     onKeep: () -> Unit,
     onHostedDecision: (Boolean) -> Unit,
+    swiggy: SwiggyAuthUiState,
+    onConnectSwiggy: () -> Unit,
+    onDisconnectSwiggy: () -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
     ScreenScaffold("Settings", "The same choices as the extension") { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(bottom = 32.dp)) {
+            item { SwiggyAccount(swiggy, onConnectSwiggy, onDisconnectSwiggy, Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
             item { SectionLabel("01 Personal context") }
             item {
                 androidx.compose.material3.OutlinedTextField(

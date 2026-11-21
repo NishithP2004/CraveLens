@@ -3,9 +3,11 @@ package page.nishithp.cravelens
 import android.Manifest
 import android.content.Intent
 import android.net.Uri
+import android.content.ActivityNotFoundException
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.setContent
@@ -65,6 +67,22 @@ import page.nishithp.cravelens.widget.refreshWidget
 class MainActivity : ComponentActivity() {
     private val api = CraveApi(BuildConfig.API_BASE_URL)
     private val preferences by lazy { page.nishithp.cravelens.data.PreferenceController(api, applicationContext, lifecycleScope) }
+    private val swiggy by lazy {
+        page.nishithp.cravelens.data.SwiggyAuthController(
+            api,
+            applicationContext,
+            lifecycleScope,
+            openAuthorization = { url ->
+                try {
+                    CustomTabsIntent.Builder().setShareState(CustomTabsIntent.SHARE_STATE_OFF).build().launchUrl(this, Uri.parse(url))
+                    true
+                } catch (_: ActivityNotFoundException) {
+                    false
+                }
+            },
+            onConnected = { preferences.afterSignIn() },
+        )
+    }
     private var cartState by mutableStateOf("No cart is waiting. Check the server when a watching session prepares one.")
     private var historyState by mutableStateOf("Order history loads from Swiggy after this device has a session and a delivery address.")
     private var settingsMessage by mutableStateOf(CraveLensApp.startupMessage)
@@ -108,12 +126,18 @@ class MainActivity : ComponentActivity() {
                     onAcceptPreferences = preferences::acceptDraft,
                     onKeepPreferences = preferences::keepOriginal,
                     onHostedDecision = preferences::hostedDecision,
+                    swiggy = swiggy.ui,
+                    onConnectSwiggy = swiggy::connect,
+                    onDisconnectSwiggy = swiggy::disconnect,
+                    onRefreshSwiggy = swiggy::refresh,
                 )
-                LaunchedEffect(current.onboarded) {
-                    if (current.onboarded) preferences.considerAutomatic()
-                }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        swiggy.refresh()
     }
 
     private fun startWatch() {
@@ -202,6 +226,10 @@ private fun CraveShell(
     onAcceptPreferences: () -> Unit,
     onKeepPreferences: () -> Unit,
     onHostedDecision: (Boolean) -> Unit,
+    swiggy: page.nishithp.cravelens.data.SwiggyAuthUiState,
+    onConnectSwiggy: () -> Unit,
+    onDisconnectSwiggy: () -> Unit,
+    onRefreshSwiggy: () -> Unit,
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -213,7 +241,7 @@ private fun CraveShell(
         syncCartProgress(context, status)
     }
     if (showOnboarding) {
-        OnboardingScreen(settingsMessage) { fallback ->
+        OnboardingScreen(settingsMessage, swiggy, onConnectSwiggy, onRefreshSwiggy) { fallback ->
             WatchState.fallback = fallback
             onPrefs(prefs.copy(onboarded = true, hostedFallback = fallback))
             showOnboarding = false
@@ -251,10 +279,10 @@ private fun CraveShell(
         }) {
             SharedShell(dest) { animated ->
                 when (dest) {
-                    Dest.Home -> HomeScreen(WatchState.status, WatchState.detail, BuildConfig.DEBUG, this, animated, onWatch, onLasso, onBubble, { dest = Dest.Cart }, prefs, preferences, onRebuildPreferences)
+                    Dest.Home -> HomeScreen(WatchState.status, WatchState.detail, BuildConfig.DEBUG, this, animated, onWatch, onLasso, onBubble, { dest = Dest.Cart }, prefs, preferences, onRebuildPreferences, swiggy, onConnectSwiggy)
                     Dest.Cart -> CartScreen(cartState, "Payable amount appears after a verified cart.", blocked = false, this, animated, onRefreshCart)
                     Dest.History -> HistoryScreen(historyState, onRefreshHistory)
-                    Dest.Settings -> SettingsScreen(prefs, settingsMessage, onPrefs, onSave, preferences, onRebuildPreferences, onAcceptPreferences, onKeepPreferences, onHostedDecision)
+                    Dest.Settings -> SettingsScreen(prefs, settingsMessage, onPrefs, onSave, preferences, onRebuildPreferences, onAcceptPreferences, onKeepPreferences, onHostedDecision, swiggy, onConnectSwiggy, onDisconnectSwiggy)
                 }
             }
         }

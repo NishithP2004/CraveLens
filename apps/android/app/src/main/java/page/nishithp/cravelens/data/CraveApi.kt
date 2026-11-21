@@ -38,10 +38,16 @@ class CraveApi(private val baseUrl: String) {
 
     fun post(path: String, json: String): ApiResult = call("POST", path, json)
 
+    fun delete(path: String): ApiResult = call("DELETE", path, null)
+
     private fun call(method: String, path: String, json: String?): ApiResult {
         val token = accessToken ?: return ApiResult(false, 0, "Sign in on this device before this can load.")
         val builder = Request.Builder().url("$baseUrl$path").header("Authorization", "Bearer $token").header("X-CraveLens-Platform", "android")
-        val request = if (json == null) builder.get().build() else builder.method(method, json.toRequestBody("application/json".toMediaType())).build()
+        val request = when (method) {
+            "GET" -> builder.get().build()
+            "DELETE" -> builder.delete().build()
+            else -> builder.method(method, json.orEmpty().toRequestBody("application/json".toMediaType())).build()
+        }
         val response = client.newCall(request).execute()
         return ApiResult(response.isSuccessful, response.code, response.body?.string().orEmpty())
     }

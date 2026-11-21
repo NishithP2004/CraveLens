@@ -41,6 +41,11 @@ class PreferenceController(
     private var poll: Job? = null
     private var automaticChecked = false
 
+    fun afterSignIn() {
+        automaticChecked = false
+        considerAutomatic()
+    }
+
     fun considerAutomatic() {
         if (automaticChecked || ui.busy) return
         automaticChecked = true
