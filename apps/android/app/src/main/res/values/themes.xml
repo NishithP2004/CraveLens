@@ -11,5 +11,6 @@
         <item name="android:windowBackground">@android:color/transparent</item>
     </style>
     <color name="coral">#FF5B38</color>
+    <color name="icon_background">#FAF3E7</color>
     <color name="ink">#181814</color>
 </resources>
