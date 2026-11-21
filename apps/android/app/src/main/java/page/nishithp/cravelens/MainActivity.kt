@@ -47,7 +47,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import page.nishithp.cravelens.data.AppPrefs
-import page.nishithp.cravelens.data.CraveApi
 import page.nishithp.cravelens.data.CravePrefs
 import page.nishithp.cravelens.lasso.LassoActivity
 import page.nishithp.cravelens.notify.syncCartProgress
@@ -65,7 +64,8 @@ import page.nishithp.cravelens.ui.theme.CraveTheme
 import page.nishithp.cravelens.widget.refreshWidget
 
 class MainActivity : ComponentActivity() {
-    private val api = CraveApi(BuildConfig.API_BASE_URL)
+    private val api by lazy { craveApi() }
+    private var deviceSession by mutableStateOf<String?>(null)
     private val preferences by lazy { page.nishithp.cravelens.data.PreferenceController(api, applicationContext, lifecycleScope) }
     private val swiggy by lazy {
         page.nishithp.cravelens.data.SwiggyAuthController(
@@ -130,6 +130,7 @@ class MainActivity : ComponentActivity() {
                     onConnectSwiggy = swiggy::connect,
                     onDisconnectSwiggy = swiggy::disconnect,
                     onRefreshSwiggy = swiggy::refresh,
+                    deviceSession = deviceSession,
                 )
             }
         }
@@ -137,7 +138,22 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        CraveLensApp.appOnTop = true
         swiggy.refresh()
+        publishDeviceSession()
+    }
+
+    override fun onPause() {
+        CraveLensApp.appOnTop = false
+        super.onPause()
+    }
+
+    private fun publishDeviceSession() {
+        if (!BuildConfig.DEBUG) return
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) { api.ensureSession() }
+            deviceSession = api.deviceIdPrefix()?.let { "Debug · starts with $it" } ?: "Debug · not created yet"
+        }
     }
 
     private fun startWatch() {
@@ -187,12 +203,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun launch(empty: String, call: () -> String) {
+    private fun launch(empty: String, call: suspend () -> String) {
         lifecycleScope.launch {
             val text = withContext(Dispatchers.IO) {
-                if (api.accessToken == null) api.createSession()
-                if (api.accessToken == null) return@withContext api.createSession()
-                call()
+                api.ensureSession() ?: call()
             }
             val body = text.ifBlank { empty }
             absorbProfile(body)
@@ -230,6 +244,7 @@ private fun CraveShell(
     onConnectSwiggy: () -> Unit,
     onDisconnectSwiggy: () -> Unit,
     onRefreshSwiggy: () -> Unit,
+    deviceSession: String?,
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -282,7 +297,7 @@ private fun CraveShell(
                     Dest.Home -> HomeScreen(WatchState.status, WatchState.detail, BuildConfig.DEBUG, this, animated, onWatch, onLasso, onBubble, { dest = Dest.Cart }, prefs, preferences, onRebuildPreferences, swiggy, onConnectSwiggy)
                     Dest.Cart -> CartScreen(cartState, "Payable amount appears after a verified cart.", blocked = false, this, animated, onRefreshCart)
                     Dest.History -> HistoryScreen(historyState, onRefreshHistory)
-                    Dest.Settings -> SettingsScreen(prefs, settingsMessage, onPrefs, onSave, preferences, onRebuildPreferences, onAcceptPreferences, onKeepPreferences, onHostedDecision, swiggy, onConnectSwiggy, onDisconnectSwiggy)
+                    Dest.Settings -> SettingsScreen(prefs, settingsMessage, onPrefs, onSave, preferences, onRebuildPreferences, onAcceptPreferences, onKeepPreferences, onHostedDecision, swiggy, onConnectSwiggy, onDisconnectSwiggy, deviceSession)
                 }
             }
         }

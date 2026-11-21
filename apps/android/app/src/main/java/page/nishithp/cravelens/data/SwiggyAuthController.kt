@@ -144,10 +144,9 @@ class SwiggyAuthController(
     }
 
     private suspend fun ensureSession(): Boolean {
-        if (api.accessToken != null) return true
-        val message = withContext(Dispatchers.IO) { api.createSession() }
-        if (api.accessToken != null) return true
-        ui = SwiggyAuthUiState("failed", "Swiggy isn’t connected", message)
+        val failure = withContext(Dispatchers.IO) { api.ensureSession() }
+        if (failure == null) return true
+        ui = SwiggyAuthUiState("failed", "Swiggy isn’t connected", failure)
         return false
     }
 

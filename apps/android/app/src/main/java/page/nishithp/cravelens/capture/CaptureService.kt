@@ -10,8 +10,12 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import page.nishithp.cravelens.MainActivity
 import page.nishithp.cravelens.R
+import page.nishithp.cravelens.craveApi
 import page.nishithp.cravelens.ui.BubbleStatus
 import page.nishithp.cravelens.ui.WatchState
 
@@ -39,6 +43,7 @@ class CaptureService : Service() {
         }
         WatchState.status = BubbleStatus.WATCHING
         WatchState.detail = "Watching"
+        CoroutineScope(Dispatchers.IO).launch { craveApi().ensureSession() }
         return START_NOT_STICKY
     }
 

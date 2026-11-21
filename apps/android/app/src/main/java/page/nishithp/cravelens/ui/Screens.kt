@@ -450,6 +450,7 @@ fun SettingsScreen(
     swiggy: SwiggyAuthUiState,
     onConnectSwiggy: () -> Unit,
     onDisconnectSwiggy: () -> Unit,
+    deviceSession: String? = null,
 ) {
     val haptic = LocalHapticFeedback.current
     ScreenScaffold("Settings", "The same choices as the extension") { padding ->
@@ -535,6 +536,9 @@ fun SettingsScreen(
                 )
             }
             item { SectionLabel("06 Local AI setup") }
+            if (deviceSession != null) {
+                item { ListItem(headlineContent = { Text("Device session") }, supportingContent = { Text(deviceSession) }) }
+            }
             item { ListItem(headlineContent = { Text("Gemini Nano through Firebase AI Logic") }, supportingContent = { Text(message) }) }
             item { ListItem(headlineContent = { Text("LiteRT Gemma 4 download is optional") }, supportingContent = { Text("Background turns stay unavailable until a model file is present.") }) }
             item {

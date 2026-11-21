@@ -83,9 +83,9 @@ class PreferenceController(
     }
 
     private suspend fun evaluate(manual: Boolean) {
-        val session = withContext(Dispatchers.IO) { api.createSession() }
-        if (api.accessToken == null) {
-            ui = ui.copy(busy = false, status = session)
+        val failure = withContext(Dispatchers.IO) { api.ensureSession() }
+        if (failure != null) {
+            ui = ui.copy(busy = false, status = failure)
             return
         }
         val statusBody = withContext(Dispatchers.IO) { api.get("/api/swiggy/auth/status") }
@@ -150,9 +150,9 @@ class PreferenceController(
     }
 
     private suspend fun resume(runId: String) {
-        val session = withContext(Dispatchers.IO) { api.createSession() }
-        if (api.accessToken == null) {
-            ui = ui.copy(status = session)
+        val failure = withContext(Dispatchers.IO) { api.ensureSession() }
+        if (failure != null) {
+            ui = ui.copy(status = failure)
             return
         }
         val body = withContext(Dispatchers.IO) { api.get("/api/preferences/build/$runId") }

@@ -11,13 +11,19 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import page.nishithp.cravelens.BuildConfig
+import page.nishithp.cravelens.craveApi
 import page.nishithp.cravelens.ui.WatchState
 
 object BubbleController {
     private var view: LinearLayout? = null
 
     fun show(context: Context) {
+        val session = context.craveApi()
+        CoroutineScope(Dispatchers.IO).launch { session.ensureSession() }
         if (view != null) return
         val window = context.getSystemService(WindowManager::class.java)
         val density = context.resources.displayMetrics.density

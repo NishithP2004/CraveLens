@@ -28,6 +28,12 @@ class InferenceBridge(
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
     private var socket: io.socket.client.Socket? = null
 
+    fun connect(apiUrl: String, accessToken: suspend () -> String, providers: List<Map<String, Any?>>) {
+        scope.launch {
+            connect(apiUrl, accessToken(), providers)
+        }
+    }
+
     fun connect(apiUrl: String, accessToken: String, providers: List<Map<String, Any?>>) {
         disconnect()
         val options = IO.Options().apply {

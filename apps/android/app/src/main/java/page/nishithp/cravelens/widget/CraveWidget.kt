@@ -18,16 +18,19 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import kotlinx.coroutines.flow.first
+import page.nishithp.cravelens.craveApi
 import page.nishithp.cravelens.data.AppPrefs
 
 class CraveWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val api = context.craveApi()
         val prefs = AppPrefs.flow(context).first()
+        val summary = if (api.baseUrl.isBlank()) "No cart yet." else prefs.cartSummary
         provideContent {
             Column(GlanceModifier.fillMaxSize().background(ColorProvider(Color(0xFFFFF8F6))).padding(12.dp)) {
                 Text("CraveLens", style = TextStyle(color = ColorProvider(Color(0xFFB52605)), fontWeight = FontWeight.Bold))
                 Text(prefs.watchLabel, style = TextStyle(color = ColorProvider(Color(0xFF201A19))))
-                Text(prefs.cartSummary, style = TextStyle(color = ColorProvider(Color(0xFF534340))), maxLines = 3)
+                Text(summary, style = TextStyle(color = ColorProvider(Color(0xFF534340))), maxLines = 3)
             }
         }
     }
