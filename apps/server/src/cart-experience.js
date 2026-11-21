@@ -33,6 +33,11 @@ export async function releaseBackgroundCart(deviceId, id) {
   await redis.eval("if redis.call('GET',KEYS[1]) == ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end", { keys: [`cravelens:active-cart:${deviceId}`], arguments: [id] });
 }
 
+export async function getActiveCart(deviceId) {
+  const id = await (await getRedis()).get(`cravelens:active-cart:${deviceId}`);
+  return { threadId: id || null, ...await pausedBackgroundCart(deviceId) };
+}
+
 export async function pausedBackgroundCart(deviceId) {
   const id = await (await getRedis()).get(`cravelens:active-cart:${deviceId}`);
   const thread = id && await getThread(id);

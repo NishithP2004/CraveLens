@@ -102,6 +102,17 @@ flowchart TB
   class Verify,Checkout,Policy safety
 ```
 
+The Android app is a second client of the same server. Screen frames stay on the phone. Firebase AI Logic returns structured food JSON. Cart turns travel over the existing `/inference` socket (`aicore` while CraveLens is in front, LiteRT when a Gemma file is present, Firebase cloud when the failure policy is automatic). Swiggy tools and `place_food_order` stay on the server. See [apps/android/README.md](apps/android/README.md).
+
+```mermaid
+flowchart LR
+  Phone["Android app<br/>YOLO gate + Firebase AI Logic vision<br/>Nano 4 foreground / LiteRT background"]
+  Server["Existing Node API<br/>cart agent, Swiggy tools, checkout"]
+  Phone -->|"structured dish JSON, no pixels"| Server
+  Server -->|"inference:invoke, tool results only"| Phone
+  Phone -->|"InferenceResult tool calls, never executed on device"| Server
+```
+
 ### Trust and privacy boundaries
 
 - Video pixels and lasso screenshots remain inside the extension. The server receives the VLM's structured description, not the keyframe or selected image.
@@ -116,6 +127,7 @@ flowchart TB
 ```text
 CraveLens/
 ├── apps/
+│   ├── android/         Kotlin app: on-device vision, floating bubble, /inference provider
 │   ├── extension/       Chrome MV3 extension, local models and browser UI
 │   ├── server/          Node.js API, OAuth, LangGraph agent and Swiggy adapter
 │   └── web/             Vite-powered landing page
@@ -217,7 +229,7 @@ The host directory `./apps/server/models` is mounted read-only at `/app/apps/ser
 | `CREDENTIAL_ENCRYPTION_KEY` | Yes | — | 32-byte hex/base64 AES-256-GCM envelope-encryption key |
 | `DEVICE_SESSION_SIGNING_KEY` | Yes | — | Signs 15-minute extension device access tokens |
 | `AGENT_MODEL_PROVIDER` | Yes | `gemini` | `gemini` or `openai` |
-| `AGENT_MODEL_NAME` | Yes | `gemini-2.5-flash` | Agent model name |
+| `AGENT_MODEL_NAME` | Yes | `gemini-3.5-flash` | Agent model name. Android's automatic hosted cart fallback uses the same name through Firebase AI Logic |
 | `AGENT_MODEL_API_KEY` | Yes | — | Agent provider API key |
 | `AGENT_MODEL_BASE_URL` | For custom OpenAI-compatible APIs | `https://api.openai.com/v1` | ChatOpenAI base URL |
 | `OLLAMA_BASE_URL` | No | `http://localhost:11434` | Default Ollama origin shown to extension users; each device may override it |
@@ -350,6 +362,10 @@ One active cart is permitted per authenticated extension connection, not across 
 | `POST` | `/api/orchestrate/:threadId/cart` | Add, remove, or change the quantity of verified cart items |
 | `POST` | `/api/orchestrate/:threadId/coupon` | Apply a selected eligible coupon and refresh the receipt |
 | `POST` | `/api/orchestrate/:threadId/decision` | Reject a cart or approve it with `COD`/`UPI`/`SwiggyPay` (Swiggy Money) |
+| `GET` | `/api/orchestrate/:threadId` | Recover a device-owned thread: status, suggestion, public payment, and order id |
+| `GET` | `/api/cart/active` | Read the device's current active cart reservation |
+| `GET` | `/api/orders` | Read recent Swiggy food orders for a saved `addressId`; marks orders recorded by CraveLens |
+| `GET` | `/api/orders/:orderId` | Read one order's non-sensitive summary |
 | `GET` | `/api/orchestrate/:threadId/payment-status` | Poll a pending UPI payment |
 | `POST` | `/api/orchestrate/:threadId/cancel-payment` | Stop a still-pending UPI flow after re-checking its status |
 | `POST` | `/api/orchestrate/:threadId/confirm-payment` | Finalize a successfully paid UPI order |

@@ -28,7 +28,16 @@ export async function recordDevice(deviceId, registered = false) {
 }
 export async function recordConfirmedOrder(thread) {
   if (thread?.status !== "ordered" || !thread.threadId) return;
-  return safely(() => db.collection("analytics_orders").updateOne({_id: thread.threadId}, {$setOnInsert: {at: new Date(), paymentMethod: ["COD", "UPI", "SWIGGYPAY"].includes(thread.paymentMethod) ? thread.paymentMethod : "unknown", amount: Math.max(0, Number(thread.suggestion?.finalAmount) || 0)}}, {upsert: true}));
+  const swiggyOrderId = String(thread.order?.orderId || thread.order?.order_id || "").trim();
+  return safely(() => db.collection("analytics_orders").updateOne({_id: thread.threadId}, {$setOnInsert: {at: new Date(), paymentMethod: ["COD", "UPI", "SWIGGYPAY"].includes(thread.paymentMethod) ? thread.paymentMethod : "unknown", amount: Math.max(0, Number(thread.suggestion?.finalAmount) || 0), ...(swiggyOrderId ? {swiggyOrderId} : {})}}, {upsert: true}));
+}
+export async function craveLensOrderIds(orderIds = []) {
+  const ids = [...new Set(orderIds.map((id) => String(id || "").trim()).filter(Boolean))].slice(0, 50);
+  if (!db || !ids.length) return new Set();
+  try {
+    const docs = await db.collection("analytics_orders").find({swiggyOrderId: {$in: ids}}, {projection: {swiggyOrderId: 1}}).toArray();
+    return new Set(docs.map((doc) => doc.swiggyOrderId));
+  } catch { return new Set(); }
 }
 export async function recordEvent(event) {
   return safely(() => db.collection("analytics_events").updateOne({_id: event.id || crypto.randomUUID()}, {$setOnInsert: {...event, id: undefined, at: new Date()}}, {upsert: true}));

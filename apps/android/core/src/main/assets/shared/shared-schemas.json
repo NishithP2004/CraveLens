@@ -1,0 +1,916 @@
+{
+  "FoodVerification": {
+    "$ref": "#/definitions/FoodVerification",
+    "definitions": {
+      "FoodVerification": {
+        "type": "object",
+        "properties": {
+          "isFood": {
+            "type": "boolean"
+          },
+          "dish": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1200,
+            "default": ""
+          },
+          "cuisine": {
+            "type": "string"
+          },
+          "ingredients": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "context": {
+            "type": "string",
+            "enum": [
+              "ready_to_eat",
+              "recipe",
+              "restaurant_experience"
+            ]
+          },
+          "dishes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "dish": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "description": {
+                  "type": "string",
+                  "maxLength": 1200,
+                  "default": ""
+                },
+                "cuisine": {
+                  "type": "string",
+                  "maxLength": 200,
+                  "default": "unknown"
+                },
+                "ingredients": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "maxItems": 20
+                },
+                "confidence": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              },
+              "required": [
+                "dish",
+                "ingredients",
+                "confidence"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 8,
+            "default": []
+          }
+        },
+        "required": [
+          "isFood",
+          "dish",
+          "cuisine",
+          "ingredients",
+          "confidence",
+          "context"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "OrchestrateRequest": {
+    "$ref": "#/definitions/OrchestrateRequest",
+    "definitions": {
+      "OrchestrateRequest": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string",
+            "pattern": "^[\\w-]{6,20}$"
+          },
+          "timestamp": {
+            "type": "number",
+            "minimum": 0
+          },
+          "triggerConfidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "verification": {
+            "type": "object",
+            "properties": {
+              "isFood": {
+                "type": "boolean"
+              },
+              "dish": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 1200,
+                "default": ""
+              },
+              "cuisine": {
+                "type": "string"
+              },
+              "ingredients": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "context": {
+                "type": "string",
+                "enum": [
+                  "ready_to_eat",
+                  "recipe",
+                  "restaurant_experience"
+                ]
+              },
+              "dishes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "dish": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 1200,
+                      "default": ""
+                    },
+                    "cuisine": {
+                      "type": "string",
+                      "maxLength": 200,
+                      "default": "unknown"
+                    },
+                    "ingredients": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      "maxItems": 20
+                    },
+                    "confidence": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "dish",
+                    "ingredients",
+                    "confidence"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 8,
+                "default": []
+              }
+            },
+            "required": [
+              "isFood",
+              "dish",
+              "cuisine",
+              "ingredients",
+              "confidence",
+              "context"
+            ],
+            "additionalProperties": false
+          },
+          "videoTitle": {
+            "type": "string",
+            "maxLength": 300,
+            "default": "YouTube video"
+          },
+          "location": {
+            "type": "string",
+            "maxLength": 1000,
+            "default": "Bengaluru"
+          },
+          "addressId": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "streamId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "personalContext": {
+            "type": "string",
+            "maxLength": 1000,
+            "default": ""
+          },
+          "timeZone": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "sourceKind": {
+            "type": "string",
+            "enum": [
+              "android-watch",
+              "android-lasso"
+            ]
+          }
+        },
+        "required": [
+          "videoId",
+          "timestamp",
+          "triggerConfidence",
+          "verification"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "ModelSettings": {
+    "$ref": "#/definitions/ModelSettings",
+    "definitions": {
+      "ModelSettings": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "const": 1,
+            "default": 1
+          },
+          "vlm": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "gemini-nano",
+                  "litert-gemma4",
+                  "litert-gemma4-e4b",
+                  "litert-gemma3n",
+                  "ollama"
+                ],
+                "default": "auto"
+              },
+              "model": {
+                "type": "string",
+                "maxLength": 200
+              }
+            },
+            "additionalProperties": false,
+            "default": {
+              "provider": "auto"
+            }
+          },
+          "orchestration": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "aicore",
+                  "litert",
+                  "ollama",
+                  "openai-compatible",
+                  "google"
+                ],
+                "default": "auto"
+              },
+              "model": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "baseUrl": {
+                "type": "string",
+                "format": "uri",
+                "maxLength": 1000
+              },
+              "contextTokens": {
+                "type": "integer",
+                "minimum": 4096,
+                "maximum": 32768,
+                "default": 16384
+              },
+              "thinkingEnabled": {
+                "type": "boolean",
+                "default": false
+              }
+            },
+            "additionalProperties": false,
+            "default": {
+              "provider": "auto",
+              "contextTokens": 16384,
+              "thinkingEnabled": false
+            }
+          },
+          "ollama": {
+            "type": "object",
+            "properties": {
+              "baseUrl": {
+                "type": "string",
+                "format": "uri",
+                "maxLength": 1000,
+                "default": "http://localhost:11434"
+              }
+            },
+            "additionalProperties": false,
+            "default": {
+              "baseUrl": "http://localhost:11434"
+            }
+          },
+          "hostedFallback": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "ask",
+              "none"
+            ],
+            "default": "ask"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "InferenceRequest": {
+    "$ref": "#/definitions/InferenceRequest",
+    "definitions": {
+      "InferenceRequest": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "const": 1
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "litert",
+              "ollama",
+              "aicore"
+            ]
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "system",
+                    "user",
+                    "assistant",
+                    "tool"
+                  ]
+                },
+                "content": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {}
+                    }
+                  ]
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                "toolCallId": {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                "toolCalls": {
+                  "type": "array",
+                  "items": {}
+                }
+              },
+              "required": [
+                "role",
+                "content"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 128
+          },
+          "tools": {
+            "type": "array",
+            "items": {},
+            "maxItems": 64,
+            "default": []
+          },
+          "options": {
+            "type": "object",
+            "properties": {
+              "temperature": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 2
+              },
+              "maxTokens": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8192
+              },
+              "contextTokens": {
+                "type": "integer",
+                "minimum": 4096,
+                "maximum": 32768,
+                "default": 16384
+              },
+              "thinkingEnabled": {
+                "type": "boolean"
+              },
+              "toolChoice": {}
+            },
+            "additionalProperties": false,
+            "default": {}
+          },
+          "stream": {
+            "type": "boolean",
+            "default": false
+          },
+          "deadline": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          }
+        },
+        "required": [
+          "version",
+          "requestId",
+          "provider",
+          "model",
+          "messages",
+          "deadline"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "InferenceResult": {
+    "$ref": "#/definitions/InferenceResult",
+    "definitions": {
+      "InferenceResult": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "const": 1
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "content": {
+            "type": "string"
+          },
+          "toolCalls": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "args": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "args"
+              ],
+              "additionalProperties": false
+            },
+            "default": []
+          },
+          "finishReason": {
+            "type": "string",
+            "default": "stop"
+          },
+          "usage": {
+            "type": "object",
+            "properties": {
+              "inputTokens": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "outputTokens": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "totalTokens": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          },
+          "metrics": {
+            "type": "object",
+            "additionalProperties": {
+              "type": [
+                "number",
+                "string"
+              ]
+            }
+          }
+        },
+        "required": [
+          "version",
+          "requestId",
+          "content"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "CartMutation": {
+    "$ref": "#/definitions/CartMutation",
+    "definitions": {
+      "CartMutation": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "set_quantity"
+              },
+              "itemId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "quantity": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 20
+              },
+              "confirmSameCustomizations": {
+                "type": "boolean",
+                "default": false
+              }
+            },
+            "required": [
+              "action",
+              "itemId",
+              "quantity"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "add_item"
+              },
+              "itemId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "itemName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "selections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "variant",
+                        "addon"
+                      ]
+                    },
+                    "format": {
+                      "type": "string",
+                      "enum": [
+                        "variants",
+                        "variations",
+                        "variantsV2",
+                        "addons"
+                      ]
+                    },
+                    "groupId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "choiceId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "format",
+                    "groupId",
+                    "choiceId"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 30
+              }
+            },
+            "required": [
+              "action",
+              "itemId"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "CartCustomization": {
+    "$ref": "#/definitions/CartCustomization",
+    "definitions": {
+      "CartCustomization": {
+        "type": "object",
+        "properties": {
+          "instruction": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "streamId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "personalContext": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "timeZone": {
+            "type": "string",
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "instruction"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "AgentFollowUp": {
+    "$ref": "#/definitions/AgentFollowUp",
+    "definitions": {
+      "AgentFollowUp": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "const": 1,
+            "default": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 400
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]{0,39}$"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "radio",
+                    "checkbox",
+                    "select",
+                    "text",
+                    "textarea"
+                  ]
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 240
+                },
+                "required": {
+                  "type": "boolean",
+                  "default": true
+                },
+                "placeholder": {
+                  "type": "string",
+                  "maxLength": 240
+                },
+                "defaultValue": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 120
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 120
+                      },
+                      "maxItems": 12
+                    }
+                  ]
+                },
+                "options": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120
+                      },
+                      "label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 160
+                      },
+                      "description": {
+                        "type": "string",
+                        "maxLength": 240
+                      }
+                    },
+                    "required": [
+                      "value",
+                      "label"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 12
+                }
+              },
+              "required": [
+                "id",
+                "type",
+                "label"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 4
+          },
+          "submitLabel": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "default": "Continue"
+          }
+        },
+        "required": [
+          "title",
+          "fields"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "CouponSelection": {
+    "$ref": "#/definitions/CouponSelection",
+    "definitions": {
+      "CouponSelection": {
+        "type": "object",
+        "properties": {
+          "couponCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "couponCode"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "PreferenceRequest": {
+    "$ref": "#/definitions/PreferenceRequest",
+    "definitions": {
+      "PreferenceRequest": {
+        "type": "object",
+        "properties": {
+          "personalContext": {
+            "type": "string",
+            "maxLength": 1000,
+            "default": ""
+          },
+          "addressId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "addressId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "Detection": {
+    "$ref": "#/definitions/Detection",
+    "definitions": {
+      "Detection": {
+        "type": "object",
+        "properties": {
+          "itemLabel": {
+            "type": "string",
+            "minLength": 1
+          },
+          "startTime": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "endTime": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "itemLabel",
+          "startTime",
+          "endTime",
+          "confidence"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+}

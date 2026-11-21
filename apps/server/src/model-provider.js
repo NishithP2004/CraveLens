@@ -1,30 +1,53 @@
 import { tracedOperation } from "./trace-context.js";
 import { ChatGoogle } from "@langchain/google";
 import { ChatOpenAI } from "@langchain/openai";
-import { DEFAULT_LOCAL_CONTEXT_TOKENS } from "@cravelens/shared";
+import { COMPACT_PROMPT_CONTEXT_TOKENS, DEFAULT_LOCAL_CONTEXT_TOKENS } from "@cravelens/shared";
 import { config } from "./config.js";
+import { inferenceBroker } from "./inference-broker.js";
 import { RemoteBrowserChatModel } from "./remote-browser-chat-model.js";
 import { getModelSettings, resolveModelCredential, safeHostedFetch } from "./model-settings.js";
 import { ApprovalFallbackChatModel } from "./approval-fallback-chat-model.js";
 
 const LOCAL_ORCHESTRATION_MAX_OUTPUT_TOKENS = 1_536;
+const LOCAL_PROVIDERS = new Set(["aicore", "litert", "ollama"]);
+const LOCAL_DEFAULT_MODELS = {
+  aicore: "gemini-nano-4-fast",
+  litert: "gemma-4-E2B-it-web",
+  ollama: "gemma3:4b",
+};
+const HOSTED_GEMINI_DEFAULT = "gemini-3.5-flash";
+
+export function selectAutoProvider(requested, providers = []) {
+  if (requested !== "auto") return requested;
+  const first = providers.find((item) => item && item.ready !== false && LOCAL_PROVIDERS.has(item.provider));
+  return first?.provider || "litert";
+}
+
+export function effectiveContextTokens(settingsTokens, registeredTokens) {
+  const settings = Number(settingsTokens) || DEFAULT_LOCAL_CONTEXT_TOKENS;
+  const registered = Number(registeredTokens);
+  if (!Number.isFinite(registered) || registered <= 0) return settings;
+  return Math.min(settings, registered);
+}
 
 async function resolveAgentModelImpl(deviceId, { runId, onApprovalRequired, onFallbackActivated } = {}) {
   const settings = await getModelSettings(deviceId);
   const requested = settings.orchestration.provider;
-  const provider = requested === "auto" ? "litert" : requested;
+  const provider = selectAutoProvider(requested, inferenceBroker.getCapabilities(deviceId));
   const model = settings.orchestration.model;
-  const contextTokens = settings.orchestration.contextTokens || DEFAULT_LOCAL_CONTEXT_TOKENS;
+  const contextTokens = effectiveContextTokens(settings.orchestration.contextTokens || DEFAULT_LOCAL_CONTEXT_TOKENS, inferenceBroker.getRegisteredContextTokens(deviceId, provider));
   const thinkingEnabled = settings.orchestration.thinkingEnabled === true;
-  if (provider === "litert" || provider === "ollama") {
-    const localModel = new RemoteBrowserChatModel({ deviceId, provider, model: model || (provider === "litert" ? "gemma-4-E2B-it-web" : "gemma3:4b"), temperature: 0.2, maxTokens: LOCAL_ORCHESTRATION_MAX_OUTPUT_TOKENS, contextTokens, thinkingEnabled });
+  if (LOCAL_PROVIDERS.has(provider)) {
+    const resolvedModelName = model || LOCAL_DEFAULT_MODELS[provider];
+    const localModel = new RemoteBrowserChatModel({ deviceId, provider, model: resolvedModelName, temperature: 0.2, maxTokens: LOCAL_ORCHESTRATION_MAX_OUTPUT_TOKENS, contextTokens, thinkingEnabled });
     const hosted = await resolveHostedFallbackModel(deviceId, settings);
     return {
       provider,
-      model: model || (provider === "litert" ? "gemma-4-E2B-it-web" : "gemma3:4b"),
-      chatModel: hosted && runId ? new ApprovalFallbackChatModel({ hostedFallback: settings.hostedFallback, localModel, hostedModel: hosted.chatModel, deviceId, runId, onApprovalRequired, onFallbackActivated, localDescription: { provider, model: model || (provider === "litert" ? "gemma-4-E2B-it-web" : "gemma3:4b"), hostedProvider: hosted.provider, hostedModel: hosted.model } }) : localModel,
+      model: resolvedModelName,
+      chatModel: hosted && runId ? new ApprovalFallbackChatModel({ hostedFallback: settings.hostedFallback, localModel, hostedModel: hosted.chatModel, deviceId, runId, onApprovalRequired, onFallbackActivated, localDescription: { provider, model: resolvedModelName, hostedProvider: hosted.provider, hostedModel: hosted.model } }) : localModel,
       local: true,
       contextTokens,
+      compactPrompt: contextTokens <= COMPACT_PROMPT_CONTEXT_TOKENS,
       thinkingEnabled,
       fallbackAvailable: Boolean(hosted) && settings.hostedFallback !== "none",
       hostedFallback: settings.hostedFallback,
@@ -39,7 +62,7 @@ async function resolveAgentModelImpl(deviceId, { runId, onApprovalRequired, onFa
   if (provider === "google") {
     const credential = await resolveModelCredential(deviceId, "google");
     if (!credential.value) throw new Error("Configure a Google API key before using this orchestration provider.");
-    const resolvedModel = model || (config.agentModelProvider === "gemini" ? config.agentModelName : "gemini-2.5-flash");
+    const resolvedModel = model || (config.agentModelProvider === "gemini" ? config.agentModelName : HOSTED_GEMINI_DEFAULT);
     return { provider, model: resolvedModel, local: false, thinkingEnabled, fallbackAvailable: false, chatModel: createGoogleModel(resolvedModel, credential.value, thinkingEnabled) };
   }
   throw new Error(`Unsupported orchestration provider: ${provider}`);
@@ -48,7 +71,7 @@ async function resolveAgentModelImpl(deviceId, { runId, onApprovalRequired, onFa
 async function resolveHostedFallbackModel(deviceId, settings) {
   const google = await resolveModelCredential(deviceId, "google");
   if (google.value) {
-    const model = config.agentModelProvider === "gemini" ? config.agentModelName : "gemini-2.5-flash";
+    const model = config.agentModelProvider === "gemini" ? config.agentModelName : HOSTED_GEMINI_DEFAULT;
     return { provider: "google", model, chatModel: createGoogleModel(model, google.value, settings.orchestration.thinkingEnabled === true) };
   }
   const openai = await resolveModelCredential(deviceId, "openai");

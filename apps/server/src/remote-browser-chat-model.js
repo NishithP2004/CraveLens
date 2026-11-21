@@ -2,7 +2,7 @@ import { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { AIMessage, AIMessageChunk } from "@langchain/core/messages";
 import { ChatGenerationChunk } from "@langchain/core/outputs";
 import { toJsonSchema } from "@langchain/core/utils/json_schema";
-import { DEFAULT_LOCAL_CONTEXT_TOKENS } from "@cravelens/shared";
+import { DEFAULT_LOCAL_CONTEXT_TOKENS, localRequestCharacterBudget } from "@cravelens/shared";
 import { encode as encodeToon } from "@toon-format/toon";
 import { inferenceBroker } from "./inference-broker.js";
 
@@ -64,7 +64,7 @@ export class RemoteBrowserChatModel extends BaseChatModel {
 
   _invoke(messages, options, onChunk) {
     const tools = compactLocalTools(this.tools);
-    const normalizedMessages = compactLocalMessages(messages.map(normalizeMessage), tools);
+    const normalizedMessages = compactLocalMessages(messages.map(normalizeMessage), tools, localRequestCharacterBudget({ contextTokens: this.contextTokens, maxTokens: this.maxTokens }));
     return inferenceBroker.invoke(this.deviceId, {
       provider: this.provider,
       model: this.model,
@@ -125,7 +125,8 @@ export function compactLocalMessages(messages, tools = [], characterBudget = LOC
   if (prepared.length <= 2) return prepared;
 
   const toolCharacters = JSON.stringify(tools).length;
-  let remaining = Math.max(5_000, characterBudget - toolCharacters);
+  const floor = characterBudget >= 8_000 ? 5_000 : Math.max(1_200, Math.floor(characterBudget * 0.5));
+  let remaining = Math.max(floor, characterBudget - toolCharacters);
   const selected = new Set();
   for (const index of evidence) {
     selected.add(index);
