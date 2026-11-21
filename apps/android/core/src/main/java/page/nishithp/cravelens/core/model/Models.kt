@@ -90,6 +90,49 @@ data class CouponSelection(val couponCode: String)
 data class PreferenceRequest(val personalContext: String = "", val addressId: String)
 
 @Serializable
+data class SavedAddress(
+    val id: String = "",
+    val addressString: String = "",
+    val receiverName: String = "",
+)
+
+@Serializable
+data class PreferenceHistory(
+    val matched: Int = 0,
+    val target: Int = 7,
+    val checked: Int = 0,
+    val excluded: Int = 0,
+    val incomplete: Boolean = false,
+    val scope: String? = null,
+)
+
+@Serializable
+data class PreferenceDraft(
+    val preferences: String = "",
+    val notes: String = "",
+    val history: PreferenceHistory = PreferenceHistory(),
+)
+
+@Serializable
+data class PreferenceProgress(val message: String = "", val at: Long = 0)
+
+@Serializable
+data class HostedFallback(val status: String = "", val delivery: String? = null)
+
+@Serializable
+data class PreferenceJob(
+    val runId: String = "",
+    val original: String = "",
+    val addressId: String = "",
+    val status: String = "",
+    val error: String? = null,
+    val progress: List<PreferenceProgress> = emptyList(),
+    val result: PreferenceDraft? = null,
+    val fallback: HostedFallback? = null,
+    val createdAt: Long = 0,
+)
+
+@Serializable
 data class FollowUpOption(val value: String, val label: String, val description: String? = null)
 
 @Serializable

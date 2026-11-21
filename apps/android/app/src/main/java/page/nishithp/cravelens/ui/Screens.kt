@@ -31,6 +31,7 @@ import androidx.compose.material.icons.outlined.BubbleChart
 import androidx.compose.material.icons.outlined.Gesture
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FloatingActionButton
@@ -50,7 +51,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.ButtonGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -74,6 +74,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import page.nishithp.cravelens.R
 import page.nishithp.cravelens.data.CravePrefs
+import page.nishithp.cravelens.data.PreferenceUiState
 import page.nishithp.cravelens.ui.theme.Coral
 import page.nishithp.cravelens.ui.theme.Ink
 import page.nishithp.cravelens.ui.theme.Lime
@@ -165,6 +166,9 @@ fun HomeScreen(
     onLasso: () -> Unit,
     onBubble: () -> Unit,
     onOpenCart: () -> Unit,
+    prefs: CravePrefs,
+    preferences: PreferenceUiState,
+    onRebuildPreferences: () -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
     val motion = motionSpecs()
@@ -177,7 +181,7 @@ fun HomeScreen(
                             haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                             onOpenCart()
                         },
-                        modifier = Modifier.sharedBounds(
+                        modifier = Modifier.fillMaxWidth().sharedBounds(
                             rememberSharedContentState("status-card"),
                             animatedVisibilityScope = animated,
                             boundsTransform = { _, _ -> motion.spatial },
@@ -198,22 +202,33 @@ fun HomeScreen(
                     haptic.performHapticFeedback(HapticFeedbackType.Confirm)
                     onWatch()
                 }
-                ButtonGroup(overflowIndicator = { menuState ->
-                    TextButton(onClick = { if (menuState.isShowing) menuState.dismiss() else menuState.show() }) { Text("More") }
-                }) {
-                    clickableItem(
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilledTonalButton(
                         onClick = { haptic.performHapticFeedback(HapticFeedbackType.ContextClick); onLasso() },
-                        label = "Lasso",
-                        icon = { Icon(Icons.Outlined.Gesture, contentDescription = "Lasso") },
-                        weight = 1f,
-                    )
-                    clickableItem(
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            contentColor = MaterialTheme.colorScheme.onSurface,
+                        ),
+                    ) {
+                        Icon(Icons.Outlined.Gesture, contentDescription = "Lasso")
+                        Text("Lasso")
+                    }
+                    FilledTonalButton(
                         onClick = { haptic.performHapticFeedback(HapticFeedbackType.ContextClick); onBubble() },
-                        label = "Bubble",
-                        icon = { Icon(Icons.Outlined.BubbleChart, contentDescription = "Show floating bubble") },
-                        weight = 1f,
-                    )
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            contentColor = MaterialTheme.colorScheme.onSurface,
+                        ),
+                    ) {
+                        Icon(Icons.Outlined.BubbleChart, contentDescription = "Show floating bubble")
+                        Text("Bubble")
+                    }
                 }
+            }
+            item {
+                PreferenceStatus(prefs, preferences, onRebuildPreferences)
             }
             if (showStatePreview) {
                 item {
@@ -336,9 +351,75 @@ fun HistoryScreen(state: String, onRefresh: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun PreferenceStatus(
+    prefs: CravePrefs,
+    state: PreferenceUiState,
+    onRebuild: () -> Unit,
+    onAccept: (() -> Unit)? = null,
+    onKeep: (() -> Unit)? = null,
+    onHostedDecision: ((Boolean) -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    val updated = if (prefs.inferredGeneratedAt <= 0L) "Not built yet" else {
+        val date = java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault()).format(java.util.Date(prefs.inferredGeneratedAt))
+        "Updated $date"
+    }
+    val showInferred = prefs.personalContext.isBlank() && prefs.inferredGeneratedAt > 0L && prefs.inferredAddressId.isNotBlank() && prefs.inferredAddressId == prefs.addressId
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(prefs.addressLabel.ifBlank { "Delivery address loads from Swiggy after a session." }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(updated, style = MaterialTheme.typography.labelLarge)
+        if (showInferred) {
+            Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Saved inferred preferences", style = MaterialTheme.typography.titleSmall)
+                    Text("Tentative", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(prefs.inferredPreferences.ifBlank { "No verified order history was found. No preferences were inferred." }, style = MaterialTheme.typography.bodyMedium)
+                    Text("${prefs.inferredMatched} ${if (prefs.inferredMatched == 1) "order" else "orders"} · ${if (prefs.inferredIncomplete) "Limited history" else "Account history"}", style = MaterialTheme.typography.bodySmall)
+                    Text(prefs.inferredNotes.ifBlank { "No additional history evidence was available." }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Your saved preferences above always take priority.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        if (state.busy) LoadingIndicator(color = Coral)
+        state.steps.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+        Text(state.status, style = MaterialTheme.typography.bodyMedium)
+        if (state.awaitingHostedModel && onHostedDecision != null) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(onClick = { onHostedDecision(true) }) { Text("Allow hosted model") }
+                TextButton(onClick = { onHostedDecision(false) }) { Text("Stop") }
+            }
+        }
+        if (state.draft != null && onAccept != null && onKeep != null) {
+            Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.primaryContainer) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(state.draft, style = MaterialTheme.typography.bodyLarge)
+                    if (state.notes.isNotBlank()) Text(state.notes, style = MaterialTheme.typography.bodySmall)
+                    if (state.coverage.isNotBlank()) Text(state.coverage, style = MaterialTheme.typography.bodySmall)
+                    Text("Not saved yet", style = MaterialTheme.typography.labelMedium)
+                    BrandButton("Use suggestion", onAccept)
+                    TextButton(onClick = onKeep) { Text("Keep original") }
+                }
+            }
+        }
+        FilledTonalButton(onClick = onRebuild, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Text("Rebuild personal context") }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(prefs: CravePrefs, message: String, onChange: (CravePrefs) -> Unit, onSave: () -> Unit) {
+fun SettingsScreen(
+    prefs: CravePrefs,
+    message: String,
+    onChange: (CravePrefs) -> Unit,
+    onSave: () -> Unit,
+    preferences: PreferenceUiState,
+    onRebuild: () -> Unit,
+    onAccept: () -> Unit,
+    onKeep: () -> Unit,
+    onHostedDecision: (Boolean) -> Unit,
+) {
     val haptic = LocalHapticFeedback.current
     ScreenScaffold("Settings", "The same choices as the extension") { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(bottom = 32.dp)) {
@@ -349,9 +430,12 @@ fun SettingsScreen(prefs: CravePrefs, message: String, onChange: (CravePrefs) ->
                     onValueChange = { onChange(prefs.copy(personalContext = it)) },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     label = { Text("Food preferences and routines") },
-                    supportingText = { Text("Empty until you write them. Delivery address loads from Swiggy after a session.") },
+                    supportingText = { Text("Empty until you write them. Typed preferences always take priority over an inferred profile.") },
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 )
+            }
+            item {
+                PreferenceStatus(prefs, preferences, onRebuild, onAccept, onKeep, onHostedDecision, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             }
             item { ListItem(headlineContent = { Text("History & evidence") }, supportingContent = { Text("Shown only from orders this device actually loads.") }) }
             item { SectionLabel("02 Detection context") }

@@ -30,6 +30,9 @@ android {
         buildConfigField("String", "FIREBASE_PROJECT_ID", "\"${config("FIREBASE_PROJECT_ID", "your-firebase-project")}\"")
         buildConfigField("String", "PROD_API_URL", "\"https://cravelens.nishithp.page\"")
         buildConfigField("String", "DEV_API_URL", "\"http://10.0.2.2:8787\"")
+        buildConfigField("String", "API_BASE_URL", "\"${config("API_BASE_URL", "https://cravelens.nishithp.page")}\"")
+        val requestedAbi = providers.gradleProperty("abi").orNull
+        if (!requestedAbi.isNullOrBlank()) ndk.abiFilters += requestedAbi
     }
     buildFeatures {
         compose = true

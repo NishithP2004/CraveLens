@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -25,6 +26,17 @@ data class CravePrefs(
     val cartExperience: String = "screen",
     val telegramSilent: Boolean = false,
     val personalContext: String = "",
+    val addressId: String = "",
+    val addressLabel: String = "",
+    val inferredPreferences: String = "",
+    val inferredNotes: String = "",
+    val inferredGeneratedAt: Long = 0,
+    val inferredAddressId: String = "",
+    val inferredMatched: Int = 0,
+    val inferredChecked: Int = 0,
+    val inferredIncomplete: Boolean = false,
+    val swiggyConnectionSeen: Boolean = false,
+    val preferenceJobId: String = "",
     val watchLabel: String = "Off",
     val cartSummary: String = "No cart is waiting. Check the server when a watching session prepares one.",
 )
@@ -42,6 +54,17 @@ object AppPrefs {
     private val cartExperience = stringPreferencesKey("cartExperience")
     private val telegramSilent = booleanPreferencesKey("telegramSilent")
     private val personalContext = stringPreferencesKey("personalContext")
+    private val addressId = stringPreferencesKey("addressId")
+    private val addressLabel = stringPreferencesKey("addressLabel")
+    private val inferredPreferences = stringPreferencesKey("inferredPreferences")
+    private val inferredNotes = stringPreferencesKey("inferredNotes")
+    private val inferredGeneratedAt = longPreferencesKey("inferredGeneratedAt")
+    private val inferredAddressId = stringPreferencesKey("inferredAddressId")
+    private val inferredMatched = intPreferencesKey("inferredMatched")
+    private val inferredChecked = intPreferencesKey("inferredChecked")
+    private val inferredIncomplete = booleanPreferencesKey("inferredIncomplete")
+    private val swiggyConnectionSeen = booleanPreferencesKey("swiggyConnectionSeen")
+    private val preferenceJobId = stringPreferencesKey("preferenceJobId")
     private val watchLabel = stringPreferencesKey("watchLabel")
     private val cartSummary = stringPreferencesKey("cartSummary")
 
@@ -59,6 +82,17 @@ object AppPrefs {
             cartExperience = p[cartExperience] ?: "screen",
             telegramSilent = p[telegramSilent] == true,
             personalContext = p[personalContext].orEmpty(),
+            addressId = p[addressId].orEmpty(),
+            addressLabel = p[addressLabel].orEmpty(),
+            inferredPreferences = p[inferredPreferences].orEmpty(),
+            inferredNotes = p[inferredNotes].orEmpty(),
+            inferredGeneratedAt = p[inferredGeneratedAt] ?: 0,
+            inferredAddressId = p[inferredAddressId].orEmpty(),
+            inferredMatched = p[inferredMatched] ?: 0,
+            inferredChecked = p[inferredChecked] ?: 0,
+            inferredIncomplete = p[inferredIncomplete] == true,
+            swiggyConnectionSeen = p[swiggyConnectionSeen] == true,
+            preferenceJobId = p[preferenceJobId].orEmpty(),
             watchLabel = p[watchLabel] ?: "Off",
             cartSummary = p[cartSummary] ?: CravePrefs().cartSummary,
         )
@@ -79,6 +113,17 @@ object AppPrefs {
                 cartExperience = prefs[cartExperience] ?: "screen",
                 telegramSilent = prefs[telegramSilent] == true,
                 personalContext = prefs[personalContext].orEmpty(),
+                addressId = prefs[addressId].orEmpty(),
+                addressLabel = prefs[addressLabel].orEmpty(),
+                inferredPreferences = prefs[inferredPreferences].orEmpty(),
+                inferredNotes = prefs[inferredNotes].orEmpty(),
+                inferredGeneratedAt = prefs[inferredGeneratedAt] ?: 0,
+                inferredAddressId = prefs[inferredAddressId].orEmpty(),
+                inferredMatched = prefs[inferredMatched] ?: 0,
+                inferredChecked = prefs[inferredChecked] ?: 0,
+                inferredIncomplete = prefs[inferredIncomplete] == true,
+                swiggyConnectionSeen = prefs[swiggyConnectionSeen] == true,
+                preferenceJobId = prefs[preferenceJobId].orEmpty(),
                 watchLabel = prefs[watchLabel] ?: "Off",
                 cartSummary = prefs[cartSummary] ?: CravePrefs().cartSummary,
             )
@@ -95,6 +140,17 @@ object AppPrefs {
             prefs[cartExperience] = next.cartExperience
             prefs[telegramSilent] = next.telegramSilent
             prefs[personalContext] = next.personalContext
+            prefs[addressId] = next.addressId
+            prefs[addressLabel] = next.addressLabel
+            prefs[inferredPreferences] = next.inferredPreferences
+            prefs[inferredNotes] = next.inferredNotes
+            prefs[inferredGeneratedAt] = next.inferredGeneratedAt
+            prefs[inferredAddressId] = next.inferredAddressId
+            prefs[inferredMatched] = next.inferredMatched
+            prefs[inferredChecked] = next.inferredChecked
+            prefs[inferredIncomplete] = next.inferredIncomplete
+            prefs[swiggyConnectionSeen] = next.swiggyConnectionSeen
+            prefs[preferenceJobId] = next.preferenceJobId
             prefs[watchLabel] = next.watchLabel
             prefs[cartSummary] = next.cartSummary
         }

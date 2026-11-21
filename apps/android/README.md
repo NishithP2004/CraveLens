@@ -34,7 +34,7 @@ Or drop `google-services.json` next to `app/build.gradle.kts`. The Google Servic
 
 Debug builds install the App Check debug provider. Logcat prints the debug token the first time the app talks to Firebase; register that token in the Firebase console. Release builds reference Play Integrity. Play Integrity is not configured in this repository, and sideloaded release builds will not pass it until a Play Console app exists.
 
-The production API is `https://cravelens.nishithp.page`. The emulator can reach a local API at `http://10.0.2.2:8787` (cleartext is allowed only for that host and `localhost`).
+The production API is `https://cravelens.nishithp.page`. The app calls `API_BASE_URL` from `local.properties` when that key is set, and production otherwise. Cleartext is allowed only for `10.0.2.2`, `localhost`, and `127.0.0.1`. See [Testing on a device](#testing-on-a-device).
 
 ## Shared assets
 
@@ -54,6 +54,10 @@ The floating bubble morphs a Material shape for each status: Off is a circle, Wa
 
 Settings keep the extension section labels: **01 Personal context**, **02 Detection context**, **03 VLM configuration**, **04 Agentic orchestration**, **05 Cart experience**, and **06 Local AI setup**, plus an Android **Appearance** section (theme and wallpaper colours). Defaults match the extension, except the Android scan interval default of 1000 ms. Sliders cover sensitivity 0.35–0.8, scan interval 1–30 seconds, and context length 4096–32768. Segmented buttons cover the hosted-fallback, cart-experience, and theme choices.
 
+**01 Personal context** uses the same routes as the extension. After onboarding, a connected Swiggy session with a delivery address and no typed preferences calls `POST /api/preferences/build` when nothing usable is saved, the saved address differs, the connection was observed to change, or the profile is older than 30 days (24 hours when the saved text is empty). A profile with empty text, checked orders, and incomplete history counts as missing. Typed preferences always win and are not replaced. **Rebuild personal context** on Home and in Settings runs the same request on demand, shows the server progress, and asks for **Use suggestion** or **Keep original** before saving a manual draft. A ready job with no matched orders is shown as no history. A running job that asks for a hosted model shows **Allow hosted model** and **Stop**, posting `/api/orchestrate/:runId/fallback`. A cart response that includes `suggestion.preferenceProfile` is stored as the tentative profile, which is what the extension does when the server builds preferences during cart preparation. The phone cannot see the Swiggy credential timestamp, so a connection change that happens entirely on the server is still rebuilt during the next cart preparation even if the phone's copy looks fresh. Last updated uses the profile time. Nothing here places an order.
+
+Home keeps **Start watching** as the coral action. **Lasso** and **Bubble** are lighter tonal buttons. The status card is full width. Every Material type slot uses Manrope (display, headline, title, large labels) or DM Sans (body and smaller labels).
+
 Cart and History show rounded thumbnails only for `https` image URLs named `imageUrl`, `thumbnailUrl`, `image_url`, or `thumbnail_url` in the server response. Otherwise they show an original empty-plate illustration. The cart's floating toolbar checks the active cart. Order stays disabled until a verified under-cap cart exists.
 
 A progress notification (`Notification.ProgressStyle` on API 36, `setProgress` before that) is posted only while the real watch status is Preparing cart or Cart ready, and it has no Order action. The quick settings tile label is CraveLens and its subtitle is the current status. The home-screen widget reads the saved watch label and cart summary, which stay "Off" and the empty-cart sentence until a real session writes them. The launcher icon has an adaptive foreground and a monochrome layer for themed icons.
@@ -63,3 +67,41 @@ Debug builds leave `FLAG_SECURE` off the floating bubble so a screen capture can
 ## Ordering
 
 Checkout posts `/api/orchestrate/:threadId/decision` at most once, on a client with `retryOnConnectionFailure` set to false. Carts at or above ₹1,000 stay closed. The Order button stays disabled until a verified under-cap cart exists. Notifications have no Order action.
+
+## Testing on a device
+
+The debug APK is `app/build/outputs/apk/debug/app-debug.apk` after `./gradlew :app:assembleDebug`. It is not committed. That package includes every ABI. A Pixel 10 only needs arm64:
+
+```bash
+./gradlew :app:assembleDebug -Pabi=arm64-v8a
+```
+
+The output path is the same. Do not commit the APK.
+
+Install from a computer with the phone in USB debugging:
+
+```bash
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+Or copy that APK onto the Pixel and open it. Android asks you to allow installs from that app. This is a debug build, so Play App Signing is not involved.
+
+Android Studio: open `apps/android`, let Gradle sync, choose the Pixel, and run the `app` configuration. That uses the same debug variant.
+
+Firebase: put `google-services.json` next to `app/build.gradle.kts`, or set `FIREBASE_API_KEY`, `FIREBASE_APP_ID`, and `FIREBASE_PROJECT_ID` in `local.properties`. Do not commit either. Debug builds use the App Check debug provider. The first Firebase call prints a debug secret in logcat under `DebugAppCheckProvider`. Register that secret in the Firebase console for this Android app. Do not paste it into git, the README, or a bug report. Release builds reference Play Integrity, which is not configured here.
+
+Point the app at a server with `API_BASE_URL` in `local.properties`, then rebuild. Leave it unset to use `https://cravelens.nishithp.page`.
+
+A phone can reach a server on the same computer with `adb reverse`, then this URL:
+
+```properties
+API_BASE_URL=http://127.0.0.1:8787
+```
+
+```bash
+adb reverse tcp:8787 tcp:8787
+```
+
+`http://localhost:8787` is the same idea. The emulator uses `http://10.0.2.2:8787` instead of `adb reverse`. A deployed URL uses `https://` and needs no cleartext exception.
+
+Gemini Nano on a Pixel 10 comes from Android AICore. This app does not download it. Update the AICore app (and Android System Intelligence) from the Play Store, then leave the phone on Wi-Fi until the model finishes downloading. Identification reports the on-device status, including `AVAILABLE`. Any other status stays on the phone and does not invent a dish. Cloud identification still follows the saved failure policy. A computer build cannot show that Pixel status.

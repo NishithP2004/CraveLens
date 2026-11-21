@@ -63,7 +63,8 @@ import page.nishithp.cravelens.ui.theme.CraveTheme
 import page.nishithp.cravelens.widget.refreshWidget
 
 class MainActivity : ComponentActivity() {
-    private val api = CraveApi(BuildConfig.PROD_API_URL)
+    private val api = CraveApi(BuildConfig.API_BASE_URL)
+    private val preferences by lazy { page.nishithp.cravelens.data.PreferenceController(api, applicationContext, lifecycleScope) }
     private var cartState by mutableStateOf("No cart is waiting. Check the server when a watching session prepares one.")
     private var historyState by mutableStateOf("Order history loads from Swiggy after this device has a session and a delivery address.")
     private var settingsMessage by mutableStateOf(CraveLensApp.startupMessage)
@@ -102,7 +103,15 @@ class MainActivity : ComponentActivity() {
                     onBubble = ::showBubble,
                     onRefreshCart = ::loadCart,
                     onRefreshHistory = ::loadHistory,
+                    preferences = preferences.ui,
+                    onRebuildPreferences = preferences::rebuild,
+                    onAcceptPreferences = preferences::acceptDraft,
+                    onKeepPreferences = preferences::keepOriginal,
+                    onHostedDecision = preferences::hostedDecision,
                 )
+                LaunchedEffect(current.onboarded) {
+                    if (current.onboarded) preferences.considerAutomatic()
+                }
             }
         }
     }
@@ -137,6 +146,23 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun absorbProfile(body: String) {
+        val profile = page.nishithp.cravelens.core.preferences.parseAttachedProfile(body) ?: return
+        lifecycleScope.launch {
+            AppPrefs.update(this@MainActivity) {
+                it.copy(
+                    inferredPreferences = profile.preferences,
+                    inferredNotes = profile.notes,
+                    inferredGeneratedAt = profile.generatedAt,
+                    inferredAddressId = profile.addressId,
+                    inferredMatched = profile.matched,
+                    inferredChecked = profile.checked,
+                    inferredIncomplete = profile.incomplete,
+                )
+            }
+        }
+    }
+
     private fun launch(empty: String, call: () -> String) {
         lifecycleScope.launch {
             val text = withContext(Dispatchers.IO) {
@@ -145,6 +171,7 @@ class MainActivity : ComponentActivity() {
                 call()
             }
             val body = text.ifBlank { empty }
+            absorbProfile(body)
             if (cartState.startsWith("Loading")) {
                 cartState = body
                 AppPrefs.update(this@MainActivity) { it.copy(cartSummary = summaryLine(body)) }
@@ -170,6 +197,11 @@ private fun CraveShell(
     onBubble: () -> Unit,
     onRefreshCart: () -> Unit,
     onRefreshHistory: () -> Unit,
+    preferences: page.nishithp.cravelens.data.PreferenceUiState,
+    onRebuildPreferences: () -> Unit,
+    onAcceptPreferences: () -> Unit,
+    onKeepPreferences: () -> Unit,
+    onHostedDecision: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -219,10 +251,10 @@ private fun CraveShell(
         }) {
             SharedShell(dest) { animated ->
                 when (dest) {
-                    Dest.Home -> HomeScreen(WatchState.status, WatchState.detail, BuildConfig.DEBUG, this, animated, onWatch, onLasso, onBubble) { dest = Dest.Cart }
+                    Dest.Home -> HomeScreen(WatchState.status, WatchState.detail, BuildConfig.DEBUG, this, animated, onWatch, onLasso, onBubble, { dest = Dest.Cart }, prefs, preferences, onRebuildPreferences)
                     Dest.Cart -> CartScreen(cartState, "Payable amount appears after a verified cart.", blocked = false, this, animated, onRefreshCart)
                     Dest.History -> HistoryScreen(historyState, onRefreshHistory)
-                    Dest.Settings -> SettingsScreen(prefs, settingsMessage, onPrefs, onSave)
+                    Dest.Settings -> SettingsScreen(prefs, settingsMessage, onPrefs, onSave, preferences, onRebuildPreferences, onAcceptPreferences, onKeepPreferences, onHostedDecision)
                 }
             }
         }
