@@ -31,7 +31,7 @@ vi.mock("../src/store.js", () => ({ getThread: async (id) => state.threads.get(i
 vi.mock("../src/checkout.js", () => ({ cartRevision: (s) => JSON.stringify(s?.receipt), decideCart: state.checkout, refreshPayment: vi.fn(), cancelPayment: state.cancel }));
 vi.mock("../src/config.js", () => ({ config: { telegramBotToken: "test-token", telegramWebhookSecret: "test-secret" } }));
 vi.mock("../src/cart-customization.js", () => ({ customizeCart: state.customize }));
-import { processTelegramCartUpdate, cartProductImage, deliverTelegramCart, richMessageChunks, cartMessage, confirmTelegramLink, disconnectTelegram, handleTelegramUpdate, startTelegramLink, telegramStatus } from "../src/telegram.js";
+import { processTelegramCartUpdate, cartProductImage, deliverTelegramCart, richMessageChunks, cartMessage, confirmTelegramLink, disconnectTelegram, handleTelegramUpdate, startTelegramLink, telegramStartupPlan, telegramStatus } from "../src/telegram.js";
 import { saveCartExperience } from "../src/cart-experience.js";
 
 beforeEach(() => {
@@ -216,4 +216,11 @@ it("drops queued edits authorized by a superseded connection", async () => {
   await processTelegramCartUpdate("revoked");
   expect(state.customize).not.toHaveBeenCalled();
   expect(state.messages.some(message => message.method === "sendPhoto")).toBe(false);
+});
+
+it("does not replace a webhook that belongs to another public origin", () => {
+  expect(telegramStartupPlan({ transport: "auto", publicBaseUrl: "http://127.0.0.1:8799", currentWebhookUrl: "https://example.test/telegram/webhook" })).toBe("leave");
+  expect(telegramStartupPlan({ transport: "auto", publicBaseUrl: "http://127.0.0.1:8799", currentWebhookUrl: "" })).toBe("poll");
+  expect(telegramStartupPlan({ transport: "auto", publicBaseUrl: "https://example.test", currentWebhookUrl: "https://other.test/telegram/webhook" })).toBe("webhook");
+  expect(telegramStartupPlan({ transport: "polling", publicBaseUrl: "http://127.0.0.1:8799", currentWebhookUrl: "http://127.0.0.1:8799/telegram/webhook" })).toBe("poll");
 });

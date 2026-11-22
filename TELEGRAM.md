@@ -11,7 +11,7 @@ TELEGRAM_BOT_TOKEN=<BotFather token>
 TELEGRAM_TRANSPORT=auto
 ```
 
-For local development with an HTTP `PUBLIC_BASE_URL`, auto mode uses long polling and needs no inbound tunnel. For production, configure the deployed server's HTTPS `PUBLIC_BASE_URL` and:
+For local development with an HTTP `PUBLIC_BASE_URL`, auto mode uses long polling and needs no inbound tunnel. If that bot already has a webhook on a different origin, the local process leaves the webhook in place and does not poll. For production, configure the deployed server's HTTPS `PUBLIC_BASE_URL` and:
 
 ```
 TELEGRAM_WEBHOOK_SECRET=<at least 32 random letters, digits, underscores or hyphens>

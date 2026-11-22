@@ -10,7 +10,7 @@ async function connectSwiggyFoodImpl(sessionId, { allowDeveloperFallback = true 
   if (sdkSession) return wrapClient(sdkSession.client, false);
   if (!allowDeveloperFallback) throw new Error("Connect your Swiggy account before building preferences.");
   const accessToken = config.swiggyMcpAccessToken;
-  if (!accessToken) throw new Error("Swiggy is not connected. Complete OAuth in the CraveLens extension.");
+  if (!accessToken) throw new Error("Swiggy is not connected. Complete Swiggy sign-in.");
   const client = new Client({ name: "cravelens", version: "0.1.0" });
   const transport = new StreamableHTTPClientTransport(new URL(config.swiggyFoodMcpUrl), {
     requestInit: { headers: { authorization: `Bearer ${accessToken}` } },
