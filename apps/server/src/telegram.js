@@ -294,15 +294,29 @@ async function pump() {
     } finally { await redis.del(key(`payment-lock:${id}`)); }
   }
 }
+export function telegramStartupPlan({ transport = "auto", publicBaseUrl = "", currentWebhookUrl = "" } = {}) {
+  const normalized = String(publicBaseUrl || "").replace(/\/$/, "");
+  const wantsWebhook = transport === "webhook" || transport === "auto" && normalized.startsWith("https://");
+  if (wantsWebhook) return "webhook";
+  const ours = `${normalized}/telegram/webhook`;
+  if (currentWebhookUrl && currentWebhookUrl !== ours) return "leave";
+  return "poll";
+}
+
 export async function startTelegram() {
   if (!config.telegramBotToken) return;
   await botIdentity();
   stopped = false;
-  const webhook = config.telegramTransport === "webhook" || config.telegramTransport === "auto" && config.publicBaseUrl.startsWith("https://");
-  if (webhook) {
+  const plan = telegramStartupPlan({ transport: config.telegramTransport, publicBaseUrl: config.publicBaseUrl });
+  if (plan === "webhook") {
     if (config.telegramWebhookSecret.length < 32) throw new Error("Set TELEGRAM_WEBHOOK_SECRET to at least 32 characters for webhook mode");
     await telegramCall("setWebhook", { url: `${config.publicBaseUrl.replace(/\/$/, "")}/telegram/webhook`, secret_token: config.telegramWebhookSecret, allowed_updates: ["message", "callback_query"] });
   } else {
+    const current = await telegramCall("getWebhookInfo", {});
+    if (telegramStartupPlan({ transport: config.telegramTransport, publicBaseUrl: config.publicBaseUrl, currentWebhookUrl: current?.url || "" }) === "leave") {
+      console.warn("[telegram] Leaving the existing webhook in place because PUBLIC_BASE_URL does not match it.");
+      return;
+    }
     await telegramCall("deleteWebhook");
     void poll();
   }

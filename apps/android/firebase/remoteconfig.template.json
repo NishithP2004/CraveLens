@@ -1,0 +1,25 @@
+{
+  "parameters": {
+    "vision_cloud_model": "gemini-3.5-flash-lite",
+    "ondevice_model_option": "STABLE",
+    "vlm_prompt_android": "Inspect the image. Pixels are authoritative; title and transcript are weak hints. Return only minified JSON: {\"isFood\":boolean,\"dish\":string,\"description\":string,\"cuisine\":string,\"ingredients\":string[],\"confidence\":number,\"context\":\"ready_to_eat\"|\"recipe\"|\"restaurant_experience\",\"dishes\":[{\"dish\":string,\"description\":string,\"cuisine\":string,\"ingredients\":string[],\"confidence\":number}]}. Identify only the main prepared dishes that are the visual focus of this frame, ordered by prominence, with separate confidence and visible ingredients (at most 8). Ignore garnishes, condiments, dips, small side accompaniments, isolated ingredients, drinks and incidental background food. Do not report every edible object. A separately served substantial dish can be a main dish; an ingredient or garnish of another dish cannot. Keep each dish description under 120 characters and list at most 5 visible ingredients. Do not split one dish into its ingredients or duplicate portions. Set top-level dish/cuisine/ingredients to the most prominent dish and description to a brief overview of all dishes. Top-level confidence describes food presence; each dish confidence describes its identification. Return dishes:[] for non-food. Use \"unknown\" when a dish cuisine cannot be identified. Be conservative; never invent hidden ingredients. Title: Android screen\nNo transcript context was available.\nReturn at most 3 dishes. Keep each description under 80 characters.",
+    "yolo_threshold": 0.38,
+    "yolo_nms_iou": 0.45,
+    "food_confidence_gate": 0.65,
+    "dedupe_hist_distance": 0.11,
+    "scan_fps_base": 1,
+    "scan_fps_max": 2,
+    "scan_fps_min": 0.5,
+    "vlm_max_per_min": 6,
+    "vlm_cooldown_after_cart_s": 120,
+    "nudge_min_interval_min": 10,
+    "nudge_max_per_hour": 4,
+    "watch_idle_timeout_min": 60,
+    "routing_low_conf_cloud_retry": true,
+    "agent_nano_preference": "FAST",
+    "agent_nano_token_limit": 4000,
+    "agent_cloud_model": "gemini-3.5-flash",
+    "agent_litert_model_url_e2b": "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm",
+    "agent_litert_model_url_e4b": "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm"
+  }
+}

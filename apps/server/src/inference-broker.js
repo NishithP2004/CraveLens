@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { InferenceRequestSchema, InferenceResultSchema } from "@cravelens/shared";
+import { recordEvent } from "./analytics.js";
 import { config } from "./config.js";
 
 const DEVICE_ID = /^[a-f0-9-]{36}$/i;
@@ -13,7 +14,7 @@ class InferenceBroker {
       const deviceId = socket.data.deviceId;
       socket.join(deviceRoom(deviceId));
       socket.on("inference:register", (payload, acknowledge) => {
-        const providers = Array.isArray(payload?.providers) ? payload.providers.slice(0, 32) : [];
+        const providers = (Array.isArray(payload?.providers) ? payload.providers : []).slice(0, 32).map(normalizeProvider).filter((item) => item.provider);
         this.capabilities.set(deviceId, { providers, updatedAt: Date.now(), socketId: socket.id });
         acknowledge?.({ ok: true });
       });
@@ -33,6 +34,11 @@ class InferenceBroker {
 
   getCapabilities(deviceId) { return this.capabilities.get(deviceId)?.providers || []; }
 
+  getRegisteredContextTokens(deviceId, provider) {
+    const match = this.getCapabilities(deviceId).find((item) => item?.provider === provider && item.ready !== false && Number.isFinite(item.contextTokens));
+    return match ? Number(match.contextTokens) : undefined;
+  }
+
   async invoke(deviceId, input, { signal, timeoutMs = config.localInferenceTimeoutMs, onChunk } = {}) {
     if (!this.namespace || !DEVICE_ID.test(deviceId)) throw inferenceError("Browser inference is unavailable", "INFERENCE_UNAVAILABLE");
     const pending = this.pendingByDevice.get(deviceId) || 0;
@@ -49,7 +55,10 @@ class InferenceBroker {
       const response = responses?.find((item) => item?.ok || item?.error);
       if (!response) throw inferenceError("No connected browser accepted the inference request", "INFERENCE_OFFLINE", 503);
       if (!response.ok) throw inferenceError(response.error?.message || "Browser inference failed", response.error?.code || "INFERENCE_FAILED", 502);
-      return InferenceResultSchema.parse(response.result);
+      const result = InferenceResultSchema.parse(response.result);
+      const runtime = result.metrics?.runtime;
+      if (runtime) void recordEvent({ id: `inference:${result.requestId}`, kind: "inference_runtime", runtime: String(runtime), provider: request.provider, model: String(result.metrics?.model || request.model || "") });
+      return result;
     } catch (error) {
       if (/operation has timed out/i.test(error?.message || "")) {
         abort();
@@ -63,6 +72,18 @@ class InferenceBroker {
       if (remaining > 0) this.pendingByDevice.set(deviceId, remaining); else this.pendingByDevice.delete(deviceId);
     }
   }
+}
+
+function normalizeProvider(provider) {
+  const contextTokens = Number(provider?.contextTokens);
+  return {
+    provider: String(provider?.provider || "").trim(),
+    ...(provider?.model ? { model: String(provider.model).slice(0, 200) } : {}),
+    ...(Array.isArray(provider?.capabilities) ? { capabilities: provider.capabilities.map((item) => String(item)).slice(0, 8) } : {}),
+    ready: provider?.ready !== false,
+    ...(Number.isFinite(contextTokens) && contextTokens > 0 && contextTokens <= 200_000 ? { contextTokens } : {}),
+    ...(provider?.runtime ? { runtime: String(provider.runtime).slice(0, 40) } : {}),
+  };
 }
 
 export const inferenceBroker = new InferenceBroker();

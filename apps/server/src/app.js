@@ -4,7 +4,8 @@ import { traceOperation } from "./trace-context.js";
 import { customizeCart } from "./cart-customization.js";
 import { getPreferenceJob, startPreferenceJob } from "./preference-builder.js";
 import { telegramStatus, startTelegramLink, confirmTelegramLink, disconnectTelegram, handleTelegramUpdate, queueTelegramCart } from "./telegram.js";
-import { getCartExperience, saveCartExperience, reserveBackgroundCart, releaseBackgroundCart, pausedBackgroundCart } from "./cart-experience.js";
+import { androidAppCheck } from "./app-check.js";
+import { getCartExperience, saveCartExperience, reserveBackgroundCart, releaseBackgroundCart, pausedBackgroundCart, getActiveCart } from "./cart-experience.js";
 import { decideCart, refreshPayment, cancelPayment } from "./checkout.js";
 import crypto from "node:crypto";
 import { existsSync, statSync } from "node:fs";
@@ -13,6 +14,7 @@ import express from "express";
 import cors from "cors";
 import { CartCustomizationSchema, CartMutationSchema, CouponSelectionSchema, DetectionSchema, OrchestrateRequestSchema, foodCravingIdentity } from "@cravelens/shared";
 import { claimThreadStatus, getThread, getVideo, patchThread, saveDetection, saveThread } from "./store.js";
+import { listFoodOrders, readFoodOrder } from "./orders.js";
 import { buildPersonalizedCart, checkUPIPayment, confirmUPIPayment, customizePersonalizedCart, getRestaurantMenuItems, getSavedAddresses, mutatePersonalizedCart, placeOrder, publicPayment, selectPersonalizedCoupon } from "./swiggy.js";
 import { completeSwiggyAuthorization, disconnectSwiggy, failSwiggyAuthorization, getSwiggyAuthorizationStatus, startSwiggyAuthorization } from "./swiggy-auth.js";
 import { config } from "./config.js";
@@ -84,18 +86,35 @@ app.post("/telegram/webhook", async (req, res) => {
   try { await handleTelegramUpdate(req.body); res.sendStatus(200); }
   catch { res.sendStatus(503); }
 });
-app.use(["/api/swiggy", "/api/orchestrate", "/api/model-settings", "/api/telegram", "/api/cart-experience", "/api/preferences"], requireDevice);
+app.use(["/api/swiggy", "/api/orchestrate", "/api/model-settings", "/api/telegram", "/api/cart-experience", "/api/preferences", "/api/orders", "/api/cart/active"], requireDevice);
+app.use(androidAppCheck);
 app.post("/api/preferences/build", async (req, res, next) => { try { res.status(202).json(await startPreferenceJob(req.deviceId, req.body)); } catch (error) { next(error); } });
 app.get("/api/preferences/build/:runId", async (req, res, next) => { try { const job = await getPreferenceJob(req.deviceId, req.params.runId); if (!job) return res.status(404).json({ error: "Preferences run expired or was not found" }); res.set("Cache-Control", "no-store").json(job); } catch (error) { next(error); } });
 app.get("/api/telegram", async (req, res, next) => { try { res.json(await telegramStatus(req.deviceId)); } catch (error) { next(error); } });
 app.post("/api/telegram/connect", async (req, res, next) => { try { res.json(await startTelegramLink(req.deviceId)); } catch (error) { next(error); } });
 app.post("/api/telegram/confirm", async (req, res, next) => { try { res.json(await confirmTelegramLink(req.deviceId, { transfer: req.body?.transfer === true, confirmationToken: req.body?.confirmationToken })); } catch (error) { next(error); } });
 app.delete("/api/telegram", async (req, res, next) => { try { await disconnectTelegram(req.deviceId); res.sendStatus(204); } catch (error) { next(error); } });
+app.get("/api/orders", async (req, res, next) => { try { res.json(await listFoodOrders(req.deviceId, req.query)); } catch (error) { next(error); } });
+app.get("/api/orders/:orderId", async (req, res, next) => { try { res.json(await readFoodOrder(req.deviceId, req.params.orderId)); } catch (error) { next(error); } });
+app.get("/api/cart/active", async (req, res, next) => { try { res.json(await getActiveCart(req.deviceId)); } catch (error) { next(error); } });
 app.get("/api/cart-experience", async (req, res, next) => { try { res.json(await getCartExperience(req.deviceId)); } catch (error) { next(error); } });
 app.put("/api/cart-experience", async (req, res, next) => { try { res.json(await saveCartExperience(req.deviceId, req.body)); } catch (error) { next(error); } });
 app.use("/api/orchestrate/:threadId", async (req, res, next) => {
   if (req.path === "/fallback") return next();
-  try { const thread = await getThread(req.params.threadId); if (!thread || thread.deviceId !== req.deviceId) return res.status(404).json({ error: "Cart not found" }); next(); } catch (error) { next(error); }
+  try { const thread = await getThread(req.params.threadId); if (!thread || thread.deviceId !== req.deviceId) return res.status(404).json({ error: "Cart not found" }); req.thread = thread; next(); } catch (error) { next(error); }
+});
+app.get("/api/orchestrate/:threadId", async (req, res, next) => {
+  try {
+    const thread = req.thread || await getThread(req.params.threadId);
+    const payment = thread.payment?.upiString ? publicPayment(thread.payment) : undefined;
+    const orderId = thread.order?.orderId || thread.order?.order_id;
+    res.json({
+      status: thread.status,
+      suggestion: thread.suggestion || null,
+      ...(payment ? { payment } : {}),
+      ...(orderId ? { order: { orderId: String(orderId), status: thread.status } } : {}),
+    });
+  } catch (error) { next(error); }
 });
 app.post("/api/swiggy/auth/start", async (req, res, next) => { try { res.json(await startSwiggyAuthorization(req.deviceId)); } catch (error) { next(error); } });
 app.get("/api/swiggy/auth/status", async (req, res, next) => { try { res.json(await getSwiggyAuthorizationStatus(req.deviceId)); } catch (error) { next(error); } });
@@ -124,7 +143,7 @@ app.post("/api/orchestrate", async (req, res, next) => {
       const threadId = reserved || crypto.randomUUID();
       return traceOperation("cart.prepare", {sessionId: threadId, streamId: input.streamId, operation: "cart.prepare"}, async () => {
       try {
-      await recordEvent({id: `detection:${threadId}`, kind: "detection", outcome: "success", dishes: [...new Set((food.dishes?.length ? food.dishes : [food]).map(d => d.dish.trim().toLowerCase()))]});
+      await recordEvent({id: `detection:${threadId}`, kind: "detection", outcome: "success", dishes: [...new Set((food.dishes?.length ? food.dishes : [food]).map(d => d.dish.trim().toLowerCase()))], ...(input.sourceKind ? { sourceKind: input.sourceKind } : {})});
       publishAgentEvent(input.streamId, "orchestration_started", { dish: food.dish });
       const suggestion = await buildPersonalizedCart(food, threadId, swiggySessionId, input.addressId, input.streamId, {
         personalContext: input.personalContext,

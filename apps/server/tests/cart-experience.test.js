@@ -24,3 +24,8 @@ it("identifies a build that has not saved its receipt yet", async () => {
   boundary.thread = null;
   expect(await pausedBackgroundCart("owner")).toMatchObject({ message: expect.stringContaining("still being prepared") });
 });
+it("reports an empty cart when this device has no reservation", async () => {
+  boundary.id = null;
+  boundary.thread = null;
+  expect(await pausedBackgroundCart("owner")).toMatchObject({ message: expect.stringContaining("No cart is waiting") });
+});

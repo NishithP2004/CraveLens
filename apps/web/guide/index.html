@@ -998,6 +998,65 @@
               selected cart model.
             </p>
           </section>
+          <section id="android">
+            <h2>Android app</h2>
+            <p>
+              Install the CraveLens Android app, then walk through
+              <strong>See it. Crave it.</strong>, <strong>Frames stay on your phone</strong>,
+              and <strong>You confirm every order</strong>. On
+              <strong>When on-device identification can't run</strong>, the default is
+              <strong>Ask before using a hosted model</strong>. The same choice applies
+              when the local cart model fails. On that same page,
+              <strong>Connect Swiggy</strong> opens Swiggy in a browser tab. Finish
+              sign-in there, then return to CraveLens. The same
+              <strong>Connect Swiggy</strong> button is at the top of
+              <strong>Home</strong> until the account is connected, and at the top of
+              <strong>Settings</strong>, where <strong>Disconnect</strong> appears
+              after a successful sign-in. The phone keeps that device session, so
+              coming back from the Swiggy page still sees the connection, including
+              if Android recreated the app. An older install that finished sign-in
+              and still says Swiggy is not connected needs
+              <strong>Connect Swiggy</strong> once more. Tap <strong>Save settings →</strong>.
+            </p>
+            <p>
+              The app uses a bottom navigation bar:
+              <strong>Home</strong>, <strong>Cart</strong>, <strong>History</strong>, and
+              <strong>Settings</strong>. <strong>Start watching</strong> asks for screen
+              capture for this session and shows the notification
+              <strong>CraveLens is watching for food</strong> with <strong>Stop</strong>.
+              <strong>Bubble</strong> shows the floating bubble and needs display over other apps.
+              <strong>Lasso</strong> says
+              <strong>Start watching first for instant Lasso</strong> until a capture
+              session has a frame. Lasso follows hosted fallback: auto sends the
+              frame to Firebase AI Logic when Gemini Nano is unavailable, and ask
+              waits. Open Cart from the Home status card. History loads
+              orders for the delivery address saved on the phone. Settings uses
+              the same sections as the extension:
+              <strong>01 Personal context</strong>, <strong>02 Detection context</strong>,
+              <strong>03 VLM configuration</strong>, <strong>04 Agentic orchestration</strong>,
+              <strong>05 Cart experience</strong>, and <strong>06 Local AI setup</strong>,
+              plus <strong>Appearance</strong> for the theme and
+              <strong>Use wallpaper colours</strong> (off until you turn it on, Android 12
+              and later). Under <strong>01 Personal context</strong>,
+              <strong>Rebuild personal context</strong> is also on Home. It needs a
+              connected Swiggy account and a delivery address the server returns. The
+              same build can start on its own after sign-in when nothing usable is
+              saved or the saved profile is stale. Progress and the last-updated time
+              come from that request. Typed preferences stay in place until you tap
+              <strong>Use suggestion</strong>. Nothing is ordered from this control.
+              Android's model scan interval default is 1000 ms. Order history
+              and the cart stay empty until this device has a session, a saved address,
+              and a verified cart. Nothing is ordered until you confirm, and carts at
+              or above ₹1,000 stay closed. A preparing-cart notification appears only
+              while a cart is actually being prepared, and it has no Order action.
+            </p>
+            <p>
+              Gemini Nano and AICore are available on supported Pixel phones. On an
+              emulator, identification reports that the on-device model is unavailable
+              and does not invent a dish. A physical Pixel 10 is required to see an
+              on-device Gemini Nano result.
+            </p>
+          </section>
           <section id="troubleshooting">
             <h2>11. Troubleshoot and manage privacy</h2>
             <h3>No food prompt or cart</h3>
