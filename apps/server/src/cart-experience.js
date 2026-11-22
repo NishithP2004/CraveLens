@@ -40,7 +40,8 @@ export async function getActiveCart(deviceId) {
 
 export async function pausedBackgroundCart(deviceId) {
   const id = await (await getRedis()).get(`cravelens:active-cart:${deviceId}`);
-  const thread = id && await getThread(id);
+  if (!id) return { message: "No cart is waiting. Check the server when a watching session prepares one." };
+  const thread = await getThread(id);
   if (thread?.deviceId === deviceId && thread.status === "awaiting_confirmation"
       && thread.suggestion?.threadId === id && Date.parse(thread.suggestion.expiresAt) > Date.now()) {
     return { activeCart: { ...thread.suggestion, status: "ready" }, message: "A prepared cart is waiting for your review. Open it below, then review or reject it before preparing another." };
