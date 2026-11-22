@@ -8,6 +8,7 @@ import java.util.concurrent.TimeUnit
 
 fun noRetryClient(): OkHttpClient = OkHttpClient.Builder()
     .retryOnConnectionFailure(false)
+    .connectTimeout(5, TimeUnit.SECONDS)
     .readTimeout(90, TimeUnit.SECONDS)
     .callTimeout(95, TimeUnit.SECONDS)
     .build()

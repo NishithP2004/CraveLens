@@ -44,6 +44,8 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import page.nishithp.cravelens.core.api.ordersHistoryPath
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import page.nishithp.cravelens.data.AppPrefs
@@ -175,7 +177,22 @@ class MainActivity : ComponentActivity() {
 
     private fun loadCart() = launch("No active cart.") { api.get("/api/cart/active") }.also { cartState = "Loading the active cart…" }
 
-    private fun loadHistory() = launch("No orders returned.") { api.get("/api/orders?limit=20") }.also { historyState = "Loading order history…" }
+    private fun loadHistory() {
+        lifecycleScope.launch {
+            val addressId = AppPrefs.flow(this@MainActivity).first().addressId
+            val path = ordersHistoryPath(addressId)
+            historyState = "Loading order history…"
+            val text = withContext(Dispatchers.IO) {
+                val failure = api.ensureSession()
+                if (failure != null) failure
+                else if (path == null) "Select a delivery address before loading order history."
+                else api.get(path)
+            }
+            val body = text.ifBlank { "No orders returned." }
+            absorbProfile(body)
+            historyState = body
+        }
+    }
 
     private fun summaryLine(body: String): String {
         val message = Regex(""""message"\s*:\s*"([^"\\]*)"""").find(body)?.groupValues?.get(1)

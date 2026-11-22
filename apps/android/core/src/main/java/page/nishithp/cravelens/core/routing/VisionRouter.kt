@@ -8,6 +8,23 @@ enum class NanoStatus { AVAILABLE, UNAVAILABLE, DOWNLOADING, DOWNLOADABLE }
 
 enum class VisionAction { HYBRID, NANO_ONLY, CLOUD_ONLY, HOLD_FOR_TAP, DROP, YOLO_ONLY, ASK_CLOUD }
 
+fun hostedFallbackOf(value: String): HostedFallback = when (value.trim().lowercase()) {
+    "auto" -> HostedFallback.AUTO
+    "none" -> HostedFallback.NONE
+    else -> HostedFallback.ASK
+}
+
+fun nanoStatusOf(value: String): NanoStatus = when (value.trim().uppercase()) {
+    "AVAILABLE" -> NanoStatus.AVAILABLE
+    "DOWNLOADING" -> NanoStatus.DOWNLOADING
+    "DOWNLOADABLE" -> NanoStatus.DOWNLOADABLE
+    else -> NanoStatus.UNAVAILABLE
+}
+
+fun lassoVision(consent: HostedFallback, nano: NanoStatus, appOnTop: Boolean): VisionDecision = routeVision(
+    VisionInput(trigger = VisionTrigger.LASSO, appOnTop = appOnTop, consent = consent, nano = nano),
+)
+
 data class VisionInput(
     val trigger: VisionTrigger,
     val appOnTop: Boolean,

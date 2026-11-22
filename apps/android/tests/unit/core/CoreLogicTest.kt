@@ -47,6 +47,7 @@ import page.nishithp.cravelens.core.routing.VisionAction
 import page.nishithp.cravelens.core.routing.VisionInput
 import page.nishithp.cravelens.core.routing.VisionTrigger
 import page.nishithp.cravelens.core.routing.routeAgent
+import page.nishithp.cravelens.core.routing.lassoVision
 import page.nishithp.cravelens.core.routing.routeVision
 import page.nishithp.cravelens.core.safety.CART_LIMIT_INR
 import page.nishithp.cravelens.core.safety.CheckoutClient
@@ -133,6 +134,9 @@ class CoreLogicTest {
         assertFalse(routeVision(base.copy(lowConfidence = true)).allowCloud)
         assertTrue(routeVision(base.copy(lowConfidence = true, consent = HostedFallback.AUTO)).allowCloud)
         assertEquals(VisionAction.DROP, routeVision(base.copy(parseFailed = true, consent = HostedFallback.NONE)).action)
+        assertEquals(VisionAction.CLOUD_ONLY, lassoVision(HostedFallback.AUTO, NanoStatus.UNAVAILABLE, appOnTop = true).action)
+        assertEquals(VisionAction.HOLD_FOR_TAP, lassoVision(HostedFallback.ASK, NanoStatus.UNAVAILABLE, appOnTop = true).action)
+        assertEquals(VisionAction.NANO_ONLY, lassoVision(HostedFallback.ASK, NanoStatus.AVAILABLE, appOnTop = true).action)
     }
 
     @Test fun agentRouterNeverExecutesToolsAndHonorsFallback() {

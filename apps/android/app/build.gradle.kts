@@ -19,8 +19,8 @@ android {
         applicationId = "page.nishithp.cravelens"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.1.2"
+        versionCode = 4
+        versionName = "0.1.3"
         val local = Properties()
         val localFile = rootProject.file("local.properties")
         if (localFile.exists()) localFile.inputStream().use { local.load(it) }

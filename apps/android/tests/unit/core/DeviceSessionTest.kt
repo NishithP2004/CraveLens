@@ -14,6 +14,7 @@ import page.nishithp.cravelens.core.api.DeviceSessionKeeper
 import page.nishithp.cravelens.core.api.DeviceSessionStore
 import page.nishithp.cravelens.core.api.HttpResult
 import page.nishithp.cravelens.core.api.RefreshOutcome
+import page.nishithp.cravelens.core.api.ordersHistoryPath
 import page.nishithp.cravelens.core.api.parseDeviceSession
 import page.nishithp.cravelens.core.json.CraveJson
 import page.nishithp.cravelens.core.model.DeviceSession
@@ -126,6 +127,12 @@ class DeviceSessionTest {
         assertEquals(1, server.creates.get())
         assertEquals("device-1", store.load()?.deviceId)
         assertFalse(status.body.contains("missing"))
+    }
+
+    @Test fun orderHistoryRequiresTheSavedAddress() {
+        assertEquals(null, ordersHistoryPath("  "))
+        assertEquals("/api/orders?limit=20&addressId=addr-1", ordersHistoryPath("addr-1"))
+        assertEquals("/api/orders?limit=20&addressId=addr+1%26west", ordersHistoryPath("addr 1&west", 99))
     }
 
     private fun keeper(store: MemoryStore, server: ScriptedServer) = DeviceSessionKeeper(

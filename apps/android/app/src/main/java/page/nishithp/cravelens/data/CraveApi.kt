@@ -24,7 +24,10 @@ fun serverError(result: ApiResult): String {
 }
 
 class CraveApi(val baseUrl: String, store: DeviceSessionStore) {
-    private val client = OkHttpClient.Builder().callTimeout(20, TimeUnit.SECONDS).build()
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .callTimeout(20, TimeUnit.SECONDS)
+        .build()
     private val noRetry = noRetryClient()
     private val sessions = DeviceSessionKeeper(store, ::createSession, ::refreshSession)
     private val caller = AuthorizedCaller(sessions, ::send)
